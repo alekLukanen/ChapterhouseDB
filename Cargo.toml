@@ -5,3 +5,5 @@ edition = "2021"
 
 [dependencies]
 unicode-segmentation = "1.12.0"
+thiserror = "1.0.65"
+anyhow = "1.0.91"
