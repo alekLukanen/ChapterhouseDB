@@ -257,7 +257,7 @@ struct SymbolTokenizer {
 }
 
 impl Tokenizer for SymbolTokenizer {
-    fn add_next_character(&mut self, c: &str) -> (bool, bool) {
+    fn add_next_character(&mut self, _: &str) -> (bool, bool) {
         (true, false)
     }
     fn to_token(&self) -> Token {
@@ -346,6 +346,44 @@ impl SymbolTokenizer {
     }
 }
 
+struct NumberTokenizer {
+    text: Vec<String>,
+}
+
+impl Tokenizer for NumberTokenizer {
+    fn add_next_character(&mut self, c: &str) -> (bool, bool) {
+        if let Some(t) = c.chars().next() {
+            if t.is_ascii() && (t.is_ascii_digit() || c == ".") {
+                self.text.push(c.to_string());
+                (false, true)
+            } else {
+                (true, false)
+            }
+        } else {
+            (false, true)
+        }
+    }
+    fn to_token(&self) -> Token {
+        Token::Number(self.text.concat())
+    }
+}
+
+impl NumberTokenizer {
+    fn new(c: &str) -> Result<NumberTokenizer> {
+        Ok(NumberTokenizer {
+            text: vec![c.to_string()],
+        })
+    }
+
+    fn is_valid_starting_character(c: &str) -> bool {
+        if let Some(t) = c.chars().next() {
+            t.is_ascii() && (t.is_ascii_digit() || c == ".")
+        } else {
+            false
+        }
+    }
+}
+
 pub fn lex(query: &str) -> Vec<Token> {
     println!("--- lex --- ");
     let mut tokens: Vec<Token> = Vec::new();
@@ -382,6 +420,11 @@ pub fn lex(query: &str) -> Vec<Token> {
             if let Ok(t) = SymbolTokenizer::new(symbol) {
                 tokenizer = Some(Box::new(t));
                 println!("started symbol tokenizer");
+            }
+        } else if NumberTokenizer::is_valid_starting_character(symbol) {
+            if let Ok(t) = NumberTokenizer::new(symbol) {
+                tokenizer = Some(Box::new(t));
+                println!("started number tokenizer");
             }
         }
     }

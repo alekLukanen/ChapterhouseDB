@@ -1,4 +1,4 @@
-use chapterhouseqe::lexer::builder;
+use chapterhouseqe::lexer::lex;
 
 fn main() {
     println!("Hello, world!");
@@ -6,7 +6,7 @@ fn main() {
         select * from bike 
         where id = 42 and value > 90.0 and name = '🥵'";
 
-    let tokens = builder::lex(query);
+    let tokens = lex::lex(query);
 
     println!("tokens from lexer: {:?}", tokens);
 }
