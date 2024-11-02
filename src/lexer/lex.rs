@@ -42,7 +42,7 @@ impl TryFrom<&str> for QuoteType {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Token {
     // keywords
     Select,
@@ -59,6 +59,8 @@ pub enum Token {
     Asc,
     Desc,
     In,
+    True,
+    False,
     // symbols
     Star,
     Comma,
@@ -68,6 +70,7 @@ pub enum Token {
     Exlamation,
     LeftParenthesis,
     RightParenthesis,
+    Semicolon,
     // data literals
     Number(String),
     StringToken(String),
@@ -134,11 +137,15 @@ struct KeywordTokenizer {
 
 impl Tokenizer for KeywordTokenizer {
     fn add_next_character(&mut self, c: &str) -> (bool, bool) {
-        if c == " " {
-            (true, true)
+        if let Some(v) = c.chars().next() {
+            if v.is_ascii() && (v.is_alphabetic() || v.is_numeric() || c == "_") {
+                self.text.push(c.to_string());
+                (false, true)
+            } else {
+                (true, false)
+            }
         } else {
-            self.text.push(c.to_string());
-            (false, true)
+            (true, false)
         }
     }
     fn to_token(&self) -> Token {
@@ -159,7 +166,7 @@ impl KeywordTokenizer {
 
     fn is_valid_starting_character(c: &str) -> bool {
         if let Some(v) = c.chars().next() {
-            v.is_ascii() && v.is_alphabetic()
+            v.is_ascii() && (v.is_alphabetic() || c == "_")
         } else {
             false
         }
@@ -234,6 +241,14 @@ impl KeywordTokenizer {
             StaticToken {
                 token: Token::In,
                 text: "in".to_string(),
+            },
+            StaticToken {
+                token: Token::True,
+                text: "true".to_string(),
+            },
+            StaticToken {
+                token: Token::False,
+                text: "false".to_string(),
             },
         ];
         keywords
@@ -329,6 +344,10 @@ impl SymbolTokenizer {
                 token: Token::RightParenthesis,
                 text: ")".to_string(),
             },
+            StaticToken {
+                token: Token::Semicolon,
+                text: ";".to_string(),
+            },
         ];
         keywords
     }
@@ -397,7 +416,6 @@ pub fn lex(query: &str) -> Vec<Token> {
             if done {
                 tokens.push(t.to_token());
                 tokenizer = None;
-                println!("finished tokenizer");
                 if consumed {
                     continue;
                 }
@@ -409,24 +427,26 @@ pub fn lex(query: &str) -> Vec<Token> {
         if QuotedTokenizer::is_valid_starting_character(symbol) {
             if let Ok(t) = QuotedTokenizer::new(symbol) {
                 tokenizer = Some(Box::new(t));
-                println!("started quoted tokenizer");
             }
         } else if KeywordTokenizer::is_valid_starting_character(symbol) {
             if let Ok(t) = KeywordTokenizer::new(symbol) {
                 tokenizer = Some(Box::new(t));
-                println!("started keyword tokenizer");
             }
         } else if SymbolTokenizer::is_valid_starting_character(symbol) {
             if let Ok(t) = SymbolTokenizer::new(symbol) {
                 tokenizer = Some(Box::new(t));
-                println!("started symbol tokenizer");
             }
         } else if NumberTokenizer::is_valid_starting_character(symbol) {
             if let Ok(t) = NumberTokenizer::new(symbol) {
                 tokenizer = Some(Box::new(t));
-                println!("started number tokenizer");
             }
         }
+    }
+
+    // the last token might not be finished so we need to create the
+    // token from the last tokenizer if it's some value.
+    if let Some(ref mut t) = tokenizer {
+        tokens.push(t.to_token());
     }
 
     tokens
