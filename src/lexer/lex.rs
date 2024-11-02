@@ -65,7 +65,9 @@ pub enum Token {
     Star,
     Comma,
     LessThan,
+    LessThanEqual,
     GreaterThan,
+    GreaterThanEqual,
     Equal,
     Exlamation,
     LeftParenthesis,
@@ -272,7 +274,19 @@ struct SymbolTokenizer {
 }
 
 impl Tokenizer for SymbolTokenizer {
-    fn add_next_character(&mut self, _: &str) -> (bool, bool) {
+    fn add_next_character(&mut self, c: &str) -> (bool, bool) {
+        if self.text.len() == 1 {
+            if let Some(t) = self.text.last() {
+                if (t.to_string() == '>'.to_string() || t.to_string() == '<'.to_string())
+                    && c.to_string() == "=".to_string()
+                {
+                    self.text.push(c.to_string());
+                    return (true, true);
+                }
+            }
+        } else {
+            return (true, false);
+        }
         (true, false)
     }
     fn to_token(&self) -> Token {
@@ -325,8 +339,16 @@ impl SymbolTokenizer {
                 text: "<".to_string(),
             },
             StaticToken {
+                token: Token::LessThanEqual,
+                text: "<=".to_string(),
+            },
+            StaticToken {
                 token: Token::GreaterThan,
                 text: ">".to_string(),
+            },
+            StaticToken {
+                token: Token::GreaterThanEqual,
+                text: ">=".to_string(),
             },
             StaticToken {
                 token: Token::Equal,

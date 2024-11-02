@@ -74,6 +74,32 @@ fn test_lex_with_basic_sql_statements() {
                 lex::Token::Semicolon,
             ],
         },
+        TestCase {
+            case_name: String::from("sample-3"),
+            query:
+                "select id, name, value, payment_per_year from bike where value >= 2 or value <= 5;",
+            expected_tokens: vec![
+                lex::Token::Select,
+                lex::Token::Identifier("id".to_string()),
+                lex::Token::Comma,
+                lex::Token::Identifier("name".to_string()),
+                lex::Token::Comma,
+                lex::Token::Identifier("value".to_string()),
+                lex::Token::Comma,
+                lex::Token::Identifier("payment_per_year".to_string()),
+                lex::Token::From,
+                lex::Token::Identifier("bike".to_string()),
+                lex::Token::Where,
+                lex::Token::Identifier("value".to_string()),
+                lex::Token::GreaterThanEqual,
+                lex::Token::Number("2".to_string()),
+                lex::Token::Or,
+                lex::Token::Identifier("value".to_string()),
+                lex::Token::LessThanEqual,
+                lex::Token::Number("5".to_string()),
+                lex::Token::Semicolon,
+            ],
+        },
     ];
 
     for test_case in test_cases {
