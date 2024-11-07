@@ -83,3 +83,9 @@ machines. The worker machines are capable of executing top level steps and repor
 back to the coordinator when done. Both of these machines connect to a central object
 storage to share data. It might also be necessary to include a key-value database
 to ensure that transactional operations are performant.
+
+
+# External Links
+
+1. SQL grammar for H2 embedded database system: http://www.h2database.com/html/commands.html#select
+2. SQL grammar for phoenix an SQL layer over the HBase database system: https://forcedotcom.github.io/phoenix/

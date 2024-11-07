@@ -6,17 +6,17 @@ fn vecs_equal<T: PartialEq>(a: &Vec<T>, b: &Vec<T>) -> bool {
 }
 #[test]
 fn test_lex_with_basic_sql_statements() {
-    struct TestCase<'a> {
+    struct TestCase {
         case_name: String,
-        query: &'a str,
+        query: String,
         expected_tokens: Vec<lex::Token>,
     }
 
     let test_cases = vec![
         TestCase {
             case_name: String::from("sample-1"),
-            query: "select * from bike
-        where id = 42 and value > 90.0 and name = '🥵'",
+            query: String::from("select * from bike
+        where id = 42 and value > 90.0 and name = '🥵'"),
             expected_tokens: vec![
                 lex::Token::Select,
                 lex::Token::Star,
@@ -38,8 +38,8 @@ fn test_lex_with_basic_sql_statements() {
         },
         TestCase {
             case_name: String::from("sample-2"),
-            query: "select * from bike
-        where lower(store) = 'bike stuff';",
+            query: String::from("select * from bike
+        where lower(store) = 'bike stuff';"),
             expected_tokens: vec![
                 lex::Token::Select,
                 lex::Token::Star,
@@ -57,7 +57,7 @@ fn test_lex_with_basic_sql_statements() {
         },
         TestCase {
             case_name: String::from("sample-3"),
-            query: "select id, name, value, payment_per_year from bike where true;",
+            query: String::from("select id, name, value, payment_per_year from bike where true;"),
             expected_tokens: vec![
                 lex::Token::Select,
                 lex::Token::Identifier("id".to_string()),
@@ -76,8 +76,7 @@ fn test_lex_with_basic_sql_statements() {
         },
         TestCase {
             case_name: String::from("sample-3"),
-            query:
-                "select id, name, value, payment_per_year from bike where value >= 2 or value <= 5;",
+            query: String::from("select id, name, value, payment_per_year from bike where value >= 2 or value <= 5;"),
             expected_tokens: vec![
                 lex::Token::Select,
                 lex::Token::Identifier("id".to_string()),

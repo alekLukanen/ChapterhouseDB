@@ -425,12 +425,12 @@ impl NumberTokenizer {
     }
 }
 
-pub fn lex(query: &str) -> Vec<Token> {
+pub fn lex(query: String) -> Vec<Token> {
     println!("--- lex --- ");
     let mut tokens: Vec<Token> = Vec::new();
 
     let mut tokenizer: Option<Box<dyn Tokenizer>> = None;
-    for symbol in query.graphemes(true) {
+    for symbol in query.as_str().graphemes(true) {
         println!("symbol: {}", symbol);
 
         if let Some(ref mut t) = tokenizer {
