@@ -73,6 +73,7 @@ pub enum Token {
     LeftParenthesis,
     RightParenthesis,
     Semicolon,
+    Period,
     // data literals
     Number(String),
     StringToken(String),
@@ -369,6 +370,10 @@ impl SymbolTokenizer {
             StaticToken {
                 token: Token::Semicolon,
                 text: ";".to_string(),
+            },
+            StaticToken {
+                token: Token::Period,
+                text: ".".to_string(),
             },
         ];
         keywords
