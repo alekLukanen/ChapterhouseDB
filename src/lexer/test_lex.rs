@@ -1,9 +1,55 @@
+use crate::lexer::lex::Token;
+
 use super::lex;
 
 fn vecs_equal<T: PartialEq>(a: &Vec<T>, b: &Vec<T>) -> bool {
     let matching = a.iter().zip(b.iter()).filter(|&(a, b)| a == b).count();
     matching == a.len() && matching == b.len()
 }
+
+#[test]
+fn test_token_types_match() {
+    struct TestCase {
+        case_name: String,
+        t1: Token,
+        t2: Token,
+        expected_result: bool,
+    }
+
+    let test_cases = vec![
+        TestCase {
+            case_name: String::from("identifiers_equal"),
+            t1: Token::Identifier("a1".to_string()),
+            t2: Token::Identifier("a2".to_string()),
+            expected_result: true,
+        },
+        TestCase {
+            case_name: String::from("periods_equal"),
+            t1: Token::Period,
+            t2: Token::Period,
+            expected_result: true,
+        },
+        TestCase {
+            case_name: String::from("tokens_not_equal"),
+            t1: Token::Period,
+            t2: Token::Comma,
+            expected_result: false,
+        },
+        TestCase {
+            case_name: String::from("tokens_not_equal_id_and_num"),
+            t1: Token::Identifier("a".to_string()),
+            t2: Token::Number("123".to_string()),
+            expected_result: false,
+        },
+    ];
+
+    for test_case in test_cases {
+        println!("running test case: {}", test_case.case_name);
+        let result = Token::token_types_match(test_case.t1, test_case.t2);
+        assert_eq!(test_case.expected_result, result);
+    }
+}
+
 #[test]
 fn test_lex_with_basic_sql_statements() {
     struct TestCase {

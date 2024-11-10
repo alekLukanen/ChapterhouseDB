@@ -53,6 +53,7 @@ pub enum Token {
     Not,
     Limit,
     Is,
+    As,
     Null,
     Order,
     By,
@@ -79,6 +80,17 @@ pub enum Token {
     StringToken(String),
     // user defined
     Identifier(String),
+}
+
+impl Token {
+    pub fn token_types_match(t1: Token, t2: Token) -> bool {
+        match (&t1, &t2) {
+            (Token::Number(_), Token::Number(_)) => true,
+            (Token::StringToken(_), Token::StringToken(_)) => true,
+            (Token::Identifier(_), Token::Identifier(_)) => true,
+            _ => &t1 == &t2,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -220,6 +232,10 @@ impl KeywordTokenizer {
             StaticToken {
                 token: Token::Is,
                 text: "is".to_string(),
+            },
+            StaticToken {
+                token: Token::As,
+                text: "as".to_string(),
             },
             StaticToken {
                 token: Token::Null,
@@ -436,8 +452,6 @@ pub fn lex(query: String) -> Vec<Token> {
 
     let mut tokenizer: Option<Box<dyn Tokenizer>> = None;
     for symbol in query.as_str().graphemes(true) {
-        println!("symbol: {}", symbol);
-
         if let Some(ref mut t) = tokenizer {
             let (done, consumed) = t.add_next_character(symbol);
             if done {

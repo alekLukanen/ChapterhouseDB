@@ -6,7 +6,7 @@ fn main() {
         select * from bike 
         where id = 42 and value > 90.0 and name = '🥵';";
 
-    let tokens = lex::lex(query);
+    let tokens = lex::lex(query.to_string());
 
     println!("tokens from lexer: {:?}", tokens);
 }
