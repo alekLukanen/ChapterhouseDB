@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use thiserror::Error;
 
 use crate::ast::ast::{SelectExpression, SelectStatement, Statement, TableExpression, Term};
@@ -72,19 +72,22 @@ impl Parser {
 
         let next_token = self.next_token()?;
         if next_token == lex::Token::Select {
-            Ok(self.match_select()?)
+            Ok(Statement::Select(self.match_select()?))
         } else {
             Err(ParseError::InvalidToken(next_token.clone()))
         }
     }
 
-    fn match_select(&mut self) -> Result<Statement, ParseError> {
+    fn match_select(&mut self) -> Result<SelectStatement, ParseError> {
+        let select_expressions = self.match_select_expressions()?;
+        let from_expression = self.match_table_expression()?;
+
         let select_statement = SelectStatement {
-            select_expressions: self.match_select_expressions()?,
-            from: self.match_table_expression()?,
+            select_expressions,
+            from: from_expression,
         };
 
-        Ok(Statement::Select(select_statement))
+        Ok(select_statement)
     }
 
     fn match_select_expressions(&mut self) -> Result<Vec<SelectExpression>, ParseError> {
@@ -115,11 +118,15 @@ impl Parser {
                 if self.next_token()? == lex::Token::As {
                     self.match_token(lex::Token::As)?;
 
-                    let id_name = match self.next_token()? {
+                    let next_token = self.next_token()?;
+                    let id_name = match &next_token {
                         lex::Token::Identifier(name) => name,
-                        unexpected_token => return Err(ParseError::InvalidToken(unexpected_token)),
+                        unexpected_token => {
+                            return Err(ParseError::InvalidToken(unexpected_token.clone()))
+                        }
                     };
-                    self.match_token(lex::Token::Identifier(id_name.clone()))?;
+
+                    self.match_token(next_token.clone())?;
 
                     select_expressions.push(SelectExpression::Term {
                         term,
@@ -144,10 +151,53 @@ impl Parser {
     }
 
     fn match_table_expression(&mut self) -> Result<TableExpression, ParseError> {
-        Err(ParseError::NoMoreTokens)
+        if self.next_token()? == lex::Token::LeftParenthesis {
+            self.match_token(lex::Token::LeftParenthesis)?;
+
+            let select_statement = self.match_select()?;
+            self.match_token(lex::Token::RightParenthesis)?;
+
+            let mut alias: Option<String> = None;
+            if self.next_token()? == lex::Token::As {
+                self.match_token(lex::Token::As)?;
+                let id_name = match self.next_token()? {
+                    lex::Token::Identifier(name) => name,
+                    unexpected_token => return Err(ParseError::InvalidToken(unexpected_token)),
+                };
+                alias = Some(id_name);
+            }
+
+            Ok(TableExpression::Select {
+                select_statement: Box::new(select_statement),
+                alias,
+            })
+        } else if let lex::Token::Identifier(_) = self.next_token()? {
+            let (schema, table) = self.match_table_name()?;
+            Ok(TableExpression::Table { schema, table })
+        } else {
+            Err(ParseError::NoMoreTokens)
+        }
     }
 
     fn match_term(&mut self) -> Result<Term, ParseError> {
         Err(ParseError::NoMoreTokens)
+    }
+
+    fn match_table_name(&mut self) -> Result<(Option<String>, String), ParseError> {
+        let id_name1 = match self.next_token()? {
+            lex::Token::Identifier(name) => name,
+            ut => return Err(ParseError::InvalidToken(ut)),
+        };
+
+        if self.next_token()? == lex::Token::Period {
+            self.match_token(lex::Token::Period)?;
+            let next_token = self.next_token()?;
+            match next_token {
+                lex::Token::Identifier(id_name2) => Ok((Some(id_name1), id_name2)),
+                ut => Err(ParseError::InvalidToken(ut)),
+            }
+        } else {
+            Ok((None, id_name1))
+        }
     }
 }

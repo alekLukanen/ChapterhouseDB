@@ -75,4 +75,13 @@ pub enum Operation {
 
 pub struct Expression {}
 
-pub struct TableExpression {}
+pub enum TableExpression {
+    Table {
+        schema: Option<String>,
+        table: String,
+    },
+    Select {
+        select_statement: Box<SelectStatement>,
+        alias: Option<String>,
+    },
+}
