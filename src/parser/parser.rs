@@ -88,7 +88,9 @@ impl Parser {
 
         let next_token = self.next_token()?;
         if next_token == lex::Token::Select {
-            Ok(Statement::Select(self.match_select()?))
+            let select_statement = self.match_select()?;
+            self.match_token(lex::Token::Semicolon)?;
+            Ok(Statement::Select(select_statement))
         } else {
             Err(ParseError::InvalidToken(next_token.clone()))
         }
@@ -185,11 +187,13 @@ impl Parser {
             let mut alias: Option<String> = None;
             if self.next_token()? == lex::Token::As {
                 self.match_token(lex::Token::As)?;
-                let id_name = match self.next_token()? {
+                let next_token = self.next_token()?;
+                let id_name = match next_token.clone() {
                     lex::Token::Identifier(name) => name,
                     unexpected_token => return Err(ParseError::InvalidToken(unexpected_token)),
                 };
                 alias = Some(id_name);
+                self.match_token(next_token)?;
             }
 
             Ok(TableExpression::Select {

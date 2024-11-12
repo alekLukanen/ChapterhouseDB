@@ -8,15 +8,30 @@ fn main() {
     let tokens = lex::lex(query.to_string());
     println!("tokens from lexer: {:?}", tokens);
 
-    let query2 = "select * from items.bike;";
-    let mut parsi = parser::Parser::new(query2.to_string(), true);
-    match parsi.parse() {
+    println!("example query1");
+    let query1 = "select * from items.bike;";
+    let mut parsi1 = parser::Parser::new(query1.to_string(), true);
+    match parsi1.parse() {
         Ok(syntax_tree) => {
             println!("syntax tree:");
             println!("{:?}", syntax_tree);
         }
         Err(err) => {
-            parsi.log_debug();
+            parsi1.log_debug();
+            println!("error: {}", err);
+        }
+    }
+
+    println!("example query2");
+    let query2 = "select * from (select * from bike) as bike_select;";
+    let mut parsi2 = parser::Parser::new(query2.to_string(), true);
+    match parsi2.parse() {
+        Ok(syntax_tree) => {
+            println!("syntax tree:");
+            println!("{:?}", syntax_tree);
+        }
+        Err(err) => {
+            parsi2.log_debug();
             println!("error: {}", err);
         }
     }

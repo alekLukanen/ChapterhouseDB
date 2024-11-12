@@ -447,7 +447,6 @@ impl NumberTokenizer {
 }
 
 pub fn lex(query: String) -> Vec<Token> {
-    println!("--- lex --- ");
     let mut tokens: Vec<Token> = Vec::new();
 
     let mut tokenizer: Option<Box<dyn Tokenizer>> = None;
