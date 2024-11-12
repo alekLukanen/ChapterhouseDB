@@ -18,17 +18,31 @@ pub enum ParseError {
     UnableToClaimLock(String),
 }
 
-struct Parser {
+#[derive(Debug)]
+pub struct Parser {
     tokens: Vec<lex::Token>,
     token_index: usize,
+    enable_logging: bool,
 }
 
 impl Parser {
-    pub fn new(query: String) -> Parser {
+    pub fn new(query: String, enable_logging: bool) -> Parser {
         Parser {
             tokens: lex::lex(query),
             token_index: 0,
+            enable_logging,
         }
+    }
+
+    fn log(&mut self, msg: String) {
+        if self.enable_logging {
+            println!("parser: {}", msg);
+        }
+    }
+
+    pub fn log_debug(&mut self) {
+        println!("tokens: {:?}", self.tokens);
+        println!("token_index: {}", self.token_index);
     }
 
     fn read_next_token(&mut self) -> bool {
@@ -56,6 +70,7 @@ impl Parser {
     }
 
     fn match_token(&mut self, expected_token: lex::Token) -> Result<(), ParseError> {
+        self.log(format!("match_token({:?})", expected_token).to_string());
         let next_token = self.next_token()?;
         if expected_token == next_token {
             self.read_next_token();
@@ -66,7 +81,8 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> Result<Statement, ParseError> {
-        if !self.read_next_token() {
+        self.log("parse()".to_string());
+        if self.tokens.len() == 0 {
             return Err(ParseError::EmptyQueryString);
         }
 
@@ -79,6 +95,10 @@ impl Parser {
     }
 
     fn match_select(&mut self) -> Result<SelectStatement, ParseError> {
+        self.log("match_select()".to_string());
+
+        self.match_token(lex::Token::Select)?;
+
         let select_expressions = self.match_select_expressions()?;
         let from_expression = self.match_table_expression()?;
 
@@ -91,10 +111,13 @@ impl Parser {
     }
 
     fn match_select_expressions(&mut self) -> Result<Vec<SelectExpression>, ParseError> {
+        self.log("match_select_expressions()".to_string());
+
         let mut select_expressions: Vec<SelectExpression> = Vec::new();
 
         while self.next_token()? != lex::Token::From {
             if self.next_token()? == lex::Token::Star {
+                self.log("match_select_expressions() - match star token".to_string());
                 select_expressions.push(SelectExpression::Star);
                 self.match_token(lex::Token::Star)?;
             } else if self.peek_match_token_types(vec![
@@ -151,6 +174,8 @@ impl Parser {
     }
 
     fn match_table_expression(&mut self) -> Result<TableExpression, ParseError> {
+        self.log("match_table_expression()".to_string());
+
         if self.next_token()? == lex::Token::LeftParenthesis {
             self.match_token(lex::Token::LeftParenthesis)?;
 
@@ -184,16 +209,24 @@ impl Parser {
     }
 
     fn match_table_name(&mut self) -> Result<(Option<String>, String), ParseError> {
+        self.log("match_table_name()".to_string());
+
         let id_name1 = match self.next_token()? {
             lex::Token::Identifier(name) => name,
             ut => return Err(ParseError::InvalidToken(ut)),
         };
 
+        let next_token = self.next_token()?;
+        self.match_token(next_token)?;
+
         if self.next_token()? == lex::Token::Period {
             self.match_token(lex::Token::Period)?;
             let next_token = self.next_token()?;
-            match next_token {
-                lex::Token::Identifier(id_name2) => Ok((Some(id_name1), id_name2)),
+            match next_token.clone() {
+                lex::Token::Identifier(id_name2) => {
+                    self.match_token(next_token)?;
+                    Ok((Some(id_name1), id_name2))
+                }
                 ut => Err(ParseError::InvalidToken(ut)),
             }
         } else {
