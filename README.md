@@ -77,7 +77,7 @@ need to perform a complex action like comparisons for filtering.
 ### Execution
 
 The code is sent to a virtual machine which can interpret the code. 
-The machine that accepts this code is know is the query coordinator and
+The machine that accepts this code is known as the query coordinator and
 is responsible for managing the processing of the query across a set of worker
 machines. The worker machines are capable of executing top level steps and reporting
 back to the coordinator when done. Both of these machines connect to a central object
