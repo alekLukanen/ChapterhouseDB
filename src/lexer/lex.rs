@@ -75,11 +75,14 @@ pub enum Token {
     RightParenthesis,
     Semicolon,
     Period,
+    Space,
     // data literals
     Number(String),
     StringToken(String),
     // user defined
     Identifier(String),
+    // not implemented token
+    UndefinedTokenType,
 }
 
 impl Token {
@@ -446,6 +449,39 @@ impl NumberTokenizer {
     }
 }
 
+struct SpaceTokenizer {}
+
+impl Tokenizer for SpaceTokenizer {
+    fn add_next_character(&mut self, c: &str) -> (bool, bool) {
+        if let Some(t) = c.chars().next() {
+            if t.is_whitespace() {
+                (false, true)
+            } else {
+                (true, false)
+            }
+        } else {
+            (false, true)
+        }
+    }
+    fn to_token(&self) -> Token {
+        Token::Space
+    }
+}
+
+impl SpaceTokenizer {
+    fn new(_: &str) -> Result<SpaceTokenizer> {
+        Ok(SpaceTokenizer {})
+    }
+
+    fn is_valid_starting_character(c: &str) -> bool {
+        if let Some(t) = c.chars().next() {
+            t.is_whitespace()
+        } else {
+            false
+        }
+    }
+}
+
 pub fn lex(query: String) -> Vec<Token> {
     let mut tokens: Vec<Token> = Vec::new();
 
@@ -480,6 +516,12 @@ pub fn lex(query: String) -> Vec<Token> {
             if let Ok(t) = NumberTokenizer::new(symbol) {
                 tokenizer = Some(Box::new(t));
             }
+        } else if SpaceTokenizer::is_valid_starting_character(symbol) {
+            if let Ok(t) = SpaceTokenizer::new(symbol) {
+                tokenizer = Some(Box::new(t));
+            }
+        } else {
+            tokens.push(Token::UndefinedTokenType);
         }
     }
 

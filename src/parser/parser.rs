@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use thiserror::Error;
 
 use crate::ast::ast::{SelectExpression, SelectStatement, Statement, TableExpression, Term};
@@ -16,6 +16,8 @@ pub enum ParseError {
     NoMoreTokens,
     #[error("unable to claim lock: {0}")]
     UnableToClaimLock(String),
+    #[error("not implemented: {0}")]
+    NotImplemented(String),
 }
 
 #[derive(Debug)]
@@ -47,6 +49,12 @@ impl Parser {
 
     fn read_next_token(&mut self) -> bool {
         self.token_index += 1;
+
+        while self.token_index < self.tokens.len()
+            && self.tokens[self.token_index] == lex::Token::Space
+        {
+            self.token_index += 1;
+        }
         self.token_index < self.tokens.len()
     }
 
@@ -84,6 +92,12 @@ impl Parser {
         self.log("parse()".to_string());
         if self.tokens.len() == 0 {
             return Err(ParseError::EmptyQueryString);
+        }
+        if self.next_token()? == lex::Token::Space {
+            let has_tokens_remaining = self.read_next_token();
+            if !has_tokens_remaining {
+                return Err(ParseError::NoMoreTokens);
+            }
         }
 
         let next_token = self.next_token()?;
@@ -204,16 +218,24 @@ impl Parser {
             let (schema, table) = self.match_table_name()?;
             Ok(TableExpression::Table { schema, table })
         } else {
-            Err(ParseError::NoMoreTokens)
+            Err(ParseError::NotImplemented(
+                "match_table_expression() - else clause".to_string(),
+            ))
         }
     }
 
     fn match_term(&mut self) -> Result<Term, ParseError> {
-        Err(ParseError::NoMoreTokens)
+        Err(ParseError::NotImplemented("match_term".to_string()))
     }
 
     fn match_table_name(&mut self) -> Result<(Option<String>, String), ParseError> {
         self.log("match_table_name()".to_string());
+
+        let has_schema_and_table = self.peek_match_token_types(vec![
+            lex::Token::Identifier("".to_string()),
+            lex::Token::Period,
+            lex::Token::Identifier("".to_string()),
+        ]);
 
         let id_name1 = match self.next_token()? {
             lex::Token::Identifier(name) => name,
@@ -223,7 +245,7 @@ impl Parser {
         let next_token = self.next_token()?;
         self.match_token(next_token)?;
 
-        if self.next_token()? == lex::Token::Period {
+        if has_schema_and_table {
             self.match_token(lex::Token::Period)?;
             let next_token = self.next_token()?;
             match next_token.clone() {
