@@ -1,7 +1,9 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use thiserror::Error;
 
-use crate::ast::ast::{SelectExpression, SelectStatement, Statement, TableExpression, Term};
+use crate::ast::ast::{
+    Expression, SelectExpression, SelectStatement, Statement, TableExpression, Term,
+};
 use crate::lexer::lex;
 
 #[derive(Error, Debug)]
@@ -14,10 +16,8 @@ pub enum ParseError {
     InvalidNextToken(lex::Token, lex::Token),
     #[error("no more tokens")]
     NoMoreTokens,
-    #[error("unable to claim lock: {0}")]
-    UnableToClaimLock(String),
     #[error("not implemented: {0}")]
-    NotImplemented(String),
+    NotImplemented(&'static str),
 }
 
 #[derive(Debug)]
@@ -88,52 +88,59 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self) -> Result<Statement, ParseError> {
+    pub fn parse(&mut self) -> Result<Statement> {
         self.log("parse()".to_string());
         if self.tokens.len() == 0 {
-            return Err(ParseError::EmptyQueryString);
+            return Err(ParseError::EmptyQueryString.into());
         }
         if self.next_token()? == lex::Token::Space {
             let has_tokens_remaining = self.read_next_token();
             if !has_tokens_remaining {
-                return Err(ParseError::NoMoreTokens);
+                return Err(ParseError::NoMoreTokens.into());
             }
         }
 
         let next_token = self.next_token()?;
         if next_token == lex::Token::Select {
-            let select_statement = self.match_select()?;
+            let select_statement = self.match_select().context("failed to match select")?;
             self.match_token(lex::Token::Semicolon)?;
             Ok(Statement::Select(select_statement))
         } else {
-            Err(ParseError::InvalidToken(next_token.clone()))
+            Err(ParseError::InvalidToken(next_token.clone()).into())
         }
     }
 
-    fn match_select(&mut self) -> Result<SelectStatement, ParseError> {
+    fn match_select(&mut self) -> Result<SelectStatement> {
         self.log("match_select()".to_string());
 
         self.match_token(lex::Token::Select)?;
 
-        let select_expressions = self.match_select_expressions()?;
-        let from_expression = self.match_table_expression()?;
+        let select_expressions = self
+            .match_select_expressions()
+            .context("failed to match select expressions")?;
+        let from_expression = self
+            .match_table_expression()
+            .context("failed to match table expression")?;
+        let where_expression = self
+            .match_where_expression()
+            .context("failed to match where expression")?;
 
         let select_statement = SelectStatement {
             select_expressions,
-            from: from_expression,
+            from_expression,
+            where_expression,
         };
 
         Ok(select_statement)
     }
 
-    fn match_select_expressions(&mut self) -> Result<Vec<SelectExpression>, ParseError> {
+    fn match_select_expressions(&mut self) -> Result<Vec<SelectExpression>> {
         self.log("match_select_expressions()".to_string());
 
         let mut select_expressions: Vec<SelectExpression> = Vec::new();
 
         while self.next_token()? != lex::Token::From {
             if self.next_token()? == lex::Token::Star {
-                self.log("match_select_expressions() - match star token".to_string());
                 select_expressions.push(SelectExpression::Star);
                 self.match_token(lex::Token::Star)?;
             } else if self.peek_match_token_types(vec![
@@ -143,7 +150,9 @@ impl Parser {
             ]) {
                 let id_name = match self.next_token()? {
                     lex::Token::Identifier(name) => name,
-                    unexpected_token => return Err(ParseError::InvalidToken(unexpected_token)),
+                    unexpected_token => {
+                        return Err(ParseError::InvalidToken(unexpected_token).into())
+                    }
                 };
 
                 select_expressions.push(SelectExpression::Family {
@@ -153,7 +162,7 @@ impl Parser {
                 self.match_token(lex::Token::Period)?;
                 self.match_token(lex::Token::Star)?;
             } else {
-                let term = self.match_term()?;
+                let expression = self.match_expression()?;
                 if self.next_token()? == lex::Token::As {
                     self.match_token(lex::Token::As)?;
 
@@ -161,36 +170,39 @@ impl Parser {
                     let id_name = match &next_token {
                         lex::Token::Identifier(name) => name,
                         unexpected_token => {
-                            return Err(ParseError::InvalidToken(unexpected_token.clone()))
+                            return Err(ParseError::InvalidToken(unexpected_token.clone()).into())
                         }
                     };
 
                     self.match_token(next_token.clone())?;
 
-                    select_expressions.push(SelectExpression::Term {
-                        term,
+                    select_expressions.push(SelectExpression::Expression {
+                        expression,
                         alias: Some(id_name.clone()),
                     });
                 } else {
-                    select_expressions.push(SelectExpression::Term { term, alias: None })
+                    select_expressions.push(SelectExpression::Expression {
+                        expression,
+                        alias: None,
+                    })
                 }
             }
 
             if self.next_token()? != lex::Token::From {
                 self.match_token(lex::Token::Comma)?;
                 if self.next_token()? == lex::Token::From {
-                    return Err(ParseError::InvalidToken(lex::Token::From));
+                    return Err(ParseError::InvalidToken(lex::Token::From).into());
                 }
             }
         }
 
-        self.match_token(lex::Token::From)?;
-
         Ok(select_expressions)
     }
 
-    fn match_table_expression(&mut self) -> Result<TableExpression, ParseError> {
+    fn match_table_expression(&mut self) -> Result<TableExpression> {
         self.log("match_table_expression()".to_string());
+
+        self.match_token(lex::Token::From)?;
 
         if self.next_token()? == lex::Token::LeftParenthesis {
             self.match_token(lex::Token::LeftParenthesis)?;
@@ -204,7 +216,9 @@ impl Parser {
                 let next_token = self.next_token()?;
                 let id_name = match next_token.clone() {
                     lex::Token::Identifier(name) => name,
-                    unexpected_token => return Err(ParseError::InvalidToken(unexpected_token)),
+                    unexpected_token => {
+                        return Err(ParseError::InvalidToken(unexpected_token).into())
+                    }
                 };
                 alias = Some(id_name);
                 self.match_token(next_token)?;
@@ -215,20 +229,16 @@ impl Parser {
                 alias,
             })
         } else if let lex::Token::Identifier(_) = self.next_token()? {
-            let (schema, table) = self.match_table_name()?;
+            let (schema, table) = self
+                .match_table_name()
+                .context("failed to match table name")?;
             Ok(TableExpression::Table { schema, table })
         } else {
-            Err(ParseError::NotImplemented(
-                "match_table_expression() - else clause".to_string(),
-            ))
+            Err(ParseError::NotImplemented("table expression type not implemented").into())
         }
     }
 
-    fn match_term(&mut self) -> Result<Term, ParseError> {
-        Err(ParseError::NotImplemented("match_term".to_string()))
-    }
-
-    fn match_table_name(&mut self) -> Result<(Option<String>, String), ParseError> {
+    fn match_table_name(&mut self) -> Result<(Option<String>, String)> {
         self.log("match_table_name()".to_string());
 
         let has_schema_and_table = self.peek_match_token_types(vec![
@@ -239,7 +249,7 @@ impl Parser {
 
         let id_name1 = match self.next_token()? {
             lex::Token::Identifier(name) => name,
-            ut => return Err(ParseError::InvalidToken(ut)),
+            ut => return Err(ParseError::InvalidToken(ut).into()),
         };
 
         let next_token = self.next_token()?;
@@ -253,10 +263,25 @@ impl Parser {
                     self.match_token(next_token)?;
                     Ok((Some(id_name1), id_name2))
                 }
-                ut => Err(ParseError::InvalidToken(ut)),
+                ut => Err(ParseError::InvalidToken(ut).into()),
             }
         } else {
             Ok((None, id_name1))
         }
+    }
+
+    fn match_where_expression(&mut self) -> Result<Option<Expression>> {
+        self.log("match_where_expression()".to_string());
+
+        if self.next_token()? == lex::Token::Where {
+            self.match_token(lex::Token::Where)?;
+            Ok(Some(self.match_expression()?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn match_expression(&mut self) -> Result<Expression> {
+        Err(ParseError::NotImplemented("match_expression").into())
     }
 }

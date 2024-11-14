@@ -19,7 +19,7 @@ fn main() {
         }
         Err(err) => {
             parsi1.log_debug();
-            println!("error: {}", err);
+            println!("error: {:?}", err);
         }
     }
 
@@ -36,7 +36,7 @@ fn main() {
         }
         Err(err) => {
             parsi2.log_debug();
-            println!("error: {}", err);
+            println!("error: {:?}", err);
         }
     }
 }

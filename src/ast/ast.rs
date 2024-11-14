@@ -8,14 +8,20 @@ pub enum Statement {
 #[derive(Debug)]
 pub struct SelectStatement {
     pub select_expressions: Vec<SelectExpression>,
-    pub from: TableExpression,
+    pub from_expression: TableExpression,
+    pub where_expression: Option<Expression>,
 }
 
 #[derive(Debug)]
 pub enum SelectExpression {
     Star,
-    Family { name: String },
-    Term { term: Term, alias: Option<String> },
+    Family {
+        name: String,
+    },
+    Expression {
+        expression: Expression,
+        alias: Option<String>,
+    },
 }
 
 #[derive(Debug)]
@@ -60,33 +66,37 @@ pub enum CountFunction {
     Term(Box<Term>),
 }
 
-// Condensed down to one operand node with either a term
-// or an operation tree.
-// example:
-//   5 + 2 * 3
-//   Operand:
-//
-//   Operand:
-//     Operation::Multiplication(2, 3)
-
 #[derive(Debug)]
 pub enum Operand {
+    // term
     Term(Term),
-    Operation(Box<Operation>),
+    // string operations
+    StringConcatenation(Box<Operand>, Box<Operand>),
+    // mathematical operations
+    Addition(Box<Operand>, Box<Operand>),
+    Subtraction(Box<Operand>, Box<Operand>),
+    Multiplication(Box<Operand>, Box<Operand>),
+    Division(Box<Operand>, Box<Operand>),
+    UnaryMinus(Box<Operand>),
+    // logical operations
+    And(Box<Operand>, Box<Operand>),
+    Or(Box<Operand>, Box<Operand>),
+    Not(Box<Operand>),
+    IsNull(Box<Operand>),
+    IsNotNull(Box<Operand>),
+    // comparisons
+    Equal(Box<Operand>, Box<Operand>),
+    NotEqual(Box<Operand>, Box<Operand>), // != and <>  are the same
+    LessThan(Box<Operand>, Box<Operand>),
+    GreaterThan(Box<Operand>, Box<Operand>),
+    LessThanOrEqual(Box<Operand>, Box<Operand>),
+    GreaterThanOrEqual(Box<Operand>, Box<Operand>),
 }
 
 #[derive(Debug)]
-pub enum Operation {
-    StringConcatenation(Term, Term),
-    Addition(Term, Term),
-    Subtraction(Term, Term),
-    Multiplication(Term, Term),
-    Division(Term, Term),
-    UnaryMinus(Term),
+pub enum Expression {
+    Operand(Operand),
 }
-
-#[derive(Debug)]
-pub struct Expression {}
 
 #[derive(Debug)]
 pub enum TableExpression {
