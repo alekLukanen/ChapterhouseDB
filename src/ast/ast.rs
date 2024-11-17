@@ -1,18 +1,18 @@
 use std::vec::Vec;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Statement {
     Select(SelectStatement),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SelectStatement {
     pub select_expressions: Vec<SelectExpression>,
     pub from_expression: TableExpression,
     pub where_expression: Option<Term>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SelectExpression {
     Star,
     Family {
@@ -24,7 +24,7 @@ pub enum SelectExpression {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Term {
     Value(Value),
     // BindParameter -> ?,:1 so data can be inject into the query, kind of like a template
@@ -33,7 +33,7 @@ pub enum Term {
     Column(Column),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Column {
     Direct {
         schema: Option<String>,
@@ -41,7 +41,7 @@ pub enum Column {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Value {
     String(String),
     Numeric(Numeric),
@@ -49,26 +49,26 @@ pub enum Value {
     Null,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Numeric {
     Float(f64),
     Int(i64),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Function {
     UserDefined { name: String, terms: Vec<Term> },
     Sum(Box<Term>),
     Count(CountFunction),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CountFunction {
     Star,
     Term(Box<Term>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Operand {
     // term
     Term(Term),
@@ -95,7 +95,7 @@ pub enum Operand {
     GreaterThanOrEqual(Box<Operand>, Box<Operand>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TableExpression {
     Table {
         schema: Option<String>,

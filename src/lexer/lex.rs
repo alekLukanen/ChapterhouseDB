@@ -97,7 +97,7 @@ impl Token {
             _ => &t1 == &t2,
         }
     }
-    pub fn is_expression_operator(self) -> bool {
+    pub fn is_expression_operator(&self) -> bool {
         match self {
             Token::And => true,
             Token::Or => true,

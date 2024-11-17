@@ -20,6 +20,8 @@ pub enum ParseError {
     NoMoreTokens,
     #[error("unable to parse number: {0}")]
     InvalidNumber(String),
+    #[error("operand not implemented: {0:?}")]
+    OperandTokenNotImplemented(Token),
     #[error("not implemented: {0}")]
     NotImplemented(&'static str),
 }
@@ -286,7 +288,7 @@ impl Parser {
 
     // an expression is a logical statement typically including "AND" and "OR"
     fn match_expression(&mut self) -> Result<Term> {
-        let mut terms: Vec<Term> = Vec::new();
+        let mut operands: Vec<Box<Operand>> = Vec::new();
         let mut operators: Vec<Token> = Vec::new();
         let mut last_was_term = false;
 
@@ -300,14 +302,31 @@ impl Parser {
                 continue;
             }
 
-            if last_was_term {
-                operators.push(self.match_operator()?);
-            } else {
-                terms.push(self.match_base_term()?);
+            // always match and push a term
+            if !last_was_term {
+                operands.push(Box::new(Operand::Term(self.match_base_term()?)));
+                continue;
             }
 
+            // handle operator or right parenthesis
             if next_token.clone().is_expression_operator() {
                 // continue expression
+
+                if let Some(last_operator) = operators.last() {
+                    if Parser::operator_precedence(next_token.clone())
+                        <= Parser::operator_precedence(last_operator.clone())
+                        && operands.len() > operators.len()
+                        && operands.len() >= 2
+                    {
+                        let op1 = operands.remove(operands.len() - 2);
+                        let op2 = operands.remove(operands.len() - 1);
+                        let compacted_op =
+                            Parser::apply_operator_to_terms(last_operator, op1, op2)?;
+                        operands.push(compacted_op);
+                    } else {
+                        operators.push(next_token.clone());
+                    }
+                }
             } else if next_token.clone() == Token::RightParenthesis {
                 // end of sub-expression
             }
@@ -316,10 +335,27 @@ impl Parser {
         Err(ParseError::NotImplemented("match_expression").into())
     }
 
+    fn apply_operator_to_terms(
+        token: &Token,
+        left_operand: Box<Operand>,
+        right_operand: Box<Operand>,
+    ) -> Result<Box<Operand>> {
+        if token.is_expression_operator() {
+            return Err(ParseError::InvalidToken(token.clone()).into());
+        }
+
+        let operand = match token {
+            Token::Plus => Operand::Addition(left_operand, right_operand),
+            _ => return Err(ParseError::OperandTokenNotImplemented(token.clone()).into()),
+        };
+
+        Ok(Box::new(operand))
+    }
+
     fn operator_precedence(token: Token) -> i8 {
         match token {
+            Token::Or => 7,
             Token::And => 8,
-            Token::Or => 8,
             Token::Equal => 9,
             Token::NotEqual => 9,
             Token::LessThan => 9,
