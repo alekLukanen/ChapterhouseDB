@@ -9,7 +9,7 @@ pub enum Statement {
 pub struct SelectStatement {
     pub select_expressions: Vec<SelectExpression>,
     pub from_expression: TableExpression,
-    pub where_expression: Option<Expression>,
+    pub where_expression: Option<Term>,
 }
 
 #[derive(Debug)]
@@ -19,7 +19,7 @@ pub enum SelectExpression {
         name: String,
     },
     Expression {
-        expression: Expression,
+        expression: Term,
         alias: Option<String>,
     },
 }
@@ -35,8 +35,10 @@ pub enum Term {
 
 #[derive(Debug)]
 pub enum Column {
-    Aliased { alias: String, column_name: String },
-    Direct { schema: String, column_name: String },
+    Direct {
+        schema: Option<String>,
+        column_name: String,
+    },
 }
 
 #[derive(Debug)]
@@ -91,11 +93,6 @@ pub enum Operand {
     GreaterThan(Box<Operand>, Box<Operand>),
     LessThanOrEqual(Box<Operand>, Box<Operand>),
     GreaterThanOrEqual(Box<Operand>, Box<Operand>),
-}
-
-#[derive(Debug)]
-pub enum Expression {
-    Operand(Operand),
 }
 
 #[derive(Debug)]

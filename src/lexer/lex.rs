@@ -70,12 +70,15 @@ pub enum Token {
     GreaterThan,
     GreaterThanEqual,
     Equal,
-    Exlamation,
+    NotEqual,
     LeftParenthesis,
     RightParenthesis,
     Semicolon,
     Period,
     Space,
+    Plus,
+    Minus,
+    ForwardSlash,
     // data literals
     Number(String),
     StringToken(String),
@@ -92,6 +95,21 @@ impl Token {
             (Token::StringToken(_), Token::StringToken(_)) => true,
             (Token::Identifier(_), Token::Identifier(_)) => true,
             _ => &t1 == &t2,
+        }
+    }
+    pub fn is_expression_operator(self) -> bool {
+        match self {
+            Token::And => true,
+            Token::Or => true,
+            Token::Not => true,
+            Token::Is => true,
+            Token::In => true,
+            Token::LessThan => true,
+            Token::LessThanEqual => true,
+            Token::GreaterThan => true,
+            Token::GreaterThanEqual => true,
+            Token::Equal => true,
+            _ => false,
         }
     }
 }
@@ -375,8 +393,8 @@ impl SymbolTokenizer {
                 text: "=".to_string(),
             },
             StaticToken {
-                token: Token::Exlamation,
-                text: "!".to_string(),
+                token: Token::NotEqual,
+                text: "!=".to_string(),
             },
             StaticToken {
                 token: Token::LeftParenthesis,
@@ -393,6 +411,18 @@ impl SymbolTokenizer {
             StaticToken {
                 token: Token::Period,
                 text: ".".to_string(),
+            },
+            StaticToken {
+                token: Token::Plus,
+                text: "+".to_string(),
+            },
+            StaticToken {
+                token: Token::Minus,
+                text: "-".to_string(),
+            },
+            StaticToken {
+                token: Token::ForwardSlash,
+                text: "/".to_string(),
             },
         ];
         keywords
