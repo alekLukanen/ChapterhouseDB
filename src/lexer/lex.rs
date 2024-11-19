@@ -109,6 +109,11 @@ impl Token {
             Token::GreaterThan => true,
             Token::GreaterThanEqual => true,
             Token::Equal => true,
+            Token::NotEqual => true,
+            Token::Plus => true,
+            Token::Minus => true,
+            Token::Star => true,
+            Token::ForwardSlash => true,
             _ => false,
         }
     }

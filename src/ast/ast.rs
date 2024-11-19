@@ -1,3 +1,4 @@
+use serde::Serialize;
 use std::vec::Vec;
 
 #[derive(Debug, Clone)]
@@ -24,7 +25,7 @@ pub enum SelectExpression {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum Term {
     Value(Value),
     // BindParameter -> ?,:1 so data can be inject into the query, kind of like a template
@@ -33,7 +34,7 @@ pub enum Term {
     Column(Column),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum Column {
     Direct {
         schema: Option<String>,
@@ -41,7 +42,7 @@ pub enum Column {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum Value {
     String(String),
     Numeric(Numeric),
@@ -49,26 +50,26 @@ pub enum Value {
     Null,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum Numeric {
     Float(f64),
     Int(i64),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum Function {
     UserDefined { name: String, terms: Vec<Term> },
     Sum(Box<Term>),
     Count(CountFunction),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum CountFunction {
     Star,
     Term(Box<Term>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum Operand {
     // term
     Term(Term),

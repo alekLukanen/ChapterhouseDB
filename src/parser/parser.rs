@@ -22,8 +22,10 @@ pub enum ParseError {
     InvalidNumber(String),
     #[error("operand not implemented: {0:?}")]
     OperandTokenNotImplemented(Token),
+    #[error("operand compaction issue: {0}")]
+    OperandCompactionIssue(String),
     #[error("not implemented: {0}")]
-    NotImplemented(&'static str),
+    NotImplemented(String),
 }
 
 #[derive(Debug)]
@@ -239,7 +241,10 @@ impl Parser {
                 .context("failed to match table name")?;
             Ok(TableExpression::Table { schema, table })
         } else {
-            Err(ParseError::NotImplemented("table expression type not implemented").into())
+            Err(
+                ParseError::NotImplemented("table expression type not implemented".to_string())
+                    .into(),
+            )
         }
     }
 
@@ -293,9 +298,10 @@ impl Parser {
         let mut last_was_term = false;
 
         while self.expression_continues()? {
-            let next_token = self.next_token()?;
+            let next_token = &self.next_token()?;
+            println!("next_token: {:?}", next_token);
 
-            if next_token.clone() == Token::LeftParenthesis {
+            if *next_token == Token::LeftParenthesis {
                 self.match_token(next_token.clone())?;
                 operators.push(next_token.clone());
                 last_was_term = false;
@@ -305,6 +311,7 @@ impl Parser {
             // always match and push a term
             if !last_was_term {
                 operands.push(Box::new(Operand::Term(self.match_base_term()?)));
+                last_was_term = true;
                 continue;
             }
 
@@ -312,47 +319,124 @@ impl Parser {
             if next_token.clone().is_expression_operator() {
                 // continue expression
 
+                let number_of_operators = operators
+                    .iter()
+                    .rev()
+                    .take_while(|&token| *token != Token::LeftParenthesis)
+                    .count();
+                let number_of_operands = number_of_operators + 1;
+
                 if let Some(last_operator) = operators.last() {
-                    if Parser::operator_precedence(next_token.clone())
-                        <= Parser::operator_precedence(last_operator.clone())
-                        && operands.len() > operators.len()
+                    if Parser::operator_precedence(next_token)
+                        <= Parser::operator_precedence(last_operator)
+                        && number_of_operands > number_of_operators
+                        && operators.len() > 0
                         && operands.len() >= 2
                     {
                         let op1 = operands.remove(operands.len() - 2);
                         let op2 = operands.remove(operands.len() - 1);
+                        let last_operator_popped = operators.remove(operators.len() - 1);
                         let compacted_op =
-                            Parser::apply_operator_to_terms(last_operator, op1, op2)?;
+                            self.apply_operator_to_terms(last_operator_popped, op1, op2)?;
                         operands.push(compacted_op);
-                    } else {
-                        operators.push(next_token.clone());
                     }
                 }
-            } else if next_token.clone() == Token::RightParenthesis {
+
+                self.match_token(next_token.clone())?;
+                operators.push(next_token.clone());
+                last_was_term = false;
+            } else if *next_token == Token::RightParenthesis {
                 // end of sub-expression
+                // compact all operands and operators inside of the parentheses
+                self.match_token(next_token.clone())?;
+
+                while operators
+                    .iter()
+                    .rev()
+                    .take_while(|&token| *token != Token::LeftParenthesis)
+                    .count()
+                    > operators
+                        .iter()
+                        .rev()
+                        .take_while(|&token| *token != Token::LeftParenthesis)
+                        .count()
+                        + 1
+                    && operators.len() > 0
+                    && operands.len() >= 2
+                {
+                    let op1 = operands.remove(operands.len() - 2);
+                    let op2 = operands.remove(operands.len() - 1);
+                    let last_operator_popped = operators.remove(operators.len() - 1);
+                    let compacted_op =
+                        self.apply_operator_to_terms(last_operator_popped, op1, op2)?;
+                    operands.push(compacted_op);
+                }
+                last_was_term = true;
+            } else {
+                return Err(ParseError::NotImplemented(format!(
+                    "expected an expression operator or right parenthesis but found: {:?}",
+                    next_token
+                ))
+                .into());
             }
         }
 
-        Err(ParseError::NotImplemented("match_expression").into())
+        while operators.len() > 0 && operands.len() >= 2 {
+            let op1 = operands.remove(operands.len() - 2);
+            let op2 = operands.remove(operands.len() - 1);
+            let last_operator_popped = operators.remove(operators.len() - 1);
+            let compacted_op = self.apply_operator_to_terms(last_operator_popped, op1, op2)?;
+            operands.push(compacted_op);
+        }
+
+        if operands.len() != 1 || operators.len() != 0 {
+            return Err(ParseError::OperandCompactionIssue(format!(
+                "expected to have 1 operand but have {} operands and {} operators",
+                operands.len(),
+                operators.len()
+            ))
+            .into());
+        }
+
+        let last_operand = operands.remove(0);
+        Ok(Term::Operand(last_operand))
     }
 
     fn apply_operator_to_terms(
-        token: &Token,
+        &mut self,
+        token: Token,
         left_operand: Box<Operand>,
         right_operand: Box<Operand>,
     ) -> Result<Box<Operand>> {
-        if token.is_expression_operator() {
+        self.log(format!("apply_operator_to_terms()"));
+        self.log(format!("- token: {:?}", token));
+        self.log(format!("- left_operand: {:?}", left_operand));
+        self.log(format!("- right_operand: {:?}", right_operand));
+
+        if !token.is_expression_operator() {
             return Err(ParseError::InvalidToken(token.clone()).into());
         }
 
         let operand = match token {
             Token::Plus => Operand::Addition(left_operand, right_operand),
+            Token::Minus => Operand::Subtraction(left_operand, right_operand),
+            Token::Star => Operand::Multiplication(left_operand, right_operand),
+            Token::ForwardSlash => Operand::Division(left_operand, right_operand),
+            Token::Equal => Operand::Equal(left_operand, right_operand),
+            Token::NotEqual => Operand::NotEqual(left_operand, right_operand),
+            Token::LessThan => Operand::LessThan(left_operand, right_operand),
+            Token::LessThanEqual => Operand::LessThanOrEqual(left_operand, right_operand),
+            Token::GreaterThan => Operand::GreaterThan(left_operand, right_operand),
+            Token::GreaterThanEqual => Operand::GreaterThanOrEqual(left_operand, right_operand),
+            Token::Or => Operand::Or(left_operand, right_operand),
+            Token::And => Operand::And(left_operand, right_operand),
             _ => return Err(ParseError::OperandTokenNotImplemented(token.clone()).into()),
         };
 
         Ok(Box::new(operand))
     }
 
-    fn operator_precedence(token: Token) -> i8 {
+    fn operator_precedence(token: &Token) -> i8 {
         match token {
             Token::Or => 7,
             Token::And => 8,
@@ -367,15 +451,6 @@ impl Parser {
             Token::Star => 11,
             Token::ForwardSlash => 11,
             _ => 0,
-        }
-    }
-
-    fn match_operator(&mut self) -> Result<Token> {
-        let next_token = self.next_token()?;
-        if next_token.clone().is_expression_operator() {
-            Ok(next_token.clone())
-        } else {
-            Err(ParseError::InvalidToken(next_token.clone()).into())
         }
     }
 
@@ -425,25 +500,27 @@ impl Parser {
                     column_name: name,
                 }))
             }
-            Token::Number(value) => {
+            Token::Number(ref value) => {
+                self.match_token(Token::Number(value.clone()))?;
                 if let Ok(int_val) = value.parse::<i64>() {
                     Ok(Term::Value(Value::Numeric(Numeric::Int(int_val))))
                 } else if let Ok(float_val) = value.parse::<f64>() {
                     Ok(Term::Value(Value::Numeric(Numeric::Float(float_val))))
                 } else {
-                    Err(ParseError::InvalidNumber(value).into())
+                    Err(ParseError::InvalidNumber(value.clone()).into())
                 }
             }
-            _ => Err(ParseError::NotImplemented("match_term").into()),
+            _ => Err(ParseError::NotImplemented("match_term".to_string()).into()),
         }
     }
 
     fn expression_continues(&mut self) -> Result<bool> {
         Ok(self.next_token()?.is_expression_operator()
-            || self.peek_match_token_types(vec![Token::Exlamation, Token::Equal])
             || self.peek_match_token_types(vec![
                 Token::Identifier("".to_string()),
                 Token::LeftParenthesis,
-            ]))
+            ])
+            || self.peek_match_token_types(vec![Token::Identifier("".to_string())])
+            || self.peek_match_token_types(vec![Token::Number("".to_string())]))
     }
 }

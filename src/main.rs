@@ -1,3 +1,6 @@
+use core::sync;
+
+use chapterhouseqe::ast::ast;
 use chapterhouseqe::lexer::lex;
 use chapterhouseqe::parser::parser;
 
@@ -38,5 +41,50 @@ fn main() {
             parsi2.log_debug();
             println!("error: {:?}", err);
         }
+    }
+
+    println!("----------------------");
+
+    let query3 = "select * from bike where a + 1 = 2;";
+    println!("query3: {}", query3);
+    let mut parsi3 = parser::Parser::new(query3.to_string(), true);
+    match parsi3.parse() {
+        Ok(syntax_tree) => {
+            println!("syntax tree:");
+            println!("{:?}", syntax_tree);
+        }
+        Err(err) => {
+            parsi3.log_debug();
+            println!("error: {:?}", err);
+        }
+    }
+
+    println!("----------------------");
+
+    let query4 = "select * from bike where 1+2*3+4*4+1 = 2;";
+    println!("query4: {}", query3);
+    let mut parsi4 = parser::Parser::new(query4.to_string(), true);
+    match parsi4.parse() {
+        Ok(syntax_tree) => {
+            println!("syntax tree:");
+            println!("{:?}", syntax_tree);
+            match syntax_tree {
+                ast::Statement::Select(select) => {
+                    print_where_expression_tree(select.where_expression)
+                }
+                _ => println!("couldn't print tree"),
+            }
+        }
+        Err(err) => {
+            parsi4.log_debug();
+            println!("error: {:?}", err);
+        }
+    }
+}
+
+fn print_where_expression_tree(expression: Option<ast::Term>) {
+    if let Some(tree) = expression {
+        let json = serde_json::to_string_pretty(&tree).unwrap();
+        println!("{}", json);
     }
 }
