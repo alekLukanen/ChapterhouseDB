@@ -350,20 +350,21 @@ impl Parser {
                 // compact all operands and operators inside of the parentheses
                 self.match_token(next_token.clone())?;
 
-                while operators
-                    .iter()
-                    .rev()
-                    .take_while(|&token| *token != Token::LeftParenthesis)
-                    .count()
+                while operands.len()
                     > operators
                         .iter()
                         .rev()
                         .take_while(|&token| *token != Token::LeftParenthesis)
                         .count()
-                        + 1
                     && operators.len() > 0
                     && operands.len() >= 2
                 {
+                    if let Some(last_operand) = operators.last() {
+                        if *last_operand == Token::LeftParenthesis {
+                            operators.remove(operators.len() - 1);
+                            break;
+                        }
+                    }
                     let op1 = operands.remove(operands.len() - 2);
                     let op2 = operands.remove(operands.len() - 1);
                     let last_operator_popped = operators.remove(operators.len() - 1);
@@ -382,6 +383,17 @@ impl Parser {
         }
 
         while operators.len() > 0 && operands.len() >= 2 {
+            if let Some(last_operand) = operators.last() {
+                if *last_operand == Token::LeftParenthesis
+                    || *last_operand == Token::RightParenthesis
+                {
+                    return Err(ParseError::OperandCompactionIssue(format!(
+                        "unexpected parenthesis on final compaction: {:?}",
+                        *last_operand
+                    ))
+                    .into());
+                }
+            }
             let op1 = operands.remove(operands.len() - 2);
             let op2 = operands.remove(operands.len() - 1);
             let last_operator_popped = operators.remove(operators.len() - 1);
