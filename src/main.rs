@@ -1,90 +1,78 @@
-use core::sync;
+use sqlparser::dialect::GenericDialect;
+use sqlparser::parser::Parser;
 
-use chapterhouseqe::ast::ast;
-use chapterhouseqe::lexer::lex;
-use chapterhouseqe::parser::parser;
+use serde_json;
 
 fn main() {
-    let query = "
+    let dialect = GenericDialect {};
+
+    let query0 = "
         select * from bike 
         where id = 42 and value > 90.0 and name = '🥵';";
-    let tokens = lex::lex(query.to_string());
-    println!("tokens from lexer: {:?}", tokens);
+    let ast0 = match Parser::parse_sql(&dialect, query0) {
+        Ok(res) => res,
+        Err(err) => {
+            println!("error: {}", err);
+            return;
+        }
+    };
+    println!("query0: {}", query0);
+    println!("ast0: {:?}", ast0);
 
-    println!("example query1");
-    let query1 = "select * from items.bike;";
+    let query1 = "select key, value0, value1 from read_some_files('abc')
+                            where key = 12+2*52*(5+4*3)
+                            order by key desc
+                            limit 100
+                            offset 10;";
+    let mut ast1 = match Parser::parse_sql(&dialect, query1) {
+        Ok(res) => res,
+        Err(err) => {
+            println!("error: {}", err);
+            return;
+        }
+    };
     println!("query1: {}", query1);
-    let mut parsi1 = parser::Parser::new(query1.to_string(), true);
-    match parsi1.parse() {
-        Ok(syntax_tree) => {
-            println!("syntax tree:");
-            println!("{:?}", syntax_tree);
-        }
+    println!("ast1: {:?}", ast1);
+
+    let query_ast1 = ast1.remove(0);
+    let json1 = serde_json::to_string_pretty(&query_ast1).unwrap();
+    println!("json1: {}", json1);
+
+    let query2 =
+        "COPY (select * from table1) TO 'data.csv' WITH (FORMAT 'CSV', NULL 'null_value');";
+    let ast2 = match Parser::parse_sql(&dialect, query2) {
+        Ok(res) => res,
         Err(err) => {
-            parsi1.log_debug();
-            println!("error: {:?}", err);
+            println!("error: {}", err);
+            return;
         }
-    }
-
-    println!("----------------------");
-
-    println!("example query2");
-    let query2 = "select * from (select * from bike) as bike_select;";
+    };
     println!("query2: {}", query2);
-    let mut parsi2 = parser::Parser::new(query2.to_string(), true);
-    match parsi2.parse() {
-        Ok(syntax_tree) => {
-            println!("syntax tree:");
-            println!("{:?}", syntax_tree);
-        }
+    println!("ast2: {:?}", ast2);
+
+    let query3 = "
+        CREATE TABLE my_table(
+            row_id INT PRIMARY KEY,
+            file_data_format STRING,
+            file_data_here BINARY
+        )
+        LOCATION 'path/to/file/{col:row_id}.{col:file_data_format}.{prop:compression}'
+        TBLPROPERTIES (
+            'table-type'='row-to-file',
+            'compression'='GZIP',
+            'connection'='big_s3',
+            'max-concurrent-puts'=10,
+            'format-column'='file_data_format',
+            'data-column'='file_data_here'
+        );
+    ";
+    let ast3 = match Parser::parse_sql(&dialect, query3) {
+        Ok(res) => res,
         Err(err) => {
-            parsi2.log_debug();
-            println!("error: {:?}", err);
+            println!("error: {}", err);
+            return;
         }
-    }
-
-    println!("----------------------");
-
-    let query3 = "select * from bike where a + 1 = 2;";
+    };
     println!("query3: {}", query3);
-    let mut parsi3 = parser::Parser::new(query3.to_string(), true);
-    match parsi3.parse() {
-        Ok(syntax_tree) => {
-            println!("syntax tree:");
-            println!("{:?}", syntax_tree);
-        }
-        Err(err) => {
-            parsi3.log_debug();
-            println!("error: {:?}", err);
-        }
-    }
-
-    println!("----------------------");
-
-    let query4 = "select * from bike where 1+2*3+4*4+1 = 2;";
-    println!("query4: {}", query3);
-    let mut parsi4 = parser::Parser::new(query4.to_string(), true);
-    match parsi4.parse() {
-        Ok(syntax_tree) => {
-            println!("syntax tree:");
-            println!("{:?}", syntax_tree);
-            match syntax_tree {
-                ast::Statement::Select(select) => {
-                    print_where_expression_tree(select.where_expression)
-                }
-                _ => println!("couldn't print tree"),
-            }
-        }
-        Err(err) => {
-            parsi4.log_debug();
-            println!("error: {:?}", err);
-        }
-    }
-}
-
-fn print_where_expression_tree(expression: Option<ast::Term>) {
-    if let Some(tree) = expression {
-        let json = serde_json::to_string_pretty(&tree).unwrap();
-        println!("{}", json);
-    }
+    println!("ast3: {:?}", ast3);
 }
