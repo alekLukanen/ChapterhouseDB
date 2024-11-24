@@ -19,7 +19,7 @@ fn main() {
     println!("query0: {}", query0);
     println!("ast0: {:?}", ast0);
 
-    let query1 = "select key, value0, value1 from read_some_files('abc')
+    let query1 = "select key, value0, value1 from read_some_files('abc', 123, kwarg='hello', kwarg1={'abcd': 1234})
                             where key = 12+2*52*(5+4*3)
                             order by key desc
                             limit 100
