@@ -18,7 +18,7 @@ pub enum PlanError {
     NotImplemented(String),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PlanNode {
     TableFunc {
         alias: Option<String>,
@@ -51,18 +51,18 @@ pub struct Stage {
 }
 
 impl Stage {
-    fn new(typ: StageType, id: usize) -> Stage {
+    pub fn new(typ: StageType, id: usize) -> Stage {
         return Stage { id, typ };
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LogicalPlanNode {
     node: PlanNode,
     stage: Stage,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LogicalPlan {
     nodes: Vec<LogicalPlanNode>,
     outbound_edges: HashMap<usize, Vec<usize>>,
@@ -70,7 +70,7 @@ pub struct LogicalPlan {
 }
 
 impl LogicalPlan {
-    fn new() -> LogicalPlan {
+    pub fn new() -> LogicalPlan {
         return LogicalPlan {
             nodes: Vec::new(),
             outbound_edges: HashMap::new(),
@@ -78,17 +78,17 @@ impl LogicalPlan {
         };
     }
 
-    fn add_node(&mut self, node: PlanNode, stage: Stage) -> usize {
+    pub fn add_node(&mut self, node: PlanNode, stage: Stage) -> usize {
         self.nodes.push(LogicalPlanNode { node, stage });
         return self.nodes.len() - 1;
     }
 
-    fn connect(&mut self, from_node_idx: usize, to_node_idx: usize) {
+    pub fn connect(&mut self, from_node_idx: usize, to_node_idx: usize) {
         self.add_to_outbound_edges(from_node_idx, to_node_idx);
         self.add_to_inbound_edges(to_node_idx, from_node_idx);
     }
 
-    fn connect_stages(&mut self, from_stage: Stage, to_stage: Stage) {
+    pub fn connect_stages(&mut self, from_stage: Stage, to_stage: Stage) {
         let mut from_nodes_idxs: Vec<usize> = Vec::new();
         let mut to_nodes_idxs: Vec<usize> = Vec::new();
         for (idx, node) in self.nodes.iter().enumerate() {
@@ -172,8 +172,9 @@ impl LogicalPlanner {
             Ok(plan.clone())
         } else {
             let ast = self.build_ast()?;
-            let plan = self.build_plan()?;
             self.ast = Some(ast);
+
+            let plan = self.build_plan()?;
             self.plan = Some(plan.clone());
             Ok(plan)
         }
@@ -190,6 +191,7 @@ impl LogicalPlanner {
 
     fn build_plan(&mut self) -> Result<LogicalPlan> {
         let ast = self.ast.clone();
+        println!("{:?}", ast);
         match ast {
             Some(Statement::Query(ref query)) => Ok(self.build_select_query_plan(query)?),
             _ => {
