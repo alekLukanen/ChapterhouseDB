@@ -127,32 +127,48 @@ impl LogicalPlan {
     }
 }
 
-pub struct Planner {
+pub struct LogicalPlanner {
     query: String,
     ast: Option<Statement>,
     plan: Option<LogicalPlan>,
 }
 
-impl Planner {
-    pub fn new(query: String) -> Planner {
-        Planner {
+impl LogicalPlanner {
+    pub fn new(query: String) -> LogicalPlanner {
+        LogicalPlanner {
             query,
             ast: None,
             plan: None,
         }
     }
 
-    pub fn build_ast(&mut self) -> Result<&Planner> {
+    pub fn build(&mut self) -> Result<LogicalPlan> {
+        if let Some(ref plan) = self.plan {
+            return Ok(plan.clone());
+        } else {
+            self.build_ast()?;
+            self.build_plan()?;
+            if let Some(ref plan) = self.plan {
+                return Ok(plan.clone());
+            }
+        }
+        Err(
+            PlanError::NotImplemented("plan was not set when built successfully".to_string())
+                .into(),
+        )
+    }
+
+    fn build_ast(&mut self) -> Result<()> {
         let mut ast = Parser::parse_sql(&GenericDialect {}, self.query.as_str())?;
         if ast.len() != 1 {
             Err(PlanError::NumberOfStatementsNotEqualToOne(ast.len()).into())
         } else {
             self.ast = Some(ast.remove(0));
-            Ok(self)
+            Ok(())
         }
     }
 
-    pub fn build_plan(&mut self) -> Result<&Planner> {
+    fn build_plan(&mut self) -> Result<()> {
         match self.ast {
             Some(Statement::Query(ref query)) => {
                 self.plan = Some(self.build_select_query_plan(query)?)
@@ -164,7 +180,7 @@ impl Planner {
                 .into())
             }
         }
-        Ok(self)
+        Ok(())
     }
 
     fn build_select_query_plan(&self, query: &Box<Query>) -> Result<LogicalPlan> {
