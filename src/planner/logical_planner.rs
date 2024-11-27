@@ -191,7 +191,6 @@ impl LogicalPlanner {
 
     fn build_plan(&mut self) -> Result<LogicalPlan> {
         let ast = self.ast.clone();
-        println!("{:?}", ast);
         match ast {
             Some(Statement::Query(ref query)) => Ok(self.build_select_query_plan(query)?),
             _ => {
@@ -232,6 +231,7 @@ impl LogicalPlanner {
         if let Some(filter_node) = filter {
             logical_plan.add_node(filter_node, filter_stage.clone());
             logical_plan.add_node(materialize, materialize_stage.clone());
+            logical_plan.connect_stages(table_sources_stage.clone(), filter_stage.clone());
             logical_plan.connect_stages(filter_stage.clone(), materialize_stage.clone());
         } else {
             logical_plan.add_node(materialize, materialize_stage.clone());

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use sqlparser::ast::{SelectItem, WildcardAdditionalOptions};
+use sqlparser::ast::{BinaryOperator, Expr, Ident, SelectItem, Value, WildcardAdditionalOptions};
 
 use crate::planner::logical_planner::LogicalPlanner;
 
@@ -55,6 +55,7 @@ fn test_simple_logical_plans() -> Result<()> {
                 let mut lp = LogicalPlan::new();
 
                 let table_source_stage = Stage::new(StageType::TableSource, 0);
+                let filter_stage = Stage::new(StageType::Filter, 1);
                 let materialize_stage = Stage::new(StageType::Materialize, 2);
 
                 lp.add_node(
@@ -63,6 +64,21 @@ fn test_simple_logical_plans() -> Result<()> {
                         name: "bikes".to_string(),
                     },
                     table_source_stage.clone(),
+                );
+                lp.add_node(
+                    PlanNode::Filter {
+                        expr: Expr::BinaryOp {
+                            left: Box::new(Expr::Identifier(Ident {
+                                value: "size".to_string(),
+                                quote_style: None,
+                            })),
+                            op: BinaryOperator::Eq,
+                            right: Box::new(Expr::Value(Value::SingleQuotedString(
+                                "small".to_string(),
+                            ))),
+                        },
+                    },
+                    filter_stage.clone(),
                 );
                 lp.add_node(
                     PlanNode::Materialize {
@@ -77,7 +93,8 @@ fn test_simple_logical_plans() -> Result<()> {
                     materialize_stage.clone(),
                 );
 
-                lp.connect_stages(table_source_stage.clone(), materialize_stage.clone());
+                lp.connect_stages(table_source_stage.clone(), filter_stage.clone());
+                lp.connect_stages(filter_stage.clone(), materialize_stage.clone());
 
                 Some(lp)
             }),
