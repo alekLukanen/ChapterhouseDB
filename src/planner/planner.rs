@@ -1,5 +1,7 @@
 use std::borrow::Borrow;
+use std::collections::HashMap;
 use std::rc::Rc;
+use std::usize;
 
 use anyhow::Result;
 use sqlparser::ast::{
@@ -18,49 +20,111 @@ pub enum PlanError {
     NotImplemented(String),
 }
 
+#[derive(Clone, Debug)]
 pub enum PlanNode {
     TableFunc {
         alias: Option<String>,
         name: String,
         args: Vec<FunctionArg>,
-        next_node: Option<Rc<PlanNode>>,
     },
     Table {
         alias: Option<String>,
         name: String,
-        next_node: Option<Rc<PlanNode>>,
     },
     Filter {
         expr: Expr,
-        next_node: Option<Rc<PlanNode>>,
     },
     Materialize {
         fields: Vec<SelectItem>,
-        next_node: Option<Rc<PlanNode>>,
     },
 }
 
-impl PlanNode {
-    fn connect_nodes(from: mut Rc<PlanNode>, to: Rc<PlanNode>) {
-        match from {
-            PlanNode::TableFunc { next_node, .. } => {
-                next_node = Some(to.clone());
+#[derive(Clone, Debug)]
+pub struct LogicalPlanNode {
+    node: PlanNode,
+    stage_name: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct LogicalPlan {
+    nodes: Vec<LogicalPlanNode>,
+    outbound_edges: HashMap<usize, Vec<usize>>,
+    inbound_edges: HashMap<usize, Vec<usize>>,
+}
+
+impl LogicalPlan {
+    fn new() -> LogicalPlan {
+        return LogicalPlan {
+            nodes: Vec::new(),
+            outbound_edges: HashMap::new(),
+            inbound_edges: HashMap::new(),
+        };
+    }
+
+    fn add_node(&mut self, node: PlanNode, stage_name: String) -> usize {
+        self.nodes.push(LogicalPlanNode { node, stage_name });
+        return self.nodes.len() - 1;
+    }
+
+    fn connect(&mut self, from_node_idx: usize, to_node_idx: usize) {
+        self.add_to_outbound_edges(from_node_idx, to_node_idx);
+        self.add_to_inbound_edges(to_node_idx, from_node_idx);
+    }
+
+    fn connect_stages(&mut self, from_stage_name: String, to_stage_name: String) {
+        let mut from_nodes_idxs: Vec<usize> = Vec::new();
+        let mut to_nodes_idxs: Vec<usize> = Vec::new();
+        for (idx, node) in self.nodes.iter().enumerate() {
+            if node.stage_name == from_stage_name {
+                from_nodes_idxs.push(idx);
             }
-            PlanNode::Table { next_node, .. } => {
-                next_node = Some(to.clone());
+            if node.stage_name == to_stage_name {
+                to_nodes_idxs.push(idx);
             }
-            PlanNode::Filter { next_node, .. } => {
-                next_node = Some(to.clone());
-            }
-            PlanNode::Materialize { next_node, .. } => {
-                next_node = Some(to.clone());
+        }
+
+        for from_idx in from_nodes_idxs.clone() {
+            for to_idx in to_nodes_idxs.clone() {
+                self.connect(from_idx.clone(), to_idx.clone());
             }
         }
     }
-}
 
-pub enum LogicalPlan {
-    Select { root: PlanNode },
+    fn add_to_outbound_edges(&mut self, key_node_idx: usize, value_node_idx: usize) {
+        if self.outbound_edges.contains_key(&key_node_idx) {
+            if let Some(nodes) = self.outbound_edges.get(&key_node_idx) {
+                for val in nodes {
+                    if val.clone() == value_node_idx {
+                        return;
+                    }
+                }
+            }
+            if let Some(nodes) = self.outbound_edges.get_mut(&key_node_idx) {
+                nodes.push(value_node_idx);
+            }
+        } else {
+            self.outbound_edges
+                .insert(key_node_idx, vec![value_node_idx]);
+        }
+    }
+
+    fn add_to_inbound_edges(&mut self, key_node_idx: usize, value_node_idx: usize) {
+        if self.inbound_edges.contains_key(&key_node_idx) {
+            if let Some(nodes) = self.inbound_edges.get(&key_node_idx) {
+                for val in nodes {
+                    if val.clone() == value_node_idx {
+                        return;
+                    }
+                }
+            }
+            if let Some(nodes) = self.inbound_edges.get_mut(&key_node_idx) {
+                nodes.push(value_node_idx);
+            }
+        } else {
+            self.inbound_edges
+                .insert(key_node_idx, vec![value_node_idx]);
+        }
+    }
 }
 
 pub struct Planner {
@@ -90,7 +154,9 @@ impl Planner {
 
     pub fn build_plan(&mut self) -> Result<&Planner> {
         match self.ast {
-            Some(Statement::Query(ref query)) => self.build_select_query_plan(query)?,
+            Some(Statement::Query(ref query)) => {
+                self.plan = Some(self.build_select_query_plan(query)?)
+            }
             _ => {
                 return Err(PlanError::NotImplemented(
                     "sql statement type not implemented".to_string(),
@@ -101,33 +167,35 @@ impl Planner {
         Ok(self)
     }
 
-    fn build_select_query_plan(&self, query: &Box<Query>) -> Result<()> {
+    fn build_select_query_plan(&self, query: &Box<Query>) -> Result<LogicalPlan> {
         // determine the source of data being queried
         let select: &Box<Select> = match *query.body {
             SetExpr::Select(ref select) => select,
             _ => return Err(PlanError::NotImplemented("non-select query".to_string()).into()),
         };
 
-        let ref mut table_sources = self.build_select_from(&select.from)?;
-        let filter = self.build_select_filter(&select.selection)?;
-        let materialization = self.build_materialization(&select.projection)?;
+        let ref mut logical_plan = LogicalPlan::new();
 
-        if let Some(filter_node) = filter {
-            let rc_filter_node = Rc::new(filter_node);
-            for table_source in table_sources {
-                PlanNode::connect_nodes(table_source, Rc::clone(&rc_filter_node));
-            }
-
-            let rc_materialization_node = Rc::new(materialization);
-            PlanNode::connect_nodes(ref mut rc_filter_node, rc_materialization_node);
-        } else {
-            let rc_materialization_node = Rc::new(materialization);
-            for table_source in table_sources {
-                PlanNode::connect_nodes(table_source, Rc::clone(&rc_materialization_node));
-            }
+        let table_sources = self.build_select_from(&select.from)?;
+        let mut table_source_nodes: Vec<usize> = Vec::new();
+        for table_source in table_sources {
+            table_source_nodes
+                .push(logical_plan.add_node(table_source, "table_sources".to_string()));
         }
 
-        Err(PlanError::NotImplemented("end".to_string()).into())
+        let filter = self.build_select_filter(&select.selection)?;
+        let materialize = self.build_materialization(&select.projection)?;
+
+        if let Some(filter_node) = filter {
+            logical_plan.add_node(filter_node, "filter".to_string());
+            logical_plan.add_node(materialize, "materialize".to_string());
+            logical_plan.connect_stages("filter".to_string(), "materialize".to_string());
+        } else {
+            logical_plan.add_node(materialize, "materialize".to_string());
+            logical_plan.connect_stages("table_sources".to_string(), "materialize".to_string());
+        }
+
+        Ok(logical_plan.clone())
     }
 
     fn build_materialization(&self, select_items: &Vec<SelectItem>) -> Result<PlanNode> {
@@ -137,10 +205,7 @@ impl Planner {
                 fields.push(select_item.clone())
             }
         }
-        Ok(PlanNode::Materialize {
-            fields,
-            next_node: None,
-        })
+        Ok(PlanNode::Materialize { fields })
     }
 
     fn is_valid_select_item(&self, select_item: &SelectItem) -> bool {
@@ -166,18 +231,15 @@ impl Planner {
 
     fn build_select_filter(&self, selection: &Option<Expr>) -> Result<Option<PlanNode>> {
         match selection {
-            Some(expr) => Ok(Some(PlanNode::Filter {
-                expr: expr.clone(),
-                next_node: None,
-            })),
+            Some(expr) => Ok(Some(PlanNode::Filter { expr: expr.clone() })),
             _ => Ok(None),
         }
     }
 
     fn build_select_from(&self, from: &Vec<TableWithJoins>) -> Result<Vec<PlanNode>> {
         let mut nodes: Vec<PlanNode> = Vec::new();
-        for tableWithJoin in from {
-            let relation_node = self.build_select_from_relation(&tableWithJoin.relation)?;
+        for table_with_join in from {
+            let relation_node = self.build_select_from_relation(&table_with_join.relation)?;
             nodes.push(relation_node);
         }
         Ok(nodes)
@@ -223,13 +285,11 @@ impl Planner {
                 alias: alias_name,
                 name: relation_name,
                 args: table_args.args.clone(),
-                next_node: None,
             });
         } else {
             return Ok(PlanNode::Table {
                 alias: alias_name,
                 name: relation_name,
-                next_node: None,
             });
         }
     }
