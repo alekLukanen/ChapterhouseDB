@@ -1,6 +1,4 @@
-use std::borrow::Borrow;
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::usize;
 
 use anyhow::Result;
@@ -39,10 +37,29 @@ pub enum PlanNode {
     },
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum StageType {
+    TableSource,
+    Filter,
+    Materialize,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stage {
+    id: usize,
+    typ: StageType,
+}
+
+impl Stage {
+    fn new(typ: StageType, id: usize) -> Stage {
+        return Stage { id, typ };
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct LogicalPlanNode {
     node: PlanNode,
-    stage_name: String,
+    stage: Stage,
 }
 
 #[derive(Clone, Debug)]
@@ -61,8 +78,8 @@ impl LogicalPlan {
         };
     }
 
-    fn add_node(&mut self, node: PlanNode, stage_name: String) -> usize {
-        self.nodes.push(LogicalPlanNode { node, stage_name });
+    fn add_node(&mut self, node: PlanNode, stage: Stage) -> usize {
+        self.nodes.push(LogicalPlanNode { node, stage });
         return self.nodes.len() - 1;
     }
 
@@ -71,14 +88,14 @@ impl LogicalPlan {
         self.add_to_inbound_edges(to_node_idx, from_node_idx);
     }
 
-    fn connect_stages(&mut self, from_stage_name: String, to_stage_name: String) {
+    fn connect_stages(&mut self, from_stage: Stage, to_stage: Stage) {
         let mut from_nodes_idxs: Vec<usize> = Vec::new();
         let mut to_nodes_idxs: Vec<usize> = Vec::new();
         for (idx, node) in self.nodes.iter().enumerate() {
-            if node.stage_name == from_stage_name {
+            if node.stage == from_stage {
                 from_nodes_idxs.push(idx);
             }
-            if node.stage_name == to_stage_name {
+            if node.stage == to_stage {
                 to_nodes_idxs.push(idx);
             }
         }
@@ -131,6 +148,7 @@ pub struct LogicalPlanner {
     query: String,
     ast: Option<Statement>,
     plan: Option<LogicalPlan>,
+    stage_idx: usize,
 }
 
 impl LogicalPlanner {
@@ -139,40 +157,41 @@ impl LogicalPlanner {
             query,
             ast: None,
             plan: None,
+            stage_idx: 0,
         }
+    }
+
+    fn create_stage_id(&mut self) -> usize {
+        let id = self.stage_idx;
+        self.stage_idx += 1;
+        id
     }
 
     pub fn build(&mut self) -> Result<LogicalPlan> {
         if let Some(ref plan) = self.plan {
-            return Ok(plan.clone());
+            Ok(plan.clone())
         } else {
-            self.build_ast()?;
-            self.build_plan()?;
-            if let Some(ref plan) = self.plan {
-                return Ok(plan.clone());
-            }
+            let ast = self.build_ast()?;
+            let plan = self.build_plan()?;
+            self.ast = Some(ast);
+            self.plan = Some(plan.clone());
+            Ok(plan)
         }
-        Err(
-            PlanError::NotImplemented("plan was not set when built successfully".to_string())
-                .into(),
-        )
     }
 
-    fn build_ast(&mut self) -> Result<()> {
+    fn build_ast(&self) -> Result<Statement> {
         let mut ast = Parser::parse_sql(&GenericDialect {}, self.query.as_str())?;
         if ast.len() != 1 {
             Err(PlanError::NumberOfStatementsNotEqualToOne(ast.len()).into())
         } else {
-            self.ast = Some(ast.remove(0));
-            Ok(())
+            Ok(ast.remove(0))
         }
     }
 
-    fn build_plan(&mut self) -> Result<()> {
-        match self.ast {
-            Some(Statement::Query(ref query)) => {
-                self.plan = Some(self.build_select_query_plan(query)?)
-            }
+    fn build_plan(&mut self) -> Result<LogicalPlan> {
+        let ast = self.ast.clone();
+        match ast {
+            Some(Statement::Query(ref query)) => Ok(self.build_select_query_plan(query)?),
             _ => {
                 return Err(PlanError::NotImplemented(
                     "sql statement type not implemented".to_string(),
@@ -180,10 +199,9 @@ impl LogicalPlanner {
                 .into())
             }
         }
-        Ok(())
     }
 
-    fn build_select_query_plan(&self, query: &Box<Query>) -> Result<LogicalPlan> {
+    fn build_select_query_plan(&mut self, query: &Box<Query>) -> Result<LogicalPlan> {
         // determine the source of data being queried
         let select: &Box<Select> = match *query.body {
             SetExpr::Select(ref select) => select,
@@ -192,23 +210,30 @@ impl LogicalPlanner {
 
         let ref mut logical_plan = LogicalPlan::new();
 
+        // define static stages used in a select query plan
+        let table_sources_stage = Stage::new(StageType::TableSource, self.create_stage_id());
+        let filter_stage = Stage::new(StageType::Filter, self.create_stage_id());
+        let materialize_stage = Stage::new(StageType::Materialize, self.create_stage_id());
+
+        // get table source(s)
         let table_sources = self.build_select_from(&select.from)?;
         let mut table_source_nodes: Vec<usize> = Vec::new();
         for table_source in table_sources {
             table_source_nodes
-                .push(logical_plan.add_node(table_source, "table_sources".to_string()));
+                .push(logical_plan.add_node(table_source, table_sources_stage.clone()));
         }
 
+        // filter and materialize
         let filter = self.build_select_filter(&select.selection)?;
         let materialize = self.build_materialization(&select.projection)?;
 
         if let Some(filter_node) = filter {
-            logical_plan.add_node(filter_node, "filter".to_string());
-            logical_plan.add_node(materialize, "materialize".to_string());
-            logical_plan.connect_stages("filter".to_string(), "materialize".to_string());
+            logical_plan.add_node(filter_node, filter_stage.clone());
+            logical_plan.add_node(materialize, materialize_stage.clone());
+            logical_plan.connect_stages(filter_stage.clone(), materialize_stage.clone());
         } else {
-            logical_plan.add_node(materialize, "materialize".to_string());
-            logical_plan.connect_stages("table_sources".to_string(), "materialize".to_string());
+            logical_plan.add_node(materialize, materialize_stage.clone());
+            logical_plan.connect_stages(table_sources_stage.clone(), materialize_stage.clone());
         }
 
         Ok(logical_plan.clone())
