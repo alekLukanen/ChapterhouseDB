@@ -1,5 +1,8 @@
 use anyhow::Result;
-use sqlparser::ast::{BinaryOperator, Expr, Ident, SelectItem, Value, WildcardAdditionalOptions};
+use sqlparser::ast::{
+    BinaryOperator, Expr, FunctionArg, FunctionArgExpr, FunctionArgOperator, Ident, SelectItem,
+    Value, WildcardAdditionalOptions,
+};
 
 use crate::planner::logical_planner::LogicalPlanner;
 
@@ -95,6 +98,56 @@ fn test_simple_logical_plans() -> Result<()> {
 
                 lp.connect_stages(table_source_stage.clone(), filter_stage.clone());
                 lp.connect_stages(filter_stage.clone(), materialize_stage.clone());
+
+                Some(lp)
+            }),
+        },
+        TestCase {
+            case_name: "simple-select-table-func".to_string(),
+            query: "select * from read_files('data/path/*.csv', connection=>'big_s3') files"
+                .to_string(),
+            expected_plan: Box::new(|| -> Option<LogicalPlan> {
+                let mut lp = LogicalPlan::new();
+
+                let table_source_stage = Stage::new(StageType::TableSource, 0);
+                let materialize_stage = Stage::new(StageType::Materialize, 2);
+
+                lp.add_node(
+                    PlanNode::TableFunc {
+                        alias: Some("files".to_string()),
+                        name: "read_files".to_string(),
+                        args: vec![
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                                Value::SingleQuotedString("data/path/*.csv".to_string()),
+                            ))),
+                            FunctionArg::Named {
+                                name: Ident {
+                                    value: "connection".to_string(),
+                                    quote_style: None,
+                                },
+                                arg: FunctionArgExpr::Expr(Expr::Value(Value::SingleQuotedString(
+                                    "big_s3".to_string(),
+                                ))),
+                                operator: FunctionArgOperator::RightArrow,
+                            },
+                        ],
+                    },
+                    table_source_stage.clone(),
+                );
+                lp.add_node(
+                    PlanNode::Materialize {
+                        fields: vec![SelectItem::Wildcard(WildcardAdditionalOptions {
+                            opt_except: None,
+                            opt_ilike: None,
+                            opt_rename: None,
+                            opt_exclude: None,
+                            opt_replace: None,
+                        })],
+                    },
+                    materialize_stage.clone(),
+                );
+
+                lp.connect_stages(table_source_stage.clone(), materialize_stage.clone());
 
                 Some(lp)
             }),
