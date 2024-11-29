@@ -59,8 +59,9 @@ impl Stage {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct LogicalPlanNode {
-    node: LogicalPlanNodeType,
-    stage: Stage,
+    pub id: usize,
+    pub node: LogicalPlanNodeType,
+    pub stage: Stage,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -79,7 +80,7 @@ impl LogicalPlan {
         };
     }
 
-    pub fn find_root_node(&self) -> Option<LogicalPlanNode> {
+    pub fn get_root_node(&self) -> Option<LogicalPlanNode> {
         for node in &self.nodes {
             if node.stage.is_root {
                 return Some(node.clone());
@@ -88,8 +89,27 @@ impl LogicalPlan {
         None
     }
 
+    pub fn get_all_node_ids(&self) -> Vec<usize> {
+        let mut ids: Vec<usize> = Vec::new();
+        for node in &self.nodes {
+            ids.push(node.id);
+        }
+        ids
+    }
+
+    pub fn get_inbound_nodes(&self, node_idx: usize) -> Option<Vec<usize>> {
+        match self.inbound_edges.get(&node_idx) {
+            Some(nodes) => Some(nodes.clone()),
+            _ => None,
+        }
+    }
+
     pub fn add_node(&mut self, node: LogicalPlanNodeType, stage: Stage) -> usize {
-        self.nodes.push(LogicalPlanNode { node, stage });
+        self.nodes.push(LogicalPlanNode {
+            node,
+            stage,
+            id: self.nodes.len() - 1,
+        });
         return self.nodes.len() - 1;
     }
 

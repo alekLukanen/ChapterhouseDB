@@ -1,15 +1,19 @@
+use std::collections::HashMap;
+
 use anyhow::Result;
 use sqlparser::ast::{Expr, FunctionArg};
 use thiserror::Error;
 
 use crate::planner::logical_planner::{LogicalPlan, LogicalPlanNode};
 
-use super::logical_planner;
+use super::logical_planner::{self, LogicalPlanNodeType};
 
 #[derive(Error, Debug)]
 pub enum PhysicalPlanError {
     #[error("unable to find root nood in logical plan")]
     UnableToFindRootNodeInLogicalPlan,
+    #[error("unable to build {0} resource for non-{1} logical plan node type")]
+    UnableToBuildResourceForLogicalPlanNodeType(&'static str, &'static str),
     #[error("not implemented: {0}")]
     NotImplemented(String),
 }
@@ -26,10 +30,12 @@ pub enum ResourceType {
         alias: Option<String>,
         func_name: String,
         args: Vec<FunctionArg>,
+        max_rows_per_write: usize,
     },
     Table {
         alias: Option<String>,
         name: String,
+        max_rows_per_write: usize,
     },
     // filter stage
     Filter {
@@ -42,20 +48,14 @@ pub enum ResourceType {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum ResourceRequest {
-    DataLocation {
-        connection: String,
-    },
+pub enum ResourceConfig {
     Operator {
         typ: ResourceType,
         manage_producer_id: String,
-        read_data_location_ids: Vec<String>,
-        write_data_location_id: String,
     },
     Producer {
         typ: ResourceType,
-        read_data_location_ids: Vec<String>,
-        write_data_location_id: String,
+        source_exchange_ids: Vec<String>,
     },
     // an exchange manage the state of reading from
     // a producer. It allows multiple downstream producers
@@ -73,7 +73,11 @@ pub enum ResourceRequest {
 #[derive(Clone, Debug)]
 pub struct Resource {
     id: String,
-    request: ResourceRequest,
+    plan_id: usize,
+    resource_config: ResourceConfig,
+    // compute requirements
+    memory_in_mib: usize,
+    cpu_in_tenths: usize, // 10 = 1 cpu 1
 }
 
 #[derive(Clone, Debug)]
@@ -107,20 +111,98 @@ impl PhysicalPlanner {
     }
 
     pub fn build(&mut self) -> Result<PhysicalPlan> {
-        let node_stack: Vec<LogicalPlanNode> = Vec::new();
+        let mut node_stack: Vec<LogicalPlanNode> = Vec::new();
 
-        let root_node = if let Some(root_node) = self.logical_plan.find_root_node() {
+        let root_node = if let Some(root_node) = self.logical_plan.get_root_node() {
             root_node
         } else {
             return Err(PhysicalPlanError::UnableToFindRootNodeInLogicalPlan.into());
         };
+        node_stack.push(root_node);
+
+        while node_stack.len() > 0 {}
 
         Err(PhysicalPlanError::NotImplemented("build".to_string()).into())
     }
 
-    fn new_resource_id(&mut self) -> String {
+    fn build_resources(&self, lpn: LogicalPlanNode) -> Result<Vec<Resource>> {
+        match lpn.node {
+            LogicalPlanNodeType::Materialize { .. } => self.build_materialize_resources(lpn),
+            _ => Err(PhysicalPlanError::NotImplemented(format!(
+                "LogicalPlanNodeType isn't implemented to build resources: {:?}",
+                lpn.node
+            ))
+            .into()),
+        }
+    }
+
+    fn build_materialize_resources(&mut self, lpn: LogicalPlanNode) -> Result<Vec<Resource>> {
+        if !matches!(lpn.node, LogicalPlanNodeType::Materialize { .. }) {
+            return Err(
+                PhysicalPlanError::UnableToBuildResourceForLogicalPlanNodeType(
+                    "materialize",
+                    "materialize",
+                )
+                .into(),
+            );
+        }
+
+        let mut resources: Vec<Resource> = Vec::new();
+
+        let resource_type = ResourceType::Materialize {
+            data_format: DataFormat::Parquet,
+        };
+
+        let producer = Resource {
+            id: self.new_resource_id(lpn.id),
+            plan_id: lpn.id,
+            resource_config: ResourceConfig::Producer {
+                typ: resource_type.clone(),
+                source_exchange_ids: Vec::new(),
+            },
+            cpu_in_tenths: 10,
+            memory_in_mib: 512,
+        };
+        let operator = Resource {
+            id: self.new_resource_id(lpn.id),
+            plan_id: lpn.id,
+            resource_config: ResourceConfig::Operator {
+                typ: resource_type.clone(),
+                manage_producer_id: producer.id.clone(),
+            },
+            cpu_in_tenths: 1,
+            memory_in_mib: 128,
+        };
+        let exchange = Resource {
+            id: self.new_resource_id(lpn.id),
+            plan_id: lpn.id,
+            resource_config: ResourceConfig::Exchange {
+                typ: resource_type.clone(),
+                source_producer_id: producer.id.clone(),
+                source_operator_id: operator.id.clone(),
+            },
+            cpu_in_tenths: 2,
+            memory_in_mib: 128,
+        };
+
+        resources.push(producer);
+        resources.push(operator);
+        resources.push(exchange);
+
+        Ok(resources)
+    }
+
+    fn create_resource_id_map(&mut self, plan_node_ids: Vec<usize>) -> HashMap<usize, String> {
+        let mut map: HashMap<usize, String> = HashMap::new();
+        for plan_node_id in plan_node_ids {
+            map.insert(plan_node_id, self.new_resource_id(plan_node_id));
+        }
+        map
+    }
+
+    fn new_resource_id(&mut self, plan_nod_id: usize) -> String {
         let id = self.resource_idx;
-        let sid = format!("resource_{}", id);
+        let sid = format!("resource_p{}_r{}", plan_nod_id, id);
         self.resource_idx += 1;
         sid
     }
