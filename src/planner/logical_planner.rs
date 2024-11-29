@@ -19,7 +19,7 @@ pub enum PlanError {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum PlanNode {
+pub enum LogicalPlanNodeType {
     TableFunc {
         alias: Option<String>,
         name: String,
@@ -48,17 +48,18 @@ pub enum StageType {
 pub struct Stage {
     id: usize,
     typ: StageType,
+    is_root: bool,
 }
 
 impl Stage {
-    pub fn new(typ: StageType, id: usize) -> Stage {
-        return Stage { id, typ };
+    pub fn new(typ: StageType, id: usize, is_root: bool) -> Stage {
+        return Stage { id, typ, is_root };
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct LogicalPlanNode {
-    node: PlanNode,
+    node: LogicalPlanNodeType,
     stage: Stage,
 }
 
@@ -78,7 +79,16 @@ impl LogicalPlan {
         };
     }
 
-    pub fn add_node(&mut self, node: PlanNode, stage: Stage) -> usize {
+    pub fn find_root_node(&self) -> Option<LogicalPlanNode> {
+        for node in &self.nodes {
+            if node.stage.is_root {
+                return Some(node.clone());
+            }
+        }
+        None
+    }
+
+    pub fn add_node(&mut self, node: LogicalPlanNodeType, stage: Stage) -> usize {
         self.nodes.push(LogicalPlanNode { node, stage });
         return self.nodes.len() - 1;
     }
@@ -212,9 +222,9 @@ impl LogicalPlanner {
         let ref mut logical_plan = LogicalPlan::new();
 
         // define static stages used in a select query plan
-        let table_sources_stage = Stage::new(StageType::TableSource, self.create_stage_id());
-        let filter_stage = Stage::new(StageType::Filter, self.create_stage_id());
-        let materialize_stage = Stage::new(StageType::Materialize, self.create_stage_id());
+        let table_sources_stage = Stage::new(StageType::TableSource, self.create_stage_id(), false);
+        let filter_stage = Stage::new(StageType::Filter, self.create_stage_id(), false);
+        let materialize_stage = Stage::new(StageType::Materialize, self.create_stage_id(), false);
 
         // get table source(s)
         let table_sources = self.build_select_from(&select.from)?;
@@ -241,14 +251,14 @@ impl LogicalPlanner {
         Ok(logical_plan.clone())
     }
 
-    fn build_materialization(&self, select_items: &Vec<SelectItem>) -> Result<PlanNode> {
+    fn build_materialization(&self, select_items: &Vec<SelectItem>) -> Result<LogicalPlanNodeType> {
         let mut fields: Vec<SelectItem> = Vec::new();
         for select_item in select_items {
             if self.is_valid_select_item(select_item) {
                 fields.push(select_item.clone())
             }
         }
-        Ok(PlanNode::Materialize { fields })
+        Ok(LogicalPlanNodeType::Materialize { fields })
     }
 
     fn is_valid_select_item(&self, select_item: &SelectItem) -> bool {
@@ -272,15 +282,15 @@ impl LogicalPlanner {
         }
     }
 
-    fn build_select_filter(&self, selection: &Option<Expr>) -> Result<Option<PlanNode>> {
+    fn build_select_filter(&self, selection: &Option<Expr>) -> Result<Option<LogicalPlanNodeType>> {
         match selection {
-            Some(expr) => Ok(Some(PlanNode::Filter { expr: expr.clone() })),
+            Some(expr) => Ok(Some(LogicalPlanNodeType::Filter { expr: expr.clone() })),
             _ => Ok(None),
         }
     }
 
-    fn build_select_from(&self, from: &Vec<TableWithJoins>) -> Result<Vec<PlanNode>> {
-        let mut nodes: Vec<PlanNode> = Vec::new();
+    fn build_select_from(&self, from: &Vec<TableWithJoins>) -> Result<Vec<LogicalPlanNodeType>> {
+        let mut nodes: Vec<LogicalPlanNodeType> = Vec::new();
         for table_with_join in from {
             let relation_node = self.build_select_from_relation(&table_with_join.relation)?;
             nodes.push(relation_node);
@@ -288,7 +298,7 @@ impl LogicalPlanner {
         Ok(nodes)
     }
 
-    fn build_select_from_relation(&self, relation: &TableFactor) -> Result<PlanNode> {
+    fn build_select_from_relation(&self, relation: &TableFactor) -> Result<LogicalPlanNodeType> {
         match relation {
             TableFactor::Table {
                 name, alias, args, ..
@@ -302,7 +312,7 @@ impl LogicalPlanner {
         name: &ObjectName,
         alias: &Option<TableAlias>,
         args: &Option<TableFunctionArgs>,
-    ) -> Result<PlanNode> {
+    ) -> Result<LogicalPlanNodeType> {
         if name.0.len() != 1 {
             return Err(PlanError::NotImplemented(format!(
                 "table names with {} components have not been",
@@ -324,13 +334,13 @@ impl LogicalPlanner {
         };
 
         if let Some(table_args) = args {
-            return Ok(PlanNode::TableFunc {
+            return Ok(LogicalPlanNodeType::TableFunc {
                 alias: alias_name,
                 name: relation_name,
                 args: table_args.args.clone(),
             });
         } else {
-            return Ok(PlanNode::Table {
+            return Ok(LogicalPlanNodeType::Table {
                 alias: alias_name,
                 name: relation_name,
             });

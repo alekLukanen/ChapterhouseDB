@@ -4,9 +4,7 @@ use sqlparser::ast::{
     Value, WildcardAdditionalOptions,
 };
 
-use crate::planner::logical_planner::LogicalPlanner;
-
-use super::logical_planner::{LogicalPlan, PlanNode, Stage, StageType};
+use super::logical_planner::{LogicalPlan, LogicalPlanNodeType, LogicalPlanner, Stage, StageType};
 
 #[test]
 fn test_simple_logical_plans() -> Result<()> {
@@ -27,14 +25,14 @@ fn test_simple_logical_plans() -> Result<()> {
                 let materialize_stage = Stage::new(StageType::Materialize, 2);
 
                 lp.add_node(
-                    PlanNode::Table {
+                    LogicalPlanNodeType::Table {
                         alias: None,
                         name: "bikes".to_string(),
                     },
                     table_source_stage.clone(),
                 );
                 lp.add_node(
-                    PlanNode::Materialize {
+                    LogicalPlanNodeType::Materialize {
                         fields: vec![SelectItem::Wildcard(WildcardAdditionalOptions {
                             opt_except: None,
                             opt_ilike: None,
@@ -62,14 +60,14 @@ fn test_simple_logical_plans() -> Result<()> {
                 let materialize_stage = Stage::new(StageType::Materialize, 2);
 
                 lp.add_node(
-                    PlanNode::Table {
+                    LogicalPlanNodeType::Table {
                         alias: None,
                         name: "bikes".to_string(),
                     },
                     table_source_stage.clone(),
                 );
                 lp.add_node(
-                    PlanNode::Filter {
+                    LogicalPlanNodeType::Filter {
                         expr: Expr::BinaryOp {
                             left: Box::new(Expr::Identifier(Ident {
                                 value: "size".to_string(),
@@ -84,7 +82,7 @@ fn test_simple_logical_plans() -> Result<()> {
                     filter_stage.clone(),
                 );
                 lp.add_node(
-                    PlanNode::Materialize {
+                    LogicalPlanNodeType::Materialize {
                         fields: vec![SelectItem::Wildcard(WildcardAdditionalOptions {
                             opt_except: None,
                             opt_ilike: None,
@@ -113,7 +111,7 @@ fn test_simple_logical_plans() -> Result<()> {
                 let materialize_stage = Stage::new(StageType::Materialize, 2);
 
                 lp.add_node(
-                    PlanNode::TableFunc {
+                    LogicalPlanNodeType::TableFunc {
                         alias: Some("files".to_string()),
                         name: "read_files".to_string(),
                         args: vec![
@@ -135,7 +133,7 @@ fn test_simple_logical_plans() -> Result<()> {
                     table_source_stage.clone(),
                 );
                 lp.add_node(
-                    PlanNode::Materialize {
+                    LogicalPlanNodeType::Materialize {
                         fields: vec![SelectItem::Wildcard(WildcardAdditionalOptions {
                             opt_except: None,
                             opt_ilike: None,
