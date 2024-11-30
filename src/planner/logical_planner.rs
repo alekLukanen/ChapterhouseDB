@@ -14,6 +14,8 @@ use thiserror::Error;
 pub enum PlanError {
     #[error("require exactly 1 statement but received {0}")]
     NumberOfStatementsNotEqualToOne(usize),
+    #[error("node does not exist: {0}")]
+    NodeDoesNotExist(usize),
     #[error("not implemented: {0}")]
     NotImplemented(String),
 }
@@ -101,6 +103,13 @@ impl LogicalPlan {
         match self.inbound_edges.get(&node_idx) {
             Some(nodes) => Some(nodes.clone()),
             _ => None,
+        }
+    }
+
+    pub fn has_inbound_edges(&self, node_idx: usize) -> Result<bool> {
+        match self.inbound_edges.get(&node_idx) {
+            Some(nodes) => Ok(nodes.len() > 0),
+            _ => Err(PlanError::NodeDoesNotExist(node_idx).into()),
         }
     }
 

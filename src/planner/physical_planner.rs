@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use sqlparser::ast::{Expr, FunctionArg};
+use sqlparser::ast::{Expr, FunctionArg, Value};
 use thiserror::Error;
 
 use crate::planner::logical_planner::{LogicalPlan, LogicalPlanNode};
 
-use super::logical_planner::{self, LogicalPlanNodeType};
+use super::logical_planner::LogicalPlanNodeType;
 
 #[derive(Error, Debug)]
 pub enum PhysicalPlanError {
@@ -24,7 +24,7 @@ pub enum DataFormat {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum ResourceType {
+pub enum OperationType {
     // table source stage
     TableFunc {
         alias: Option<String>,
@@ -49,12 +49,12 @@ pub enum ResourceType {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ResourceConfig {
-    Operator {
-        typ: ResourceType,
+    Manager {
+        typ: OperationType,
         manage_producer_id: String,
     },
     Producer {
-        typ: ResourceType,
+        typ: OperationType,
         source_exchange_ids: Vec<String>,
     },
     // an exchange manage the state of reading from
@@ -64,7 +64,7 @@ pub enum ResourceConfig {
     // to shutdown the producers, and itself, the exchange
     // exits when the operator exits.
     Exchange {
-        typ: ResourceType,
+        typ: OperationType,
         source_producer_id: String,
         source_operator_id: String,
     },
@@ -91,8 +91,13 @@ impl PhysicalPlan {
             resources: Vec::new(),
         };
     }
+
     pub fn add_node(&mut self, resource: Resource) {
         self.resources.push(resource);
+    }
+
+    pub fn has_nodes_for_plan_id(&mut self, plan_id: usize) -> bool {
+        self.resources.iter().any(|item| item.plan_id == plan_id)
     }
 }
 
@@ -111,29 +116,94 @@ impl PhysicalPlanner {
     }
 
     pub fn build(&mut self) -> Result<PhysicalPlan> {
-        let mut node_stack: Vec<LogicalPlanNode> = Vec::new();
-
         let root_node = if let Some(root_node) = self.logical_plan.get_root_node() {
             root_node
         } else {
             return Err(PhysicalPlanError::UnableToFindRootNodeInLogicalPlan.into());
         };
-        node_stack.push(root_node);
 
-        while node_stack.len() > 0 {}
+        let mut node_id_stack: Vec<usize> = Vec::new();
+        let mut physical_plan = PhysicalPlan::new();
+
+        node_id_stack.push(root_node.id);
+
+        while node_id_stack.len() > 0 {
+            let plan_node_id = node_id_stack.remove(node_id_stack.len() - 1);
+            if let Some(inbound_nodes) = self.logical_plan.get_inbound_nodes(plan_node_id) {
+                for node_id in inbound_nodes {
+                    node_id_stack.push(node_id);
+                }
+            }
+        }
 
         Err(PhysicalPlanError::NotImplemented("build".to_string()).into())
     }
 
-    fn build_resources(&self, lpn: LogicalPlanNode) -> Result<Vec<Resource>> {
+    fn build_resources(&mut self, lpn: LogicalPlanNode) -> Result<Vec<Resource>> {
         match lpn.node {
             LogicalPlanNodeType::Materialize { .. } => self.build_materialize_resources(lpn),
+            LogicalPlanNodeType::Filter { .. } => self.build_filter_resources(lpn),
             _ => Err(PhysicalPlanError::NotImplemented(format!(
                 "LogicalPlanNodeType isn't implemented to build resources: {:?}",
                 lpn.node
             ))
             .into()),
         }
+    }
+
+    fn build_filter_resources(&mut self, lpn: LogicalPlanNode) -> Result<Vec<Resource>> {
+        let filter_expr = match lpn.node {
+            LogicalPlanNodeType::Filter { expr } => expr,
+            _ => {
+                return Err(
+                    PhysicalPlanError::UnableToBuildResourceForLogicalPlanNodeType(
+                        "filter", "filter",
+                    )
+                    .into(),
+                );
+            }
+        };
+
+        let resource_type = OperationType::Filter { expr: filter_expr };
+        let mut resources: Vec<Resource> = Vec::new();
+
+        let producer = Resource {
+            id: self.new_resource_id(lpn.id),
+            plan_id: lpn.id,
+            resource_config: ResourceConfig::Producer {
+                typ: resource_type.clone(),
+                source_exchange_ids: Vec::new(),
+            },
+            cpu_in_tenths: 10,
+            memory_in_mib: 512,
+        };
+        let operator = Resource {
+            id: self.new_resource_id(lpn.id),
+            plan_id: lpn.id,
+            resource_config: ResourceConfig::Manager {
+                typ: resource_type.clone(),
+                manage_producer_id: producer.id.clone(),
+            },
+            cpu_in_tenths: 1,
+            memory_in_mib: 128,
+        };
+        let exchange = Resource {
+            id: self.new_resource_id(lpn.id),
+            plan_id: lpn.id,
+            resource_config: ResourceConfig::Exchange {
+                typ: resource_type.clone(),
+                source_producer_id: producer.id.clone(),
+                source_operator_id: operator.id.clone(),
+            },
+            cpu_in_tenths: 2,
+            memory_in_mib: 128,
+        };
+
+        resources.push(producer);
+        resources.push(operator);
+        resources.push(exchange);
+
+        Ok(resources)
     }
 
     fn build_materialize_resources(&mut self, lpn: LogicalPlanNode) -> Result<Vec<Resource>> {
@@ -149,7 +219,7 @@ impl PhysicalPlanner {
 
         let mut resources: Vec<Resource> = Vec::new();
 
-        let resource_type = ResourceType::Materialize {
+        let resource_type = OperationType::Materialize {
             data_format: DataFormat::Parquet,
         };
 
@@ -166,7 +236,7 @@ impl PhysicalPlanner {
         let operator = Resource {
             id: self.new_resource_id(lpn.id),
             plan_id: lpn.id,
-            resource_config: ResourceConfig::Operator {
+            resource_config: ResourceConfig::Manager {
                 typ: resource_type.clone(),
                 manage_producer_id: producer.id.clone(),
             },

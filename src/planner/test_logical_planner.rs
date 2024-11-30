@@ -21,8 +21,8 @@ fn test_simple_logical_plans() -> Result<()> {
             expected_plan: Box::new(|| -> Option<LogicalPlan> {
                 let mut lp = LogicalPlan::new();
 
-                let table_source_stage = Stage::new(StageType::TableSource, 0);
-                let materialize_stage = Stage::new(StageType::Materialize, 2);
+                let table_source_stage = Stage::new(StageType::TableSource, 0, false);
+                let materialize_stage = Stage::new(StageType::Materialize, 2, true);
 
                 lp.add_node(
                     LogicalPlanNodeType::Table {
@@ -55,9 +55,9 @@ fn test_simple_logical_plans() -> Result<()> {
             expected_plan: Box::new(|| -> Option<LogicalPlan> {
                 let mut lp = LogicalPlan::new();
 
-                let table_source_stage = Stage::new(StageType::TableSource, 0);
-                let filter_stage = Stage::new(StageType::Filter, 1);
-                let materialize_stage = Stage::new(StageType::Materialize, 2);
+                let table_source_stage = Stage::new(StageType::TableSource, 0, false);
+                let filter_stage = Stage::new(StageType::Filter, 1, false);
+                let materialize_stage = Stage::new(StageType::Materialize, 2, true);
 
                 lp.add_node(
                     LogicalPlanNodeType::Table {
@@ -107,8 +107,8 @@ fn test_simple_logical_plans() -> Result<()> {
             expected_plan: Box::new(|| -> Option<LogicalPlan> {
                 let mut lp = LogicalPlan::new();
 
-                let table_source_stage = Stage::new(StageType::TableSource, 0);
-                let materialize_stage = Stage::new(StageType::Materialize, 2);
+                let table_source_stage = Stage::new(StageType::TableSource, 0, false);
+                let materialize_stage = Stage::new(StageType::Materialize, 2, true);
 
                 lp.add_node(
                     LogicalPlanNodeType::TableFunc {
