@@ -91,6 +91,14 @@ impl LogicalPlan {
         None
     }
 
+    pub fn get_node(&self, node_idx: usize) -> Option<LogicalPlanNode> {
+        if let Some(node) = self.nodes.iter().find(|&item| item.id == node_idx) {
+            Some(node.clone())
+        } else {
+            None
+        }
+    }
+
     pub fn get_all_node_ids(&self) -> Vec<usize> {
         let mut ids: Vec<usize> = Vec::new();
         for node in &self.nodes {
