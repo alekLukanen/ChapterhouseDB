@@ -48,9 +48,9 @@ pub enum StageType {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Stage {
-    id: usize,
-    typ: StageType,
-    is_root: bool,
+    pub id: usize,
+    pub typ: StageType,
+    pub is_root: bool,
 }
 
 impl Stage {
@@ -97,6 +97,10 @@ impl LogicalPlan {
         } else {
             None
         }
+    }
+
+    pub fn get_all_nodes(&self) -> Vec<LogicalPlanNode> {
+        self.nodes.clone()
     }
 
     pub fn get_all_node_ids(&self) -> Vec<usize> {

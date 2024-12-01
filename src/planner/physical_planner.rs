@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use anyhow::Result;
 use sqlparser::ast::{Expr, FunctionArg, SelectItem};
 use thiserror::Error;
@@ -14,16 +12,22 @@ pub enum PhysicalPlanError {
     UnableToFindRootNodeInLogicalPlan,
     #[error("unable to build {0} operation for non-{1} logical plan node type")]
     UnableToBuildOperationForLogicalPlanNodeType(&'static str, &'static str),
+    #[error("missing exchange operators that are required by plan node {0}")]
+    MissingExhcnageOperatorsThatAreRequiredByPlanNode(usize),
+    #[error("max build iterations reached: {0}")]
+    MaxBuildIterationsReached(usize),
+    #[error("expected all inbound nodes to have operations already")]
+    ExpectedAllInboundNodesToHaveOperationsAlready,
     #[error("not implemented: {0}")]
     NotImplemented(String),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
 pub enum DataFormat {
     Parquet,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
 pub enum TaskType {
     // table source stage
     TableFunc {
@@ -48,7 +52,7 @@ pub enum TaskType {
     },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
 pub enum OperationTask {
     Producer {
         typ: TaskType,
@@ -66,14 +70,14 @@ pub enum OperationTask {
     },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
 pub struct Operation {
     pub id: String,
     pub plan_id: usize,
     pub operation_task: OperationTask,
     // compute requirements
     pub memory_in_mib: usize,
-    pub cpu_in_tenths: usize, // 10 = 1 cpu 1
+    pub cpu_in_thousandths: usize, // 10 = 1 cpu 1
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -142,6 +146,7 @@ pub struct PhysicalPlanner {
     logical_plan: LogicalPlan,
     pipeline_idx: usize,
     operation_idx: usize,
+    max_build_iterations: usize,
 }
 
 impl PhysicalPlanner {
@@ -150,6 +155,7 @@ impl PhysicalPlanner {
             logical_plan,
             pipeline_idx: 0,
             operation_idx: 0,
+            max_build_iterations: 10,
         };
     }
 
@@ -161,15 +167,44 @@ impl PhysicalPlanner {
         };
 
         let mut node_id_stack: Vec<usize> = Vec::new();
-        let mut pipeline = Pipeline::new(self.new_pipeline_id());
+        let ref mut pipeline = Pipeline::new(self.new_pipeline_id());
 
         node_id_stack.push(root_node.id);
 
+        let mut iters = 0usize;
         while node_id_stack.len() > 0 {
+            if iters > self.max_build_iterations {
+                return Err(PhysicalPlanError::MaxBuildIterationsReached(
+                    self.max_build_iterations,
+                )
+                .into());
+            }
             let plan_node_id = node_id_stack.remove(node_id_stack.len() - 1);
-            if let Some(inbound_nodes) = self.logical_plan.get_inbound_nodes(plan_node_id) {
-                for node_id in inbound_nodes {
-                    node_id_stack.push(node_id);
+            println!("plan_node_id: {}", plan_node_id);
+            println!("pipeline: {:?}", pipeline);
+            if pipeline.has_operations_for_plan_id(plan_node_id) {
+                continue;
+            }
+
+            if let Some(inbound_nodes) = &self.logical_plan.get_inbound_nodes(plan_node_id) {
+                let mut inbound_nodes_with_operations = 0usize;
+                for inbound_node_id in inbound_nodes {
+                    if pipeline.has_operations_for_plan_id(inbound_node_id.clone()) {
+                        inbound_nodes_with_operations += 1;
+                    }
+                }
+
+                if inbound_nodes_with_operations == 0 {
+                    node_id_stack.push(plan_node_id);
+                    println!("inbound_nodes: {:?}", inbound_nodes);
+                    for node_id in inbound_nodes {
+                        node_id_stack.push(node_id.clone());
+                    }
+                    continue;
+                } else if inbound_nodes_with_operations != inbound_nodes.len() {
+                    return Err(
+                        PhysicalPlanError::ExpectedAllInboundNodesToHaveOperationsAlready.into(),
+                    );
                 }
             }
 
@@ -178,10 +213,11 @@ impl PhysicalPlanner {
                     self.build_operations(&plan_node, &pipeline)?;
                 pipeline.add_operations(plan_nodes_physical_operations);
             }
+            iters += 1;
         }
 
         let mut physical_plan = PhysicalPlan::new();
-        physical_plan.add_pipeline(pipeline);
+        physical_plan.add_pipeline(pipeline.clone());
         Ok(physical_plan)
     }
 
@@ -204,7 +240,10 @@ impl PhysicalPlanner {
         }
     }
 
-    fn build_table_func_operations(&mut self, lpn: &LogicalPlanNode) -> Result<Vec<Operation>> {
+    pub(crate) fn build_table_func_operations(
+        &mut self,
+        lpn: &LogicalPlanNode,
+    ) -> Result<Vec<Operation>> {
         let task_type = match lpn.node.clone() {
             LogicalPlanNodeType::TableFunc { alias, name, args } => TaskType::TableFunc {
                 alias,
@@ -231,7 +270,7 @@ impl PhysicalPlanner {
                 typ: task_type.clone(),
                 source_exchange_ids: Vec::new(),
             },
-            cpu_in_tenths: 10,
+            cpu_in_thousandths: 1000,
             memory_in_mib: 512,
         };
         let exchange = Operation {
@@ -241,7 +280,7 @@ impl PhysicalPlanner {
                 typ: task_type.clone(),
                 source_producer_id: producer.id.clone(),
             },
-            cpu_in_tenths: 2,
+            cpu_in_thousandths: 200,
             memory_in_mib: 128,
         };
 
@@ -251,7 +290,7 @@ impl PhysicalPlanner {
         Ok(operations)
     }
 
-    fn build_filter_operations(
+    pub(crate) fn build_filter_operations(
         &mut self,
         lpn: &LogicalPlanNode,
         pipeline: &Pipeline,
@@ -268,7 +307,7 @@ impl PhysicalPlanner {
             }
         };
 
-        let source_exchange_ids = self.get_source_exchange_nodes(&lpn, pipeline);
+        let source_exchange_ids = self.get_source_exchange_nodes(&lpn, pipeline)?;
 
         let task_type = TaskType::Filter { expr: filter_expr };
         let mut operations: Vec<Operation> = Vec::new();
@@ -280,7 +319,7 @@ impl PhysicalPlanner {
                 typ: task_type.clone(),
                 source_exchange_ids,
             },
-            cpu_in_tenths: 10,
+            cpu_in_thousandths: 1000,
             memory_in_mib: 512,
         };
         let exchange = Operation {
@@ -290,7 +329,7 @@ impl PhysicalPlanner {
                 typ: task_type.clone(),
                 source_producer_id: producer.id.clone(),
             },
-            cpu_in_tenths: 2,
+            cpu_in_thousandths: 200,
             memory_in_mib: 128,
         };
 
@@ -300,7 +339,7 @@ impl PhysicalPlanner {
         Ok(operations)
     }
 
-    fn build_materialize_operations(
+    pub(crate) fn build_materialize_operations(
         &mut self,
         lpn: &LogicalPlanNode,
         pipeline: &Pipeline,
@@ -318,7 +357,7 @@ impl PhysicalPlanner {
             }
         };
 
-        let source_exchange_ids = self.get_source_exchange_nodes(&lpn, pipeline);
+        let source_exchange_ids = self.get_source_exchange_nodes(&lpn, pipeline)?;
 
         let task_type = TaskType::Materialize {
             data_format: DataFormat::Parquet,
@@ -333,7 +372,7 @@ impl PhysicalPlanner {
                 typ: task_type.clone(),
                 source_exchange_ids,
             },
-            cpu_in_tenths: 10,
+            cpu_in_thousandths: 1000,
             memory_in_mib: 512,
         };
         let exchange = Operation {
@@ -343,7 +382,7 @@ impl PhysicalPlanner {
                 typ: task_type.clone(),
                 source_producer_id: producer.id.clone(),
             },
-            cpu_in_tenths: 2,
+            cpu_in_thousandths: 200,
             memory_in_mib: 128,
         };
 
@@ -353,7 +392,11 @@ impl PhysicalPlanner {
         Ok(operations)
     }
 
-    fn get_source_exchange_nodes(&self, lpn: &LogicalPlanNode, pipeline: &Pipeline) -> Vec<String> {
+    fn get_source_exchange_nodes(
+        &self,
+        lpn: &LogicalPlanNode,
+        pipeline: &Pipeline,
+    ) -> Result<Vec<String>> {
         // get the inbound nodes from the logical plan
         // then find the physical producer operation corresponding
         // to the logical plan node. This operation will be
@@ -364,20 +407,20 @@ impl PhysicalPlanner {
             for slpn_id in source_logical_plan_nodes {
                 let source_exchange_operations =
                     pipeline.get_exchange_operations_for_plan_id(slpn_id);
+                if source_exchange_operations.len() == 0 {
+                    return Err(
+                        PhysicalPlanError::MissingExhcnageOperatorsThatAreRequiredByPlanNode(
+                            lpn.id,
+                        )
+                        .into(),
+                    );
+                }
                 for op in source_exchange_operations {
                     source_exchange_ids.push(op.id.clone());
                 }
             }
         }
-        source_exchange_ids
-    }
-
-    fn create_resource_id_map(&mut self, plan_node_ids: Vec<usize>) -> HashMap<usize, String> {
-        let mut map: HashMap<usize, String> = HashMap::new();
-        for plan_node_id in plan_node_ids {
-            map.insert(plan_node_id, self.new_operation_id(plan_node_id));
-        }
-        map
+        Ok(source_exchange_ids)
     }
 
     fn new_operation_id(&mut self, plan_nod_id: usize) -> String {
