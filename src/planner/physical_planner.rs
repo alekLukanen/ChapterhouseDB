@@ -50,10 +50,6 @@ pub enum TaskType {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum OperationTask {
-    Manager {
-        typ: TaskType,
-        manage_producer_id: String,
-    },
     Producer {
         typ: TaskType,
         source_exchange_ids: Vec<String>,
@@ -67,21 +63,20 @@ pub enum OperationTask {
     Exchange {
         typ: TaskType,
         source_producer_id: String,
-        source_operator_id: String,
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Operation {
-    id: String,
-    plan_id: usize,
-    operation_task: OperationTask,
+    pub id: String,
+    pub plan_id: usize,
+    pub operation_task: OperationTask,
     // compute requirements
-    memory_in_mib: usize,
-    cpu_in_tenths: usize, // 10 = 1 cpu 1
+    pub memory_in_mib: usize,
+    pub cpu_in_tenths: usize, // 10 = 1 cpu 1
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Pipeline {
     id: String,
     operations: Vec<Operation>,
@@ -95,7 +90,7 @@ impl Pipeline {
         };
     }
 
-    pub fn has_operations_for_plan_id(&mut self, plan_id: usize) -> bool {
+    pub fn has_operations_for_plan_id(&self, plan_id: usize) -> bool {
         self.operations.iter().any(|item| item.plan_id == plan_id)
     }
 
@@ -121,7 +116,7 @@ impl Pipeline {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PhysicalPlan {
     pipelines: Vec<Pipeline>,
 }
@@ -135,6 +130,10 @@ impl PhysicalPlan {
 
     pub fn add_pipeline(&mut self, pipeline: Pipeline) {
         self.pipelines.push(pipeline);
+    }
+
+    pub fn get_pipelines(&self) -> Vec<Pipeline> {
+        self.pipelines.clone()
     }
 }
 
@@ -181,7 +180,9 @@ impl PhysicalPlanner {
             }
         }
 
-        Err(PhysicalPlanError::NotImplemented("build".to_string()).into())
+        let mut physical_plan = PhysicalPlan::new();
+        physical_plan.add_pipeline(pipeline);
+        Ok(physical_plan)
     }
 
     fn build_operations(
@@ -233,30 +234,18 @@ impl PhysicalPlanner {
             cpu_in_tenths: 10,
             memory_in_mib: 512,
         };
-        let operator = Operation {
-            id: self.new_operation_id(lpn.id),
-            plan_id: lpn.id,
-            operation_task: OperationTask::Manager {
-                typ: task_type.clone(),
-                manage_producer_id: producer.id.clone(),
-            },
-            cpu_in_tenths: 1,
-            memory_in_mib: 128,
-        };
         let exchange = Operation {
             id: self.new_operation_id(lpn.id),
             plan_id: lpn.id,
             operation_task: OperationTask::Exchange {
                 typ: task_type.clone(),
                 source_producer_id: producer.id.clone(),
-                source_operator_id: operator.id.clone(),
             },
             cpu_in_tenths: 2,
             memory_in_mib: 128,
         };
 
         operations.push(producer);
-        operations.push(operator);
         operations.push(exchange);
 
         Ok(operations)
@@ -294,30 +283,18 @@ impl PhysicalPlanner {
             cpu_in_tenths: 10,
             memory_in_mib: 512,
         };
-        let operator = Operation {
-            id: self.new_operation_id(lpn.id),
-            plan_id: lpn.id,
-            operation_task: OperationTask::Manager {
-                typ: task_type.clone(),
-                manage_producer_id: producer.id.clone(),
-            },
-            cpu_in_tenths: 1,
-            memory_in_mib: 128,
-        };
         let exchange = Operation {
             id: self.new_operation_id(lpn.id),
             plan_id: lpn.id,
             operation_task: OperationTask::Exchange {
                 typ: task_type.clone(),
                 source_producer_id: producer.id.clone(),
-                source_operator_id: operator.id.clone(),
             },
             cpu_in_tenths: 2,
             memory_in_mib: 128,
         };
 
         operations.push(producer);
-        operations.push(operator);
         operations.push(exchange);
 
         Ok(operations)
@@ -359,30 +336,18 @@ impl PhysicalPlanner {
             cpu_in_tenths: 10,
             memory_in_mib: 512,
         };
-        let operator = Operation {
-            id: self.new_operation_id(lpn.id),
-            plan_id: lpn.id,
-            operation_task: OperationTask::Manager {
-                typ: task_type.clone(),
-                manage_producer_id: producer.id.clone(),
-            },
-            cpu_in_tenths: 1,
-            memory_in_mib: 128,
-        };
         let exchange = Operation {
             id: self.new_operation_id(lpn.id),
             plan_id: lpn.id,
             operation_task: OperationTask::Exchange {
                 typ: task_type.clone(),
                 source_producer_id: producer.id.clone(),
-                source_operator_id: operator.id.clone(),
             },
             cpu_in_tenths: 2,
             memory_in_mib: 128,
         };
 
         operations.push(producer);
-        operations.push(operator);
         operations.push(exchange);
 
         Ok(operations)

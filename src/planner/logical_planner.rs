@@ -125,9 +125,9 @@ impl LogicalPlan {
         self.nodes.push(LogicalPlanNode {
             node,
             stage,
-            id: self.nodes.len() - 1,
+            id: self.nodes.len(),
         });
-        return self.nodes.len() - 1;
+        return self.nodes.len();
     }
 
     pub fn connect(&mut self, from_node_idx: usize, to_node_idx: usize) {
@@ -261,7 +261,7 @@ impl LogicalPlanner {
         // define static stages used in a select query plan
         let table_sources_stage = Stage::new(StageType::TableSource, self.create_stage_id(), false);
         let filter_stage = Stage::new(StageType::Filter, self.create_stage_id(), false);
-        let materialize_stage = Stage::new(StageType::Materialize, self.create_stage_id(), false);
+        let materialize_stage = Stage::new(StageType::Materialize, self.create_stage_id(), true);
 
         // get table source(s)
         let table_sources = self.build_select_from(&select.from)?;
