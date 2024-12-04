@@ -1,9 +1,30 @@
+use anyhow::Result;
+use serde_json;
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
+use tracing_subscriber;
 
-use serde_json;
+use chapterhouseqe::client::query_client::QueryClient;
 
-fn main() {
+fn main() -> Result<()> {
+    tracing_subscriber::fmt::init();
+
+    // sql_parser_examples()
+
+    client_examples()?;
+
+    Ok(())
+}
+
+fn client_examples() -> Result<()> {
+    let mut client = QueryClient::new("127.0.0.1:7000".to_string())?;
+
+    client.send_ping_message()?;
+
+    Ok(())
+}
+
+fn sql_parser_examples() {
     let dialect = GenericDialect {};
 
     let query0 = "

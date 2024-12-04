@@ -30,6 +30,13 @@ back to the coordinator when done. Both of these machines connect to a central o
 storage to share data. It might also be necessary to include a key-value database
 to ensure that transactional operations are performant.
 
+# Rust Notes
+
+To enable backtraces you can run commands with the following environment variable like
+the following
+```
+RUST_BACKTRACE=1 cargo run 
+```
 
 # External Links
 
