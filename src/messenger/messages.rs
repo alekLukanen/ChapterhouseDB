@@ -1,6 +1,9 @@
 use anyhow::Result;
+use bytes::{BufMut, BytesMut};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+const HEADER_VERSION: u16 = 0;
 
 trait SendableMessage {
     fn to_bytes(&self) -> Result<Vec<u8>>;
@@ -22,10 +25,78 @@ pub struct SerializedMessage {
     worker_id: u128,
     pipeline_id: u128,
     operation_id: u128,
+
+    // the actual user-space message
+    msg_data: Vec<u8>,
+}
+
+impl SerializedMessage {
+    fn new(msg: &Message) -> Result<SerializedMessage> {
+        let msg_data = msg.msg.to_bytes()?;
+
+        let data_len: u64 = msg_data.len() as u64;
+        let reg_msg_id = msg.reg_msg_id;
+        let msg_id = msg.msg_id;
+        let mut routing_flags: u8 = 0;
+
+        let mut worker_id: u128 = 0;
+        if let Some(_id) = msg.worker_id {
+            worker_id = _id;
+            routing_flags = routing_flags | 1;
+        }
+
+        let mut pipeline_id: u128 = 0;
+        if let Some(_id) = msg.pipeline_id {
+            pipeline_id = _id;
+            routing_flags = routing_flags | (1 << 1);
+        }
+
+        let mut operation_id: u128 = 0;
+        if let Some(_id) = msg.operation_id {
+            operation_id = _id;
+            routing_flags = routing_flags | (1 << 2);
+        }
+
+        let ser_msg = SerializedMessage {
+            header_len: 16 + 64 + 16 + 128 + 8 + 128 + 128 + 128,
+            header_version: HEADER_VERSION,
+            data_len,
+            reg_msg_id,
+            msg_id,
+            routing_flags,
+            worker_id,
+            pipeline_id,
+            operation_id,
+            msg_data,
+        };
+        Ok(ser_msg)
+    }
+
+    fn parse_from_bytes(data: &BytesMut) -> Result<SerializedMessage> {}
+
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = BytesMut::with_capacity(
+            32 + 16 + 64 + 16 + 128 + 8 + 128 + 128 + 128 + self.msg_data.len(),
+        );
+
+        buf.put_u32(self.header_len);
+        buf.put_u16(self.header_version);
+        buf.put_u64(self.data_len);
+        buf.put_u16(self.reg_msg_id);
+        buf.put_u128(self.msg_id);
+        buf.put_u8(self.routing_flags);
+        buf.put_u128(self.worker_id);
+        buf.put_u128(self.pipeline_id);
+        buf.put_u128(self.operation_id);
+        buf.put(&self.msg_data[..]);
+
+        buf.to_vec()
+    }
 }
 
 pub struct Message {
-    reg_msg_id: u128,
+    reg_msg_id: u16,
+    msg_id: u128,
     msg: Box<dyn SendableMessage>,
 
     // routing
@@ -36,13 +107,15 @@ pub struct Message {
 
 impl Message {
     pub fn new(
+        reg_msg_id: u16,
         msg: Box<dyn SendableMessage>,
         worker_id: Option<u128>,
         pipeline_id: Option<u128>,
         operation_id: Option<u128>,
     ) -> Message {
         Message {
-            reg_msg_id: Uuid::new_v4().as_u128(),
+            reg_msg_id,
+            msg_id: Uuid::new_v4().as_u128(),
             msg,
             worker_id,
             pipeline_id,
@@ -50,8 +123,8 @@ impl Message {
         }
     }
 
-    pub fn to_bytes(&self) -> Result<Vec<u8>> {
-        let msg_data: Vec<u8> = self.msg.to_bytes()?;
+    pub fn to_bytes(&self) -> Result<SerializedMessage> {
+        Ok(SerializedMessage::new(&self)?)
     }
 }
 
