@@ -12,6 +12,7 @@ name = "scratch_main"
 path = "src/bin/scratch_main.rs"
 
 [dependencies]
+bytes = "1.9"
 unicode-segmentation = "1.12.0"
 thiserror = "1.0.65"
 anyhow = { version = "1.0.91", features = ["backtrace"] }
