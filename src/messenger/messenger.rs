@@ -1,5 +1,6 @@
 use core::str;
-use std::borrow::Borrow;
+use std::pin::Pin;
+use std::sync::Arc;
 
 use anyhow::Result;
 use bytes::BytesMut;
@@ -9,6 +10,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tracing::info;
 
+use super::message_registry::MessageRegistry;
 use super::messages::Message;
 
 #[derive(Error, Debug)]
@@ -19,11 +21,15 @@ pub enum MessengerErrors {
 
 pub struct Messenger {
     address: String,
+    msg_reg: Arc<Box<MessageRegistry>>,
 }
 
 impl Messenger {
     pub fn new(address: String) -> Messenger {
-        return Messenger { address };
+        return Messenger {
+            address,
+            msg_reg: Arc::new(Box::new(MessageRegistry::new())),
+        };
     }
 
     pub async fn listen(&self) -> Result<()> {
@@ -40,35 +46,14 @@ impl Messenger {
             let (mut socket, _) = listener.accept().await?;
             info!("New connection established");
 
+            let mut connection = Connection::new(socket, tx.clone(), Arc::clone(&self.msg_reg));
+
             // Spawn a new task to handle the connection
-            tokio::spawn(Messenger::task_read_message(tx.clone(), socket));
-        }
-    }
-
-    async fn task_read_message(
-        message_chan: mpsc::Sender<Message>,
-        mut stream: TcpStream,
-    ) -> Result<()> {
-        let mut buf = BytesMut::new();
-
-        loop {
-            if buf.len() > 0 {
-                message_chan
-                    .send(Message::Ping {
-                        msg: str::from_utf8(&buf)?.to_string(),
-                    })
-                    .await?;
-                stream.write_all("received!".as_bytes()).await?;
-                return Ok(());
-            }
-
-            if stream.read_buf(&mut buf).await? == 0 {
-                if buf.is_empty() {
-                    return Ok(());
-                } else {
-                    return Err(MessengerErrors::ConnectionResetByPeer.into());
+            tokio::spawn(async move {
+                if let Err(err) = connection.read_msgs().await {
+                    info!("error reading from tcp socket: {}", err);
                 }
-            }
+            });
         }
     }
 
@@ -78,6 +63,46 @@ impl Messenger {
                 Some(msg) = rx.recv() => {
                     info!("message: {:?}", msg);
                 },
+            }
+        }
+    }
+}
+
+struct Connection {
+    stream: TcpStream,
+    msg_chan: mpsc::Sender<Message>,
+    msg_reg: Arc<Box<MessageRegistry>>,
+    buf: BytesMut,
+}
+
+impl Connection {
+    fn new(
+        stream: TcpStream,
+        msg_chan: mpsc::Sender<Message>,
+        msg_reg: Arc<Box<MessageRegistry>>,
+    ) -> Connection {
+        Connection {
+            stream,
+            msg_chan,
+            msg_reg,
+            buf: BytesMut::with_capacity(4096),
+        }
+    }
+
+    async fn read_msgs(&mut self) -> Result<()> {
+        loop {
+            if let Some(msg) = self.msg_reg.build_msg(&mut self.buf)? {
+                self.msg_chan.send(msg).await?;
+                self.stream.write_all("OK".as_bytes()).await?;
+                return Ok(());
+            }
+
+            if self.stream.read_buf(&mut self.buf).await? == 0 {
+                if self.buf.is_empty() {
+                    return Ok(());
+                } else {
+                    return Err(MessengerErrors::ConnectionResetByPeer.into());
+                }
             }
         }
     }

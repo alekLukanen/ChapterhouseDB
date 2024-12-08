@@ -1,11 +1,21 @@
+use core::fmt;
+
 use anyhow::Result;
-use bytes::{BufMut, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
+use std::io::{Cursor, Read};
+use thiserror::Error;
 use uuid::Uuid;
 
 const HEADER_VERSION: u16 = 0;
 
-trait SendableMessage {
+#[derive(Debug, Error)]
+pub enum SerializedMessageError {
+    #[error("incomplete")]
+    Incomplete,
+}
+
+pub trait SendableMessage: fmt::Debug + Send + Sync {
     fn to_bytes(&self) -> Result<Vec<u8>>;
 }
 
@@ -58,7 +68,7 @@ impl SerializedMessage {
         }
 
         let ser_msg = SerializedMessage {
-            header_len: 16 + 64 + 16 + 128 + 8 + 128 + 128 + 128,
+            header_len: 64 + 16 + 16 + 128 + 8 + 128 + 128 + 128,
             header_version: HEADER_VERSION,
             data_len,
             reg_msg_id,
@@ -72,16 +82,70 @@ impl SerializedMessage {
         Ok(ser_msg)
     }
 
-    fn parse_from_bytes(data: &BytesMut) -> Result<SerializedMessage> {}
+    fn parse(data: &mut BytesMut) -> Result<Option<SerializedMessage>> {
+        match Self::check(data) {
+            Ok(_) => {
+                let mut buf = Cursor::new(&data[..]);
+
+                let header_len = buf.get_u32();
+                let data_len = buf.get_u64();
+                let header_version = buf.get_u16();
+                let reg_msg_id = buf.get_u16();
+                let msg_id = buf.get_u128();
+                let routing_flags = buf.get_u8();
+                let worker_id = buf.get_u128();
+                let pipeline_id = buf.get_u128();
+                let operation_id = buf.get_u128();
+
+                let mut msg_data = Vec::new();
+                buf.read_to_end(&mut msg_data);
+
+                let ser_msg = SerializedMessage {
+                    header_len,
+                    data_len,
+                    header_version,
+                    reg_msg_id,
+                    msg_id,
+                    routing_flags,
+                    worker_id,
+                    pipeline_id,
+                    operation_id,
+                    msg_data,
+                };
+
+                // claim the data from the buffer
+                data.advance(4 + 8 + header_len as usize + data_len as usize);
+
+                Ok(Some(ser_msg))
+            }
+            Err(SerializedMessageError::Incomplete) => Ok(None),
+        }
+    }
+
+    fn check(data: &BytesMut) -> Result<(), SerializedMessageError> {
+        let mut buf = Cursor::new(&data[..]);
+        if data.len() < 4 + 8 {
+            return Err(SerializedMessageError::Incomplete.into());
+        }
+
+        let header_len = buf.get_u16();
+        let data_len = buf.get_u64();
+
+        if (data.len() as u64) < (header_len as u64 + data_len) {
+            Err(SerializedMessageError::Incomplete.into())
+        } else {
+            Ok(())
+        }
+    }
 
     fn to_bytes(&self) -> Vec<u8> {
         let mut buf = BytesMut::with_capacity(
-            32 + 16 + 64 + 16 + 128 + 8 + 128 + 128 + 128 + self.msg_data.len(),
+            32 + 64 + 16 + 16 + 128 + 8 + 128 + 128 + 128 + self.msg_data.len(),
         );
 
         buf.put_u32(self.header_len);
-        buf.put_u16(self.header_version);
         buf.put_u64(self.data_len);
+        buf.put_u16(self.header_version);
         buf.put_u16(self.reg_msg_id);
         buf.put_u128(self.msg_id);
         buf.put_u8(self.routing_flags);
@@ -94,6 +158,7 @@ impl SerializedMessage {
     }
 }
 
+#[derive(Debug)]
 pub struct Message {
     reg_msg_id: u16,
     msg_id: u128,
@@ -128,17 +193,9 @@ impl Message {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct RegisteredMessage {
-    id: u16,
-    build_msg: fn(&Vec<u8>) -> Result<Box<dyn SendableMessage>>,
-}
-
-impl RegisteredMessage {
-    pub fn get_id(&self) -> u16 {
-        self.id.clone()
-    }
-}
+///////////////////////////////////
+// messages ///////////////////////
+///////////////////////////////////
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ping {
@@ -146,7 +203,7 @@ pub struct Ping {
 }
 
 impl Ping {
-    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+    pub fn build_msg(data: &BytesMut) -> Result<Box<dyn SendableMessage>> {
         let ping_msg: Ping = serde_json::from_slice(data)?;
         Ok(Box::new(ping_msg))
     }
