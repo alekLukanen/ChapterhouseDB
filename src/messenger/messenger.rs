@@ -1,5 +1,3 @@
-use core::str;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -37,16 +35,17 @@ impl Messenger {
 
         let listener = TcpListener::bind(&self.address).await?;
 
-        let (tx, mut rx) = mpsc::channel::<Message>(100);
+        let (tx, rx) = mpsc::channel::<Message>(100);
         tokio::spawn(Messenger::task_route_message(rx));
 
         info!("Messenger listening on {}", self.address);
 
         loop {
-            let (mut socket, _) = listener.accept().await?;
+            let (socket, _) = listener.accept().await?;
             info!("New connection established");
 
-            let mut connection = Connection::new(socket, tx.clone(), Arc::clone(&self.msg_reg));
+            let mut connection =
+                InboundConnection::new(socket, tx.clone(), Arc::clone(&self.msg_reg));
 
             // Spawn a new task to handle the connection
             tokio::spawn(async move {
@@ -68,20 +67,20 @@ impl Messenger {
     }
 }
 
-struct Connection {
+struct InboundConnection {
     stream: TcpStream,
     msg_chan: mpsc::Sender<Message>,
     msg_reg: Arc<Box<MessageRegistry>>,
     buf: BytesMut,
 }
 
-impl Connection {
+impl InboundConnection {
     fn new(
         stream: TcpStream,
         msg_chan: mpsc::Sender<Message>,
         msg_reg: Arc<Box<MessageRegistry>>,
-    ) -> Connection {
-        Connection {
+    ) -> InboundConnection {
+        InboundConnection {
             stream,
             msg_chan,
             msg_reg,
@@ -91,10 +90,12 @@ impl Connection {
 
     async fn read_msgs(&mut self) -> Result<()> {
         loop {
-            if let Some(msg) = self.msg_reg.build_msg(&mut self.buf)? {
-                self.msg_chan.send(msg).await?;
-                self.stream.write_all("OK".as_bytes()).await?;
-                return Ok(());
+            if let Ok(msg) = self.msg_reg.build_msg(&mut self.buf) {
+                if let Some(msg) = msg {
+                    self.msg_chan.send(msg).await?;
+                    self.stream.write_all("OK".as_bytes()).await?;
+                }
+                continue;
             }
 
             if self.stream.read_buf(&mut self.buf).await? == 0 {

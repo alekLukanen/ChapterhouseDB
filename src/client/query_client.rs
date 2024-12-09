@@ -1,3 +1,4 @@
+use crate::messenger::messages::{Message, Ping};
 use anyhow::Result;
 use core::str;
 use std::{
@@ -19,16 +20,21 @@ impl QueryClient {
         })
     }
 
-    pub fn send_ping_message(&mut self) -> Result<()> {
+    pub fn send_ping_message(&mut self, count: u8) -> Result<()> {
         info!("pinging address: {}", self.address);
 
-        self.stream.write("ping!".as_bytes())?;
+        for _ in 0..count {
+            let ping = Message::new(Box::new(Ping::new("Hello!".to_string())), None, None, None);
+            let ping_data = ping.to_bytes()?;
 
-        let ref mut read_buf = [0u8; 128];
-        self.stream.read(&mut read_buf[..])?;
+            self.stream.write(&ping_data[..])?;
 
-        let resp_msg = str::from_utf8(read_buf)?.to_string();
-        info!("ping response: {}", resp_msg);
+            let ref mut read_buf = [0u8; 128];
+            self.stream.read(&mut read_buf[..])?;
+
+            let resp_msg = str::from_utf8(read_buf)?.to_string();
+            info!("ping response: {}", resp_msg);
+        }
 
         Ok(())
     }
