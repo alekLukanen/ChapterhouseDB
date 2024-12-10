@@ -35,16 +35,26 @@ pub struct SerializedMessage {
     data_len: u64,
     msg_name_id: u16,
     msg_id: u128,
-    // determines which of the routing values
+
+    // determines which of the "senf_from" values
     // have been set
-    // 0 - none (bits 0)
     // 1 - worker_id set (bit 0)
     // 2 - pipeline_id set (bit 1)
     // 4 - operation_id set (bit 2)
+    // 8 - client_id set (bit 3)
+    sent_from_flags: u8,
+    sent_from_worker_id: u128,
+    sent_from_pipeline_id: u128,
+    sent_from_operation_id: u128,
+    sent_from_client_id: u128,
+
+    // determines which of the routing values
+    // have been set
+    // 1 - worker_id set (bit 0)
+    // 2 - operation_id set (bit 1)
     routing_flags: u8,
-    worker_id: u128,
-    pipeline_id: u128,
-    operation_id: u128,
+    route_to_worker_id: u128,
+    route_to_operation_id: u128,
 
     // the actual user-space message
     msg_data: Vec<u8>,
@@ -58,38 +68,65 @@ impl SerializedMessage {
         let msg_name_id = msg.msg_name_id;
         let msg_id = msg.msg_id;
         let mut routing_flags: u8 = 0;
+        let mut sent_from_flags: u8 = 0;
 
-        let mut worker_id: u128 = 0;
-        if let Some(_id) = msg.worker_id {
-            worker_id = _id;
+        let mut route_to_worker_id: u128 = 0;
+        if let Some(_id) = msg.route_to_worker_id {
+            route_to_worker_id = _id;
             routing_flags = routing_flags | 1;
         }
 
-        let mut pipeline_id: u128 = 0;
-        if let Some(_id) = msg.pipeline_id {
-            pipeline_id = _id;
+        let mut route_to_operation_id: u128 = 0;
+        if let Some(_id) = msg.route_to_operation_id {
+            route_to_operation_id = _id;
             routing_flags = routing_flags | (1 << 1);
         }
 
-        let mut operation_id: u128 = 0;
-        if let Some(_id) = msg.operation_id {
-            operation_id = _id;
-            routing_flags = routing_flags | (1 << 2);
+        let mut sent_from_worker_id: u128 = 0;
+        if let Some(_id) = msg.sent_from_worker_id {
+            sent_from_worker_id = _id;
+            sent_from_flags = sent_from_flags | 1;
+        }
+
+        let mut sent_from_pipeline_id: u128 = 0;
+        if let Some(_id) = msg.sent_from_pipeline_id {
+            sent_from_pipeline_id = _id;
+            sent_from_flags = sent_from_flags | (1 << 1);
+        }
+
+        let mut sent_from_operation_id: u128 = 0;
+        if let Some(_id) = msg.sent_from_operation_id {
+            sent_from_operation_id = _id;
+            sent_from_flags = sent_from_flags | (1 << 2);
+        }
+
+        let mut sent_from_client_id: u128 = 0;
+        if let Some(_id) = msg.sent_from_client_id {
+            sent_from_client_id = _id;
+            sent_from_flags = sent_from_flags | (1 << 3);
         }
 
         let ser_msg = SerializedMessage {
-            header_len: 8 + 2 + 2 + 16 + 1 + 16 + 16 + 16,
+            header_len: Self::header_len(),
             data_len,
             header_version: HEADER_VERSION,
             msg_name_id,
             msg_id,
+            sent_from_flags,
+            sent_from_worker_id,
+            sent_from_pipeline_id,
+            sent_from_operation_id,
+            sent_from_client_id,
             routing_flags,
-            worker_id,
-            pipeline_id,
-            operation_id,
+            route_to_worker_id,
+            route_to_operation_id,
             msg_data,
         };
         Ok(ser_msg)
+    }
+
+    pub fn header_len() -> u32 {
+        8 + 2 + 2 + 16 + 1 + 16 + 16 + 16 + 16 + 1 + 16 + 16
     }
 
     pub fn parse_registered_msg_id(data: &mut BytesMut) -> Result<u16> {
@@ -115,10 +152,16 @@ impl SerializedMessage {
                 let header_version = buf.get_u16();
                 let msg_name_id = buf.get_u16();
                 let msg_id = buf.get_u128();
+
+                let sent_from_flags = buf.get_u8();
+                let sent_from_worker_id = buf.get_u128();
+                let sent_from_pipeline_id = buf.get_u128();
+                let sent_from_operation_id = buf.get_u128();
+                let sent_from_client_id = buf.get_u128();
+
                 let routing_flags = buf.get_u8();
-                let worker_id = buf.get_u128();
-                let pipeline_id = buf.get_u128();
-                let operation_id = buf.get_u128();
+                let route_to_worker_id = buf.get_u128();
+                let route_to_operation_id = buf.get_u128();
 
                 let mut msg_data = Vec::new();
                 match buf.read_to_end(&mut msg_data) {
@@ -132,10 +175,14 @@ impl SerializedMessage {
                     header_version,
                     msg_name_id,
                     msg_id,
+                    sent_from_flags,
+                    sent_from_worker_id,
+                    sent_from_pipeline_id,
+                    sent_from_operation_id,
+                    sent_from_client_id,
                     routing_flags,
-                    worker_id,
-                    pipeline_id,
-                    operation_id,
+                    route_to_worker_id,
+                    route_to_operation_id,
                     msg_data,
                 };
 
@@ -168,17 +215,21 @@ impl SerializedMessage {
 
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut buf =
-            BytesMut::with_capacity(4 + 8 + 2 + 2 + 16 + 1 + 16 + 16 + 16 + self.data_len as usize);
+            BytesMut::with_capacity(4 + Self::header_len() as usize + self.data_len as usize);
 
         buf.put_u32(self.header_len);
         buf.put_u64(self.data_len);
         buf.put_u16(self.header_version);
         buf.put_u16(self.msg_name_id);
         buf.put_u128(self.msg_id);
+        buf.put_u8(self.sent_from_flags);
+        buf.put_u128(self.sent_from_worker_id);
+        buf.put_u128(self.sent_from_pipeline_id);
+        buf.put_u128(self.sent_from_operation_id);
+        buf.put_u128(self.sent_from_client_id);
         buf.put_u8(self.routing_flags);
-        buf.put_u128(self.worker_id);
-        buf.put_u128(self.pipeline_id);
-        buf.put_u128(self.operation_id);
+        buf.put_u128(self.route_to_worker_id);
+        buf.put_u128(self.route_to_operation_id);
         buf.put(&self.msg_data[..]);
 
         buf.to_vec()
@@ -191,26 +242,37 @@ pub struct Message {
     pub msg_id: u128,
     pub msg: Box<dyn SendableMessage>,
 
+    // senf from
+    pub sent_from_worker_id: Option<u128>,
+    pub sent_from_pipeline_id: Option<u128>,
+    pub sent_from_operation_id: Option<u128>,
+    pub sent_from_client_id: Option<u128>,
+
     // routing
-    pub worker_id: Option<u128>,
-    pub pipeline_id: Option<u128>,
-    pub operation_id: Option<u128>,
+    pub route_to_worker_id: Option<u128>,
+    pub route_to_operation_id: Option<u128>,
 }
 
 impl Message {
     pub fn new(
         msg: Box<dyn SendableMessage>,
-        worker_id: Option<u128>,
-        pipeline_id: Option<u128>,
-        operation_id: Option<u128>,
+        sent_from_worker_id: Option<u128>,
+        sent_from_pipeline_id: Option<u128>,
+        sent_from_operation_id: Option<u128>,
+        sent_from_client_id: Option<u128>,
+        route_to_worker_id: Option<u128>,
+        route_to_operation_id: Option<u128>,
     ) -> Message {
         Message {
             msg_name_id: msg.msg_name().as_u16(),
             msg_id: Uuid::new_v4().as_u128(),
             msg,
-            worker_id,
-            pipeline_id,
-            operation_id,
+            sent_from_worker_id,
+            sent_from_pipeline_id,
+            sent_from_operation_id,
+            sent_from_client_id,
+            route_to_worker_id,
+            route_to_operation_id,
         }
     }
 
@@ -218,20 +280,40 @@ impl Message {
         ser_msg: SerializedMessage,
         msg: Box<dyn SendableMessage>,
     ) -> Message {
-        let worker_id = if ser_msg.routing_flags & 1 == 1 {
-            Some(ser_msg.worker_id)
+        // sent from values
+        let sent_from_worker_id = if ser_msg.sent_from_flags & 1 == 1 {
+            Some(ser_msg.sent_from_worker_id)
         } else {
             None
         };
 
-        let pipeline_id = if ser_msg.routing_flags & 2 == 2 {
-            Some(ser_msg.pipeline_id)
+        let sent_from_pipeline_id = if ser_msg.sent_from_flags & 2 == 2 {
+            Some(ser_msg.sent_from_pipeline_id)
         } else {
             None
         };
 
-        let operation_id = if ser_msg.routing_flags & 4 == 4 {
-            Some(ser_msg.operation_id)
+        let sent_from_operation_id = if ser_msg.sent_from_flags & 4 == 4 {
+            Some(ser_msg.sent_from_operation_id)
+        } else {
+            None
+        };
+
+        let sent_from_client_id = if ser_msg.sent_from_flags & 8 == 8 {
+            Some(ser_msg.sent_from_client_id)
+        } else {
+            None
+        };
+
+        // route to values
+        let route_to_worker_id = if ser_msg.routing_flags & 1 == 1 {
+            Some(ser_msg.route_to_worker_id)
+        } else {
+            None
+        };
+
+        let route_to_operation_id = if ser_msg.routing_flags & 2 == 2 {
+            Some(ser_msg.route_to_operation_id)
         } else {
             None
         };
@@ -240,9 +322,12 @@ impl Message {
             msg_name_id: ser_msg.msg_name_id,
             msg_id: ser_msg.msg_id,
             msg,
-            worker_id,
-            pipeline_id,
-            operation_id,
+            sent_from_worker_id,
+            sent_from_pipeline_id,
+            sent_from_operation_id,
+            sent_from_client_id,
+            route_to_worker_id,
+            route_to_operation_id,
         };
 
         msg

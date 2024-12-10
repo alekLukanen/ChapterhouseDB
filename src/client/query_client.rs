@@ -1,4 +1,4 @@
-use crate::messenger::messages::{Message, Ping};
+use crate::messenger::messages::{Message, Ping, SendableMessage};
 use anyhow::Result;
 use core::str;
 use std::{
@@ -6,8 +6,10 @@ use std::{
     net::TcpStream,
 };
 use tracing::info;
+use uuid::Uuid;
 
 pub struct QueryClient {
+    client_id: u128,
     address: String,
     stream: TcpStream,
 }
@@ -15,17 +17,37 @@ pub struct QueryClient {
 impl QueryClient {
     pub fn new(address: String) -> Result<QueryClient> {
         Ok(QueryClient {
+            client_id: Uuid::new_v4().as_u128(),
             address: address.clone(),
             stream: TcpStream::connect(address)?,
         })
+    }
+
+    pub fn new_msg(&self, msg: Box<dyn SendableMessage>) -> Message {
+        return Message::new(
+            msg,
+            None,
+            None,
+            None,
+            Some(self.client_id.clone()),
+            None,
+            None,
+        );
+    }
+
+    pub fn get_client_id(&self) -> u128 {
+        self.client_id
     }
 
     pub fn send_ping_message(&mut self, count: u8) -> Result<()> {
         info!("pinging address: {}", self.address);
 
         for _ in 0..count {
-            let ping = Message::new(Box::new(Ping::new("Hello!".to_string())), None, None, None);
+            info!("sending a message...");
+            let ping = self.new_msg(Box::new(Ping::new("Hello".to_string())));
             let ping_data = ping.to_bytes()?;
+
+            info!("ping_data.len(): {}", ping_data.len());
 
             self.stream.write(&ping_data[..])?;
 

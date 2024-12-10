@@ -92,6 +92,7 @@ impl InboundConnection {
         loop {
             if let Ok(msg) = self.msg_reg.build_msg(&mut self.buf) {
                 if let Some(msg) = msg {
+                    info!("found message");
                     self.msg_chan.send(msg).await?;
                     self.stream.write_all("OK".as_bytes()).await?;
                 }

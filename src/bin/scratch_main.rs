@@ -2,6 +2,7 @@ use anyhow::Result;
 use serde_json;
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
+use tracing::info;
 use tracing_subscriber;
 
 use chapterhouseqe::client::query_client::QueryClient;
@@ -18,6 +19,8 @@ fn main() -> Result<()> {
 
 fn client_examples() -> Result<()> {
     let mut client = QueryClient::new("127.0.0.1:7000".to_string())?;
+
+    info!("client_id: {}", client.get_client_id());
 
     client.send_ping_message(3)?;
 
