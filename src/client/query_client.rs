@@ -1,4 +1,4 @@
-use crate::messenger::messages::{Message, Ping, SendableMessage};
+use crate::handlers::message_handler::{Message, Ping, SendableMessage};
 use anyhow::Result;
 use core::str;
 use std::{

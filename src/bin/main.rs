@@ -1,4 +1,4 @@
-use chapterhouseqe::worker::query_worker::QueryWorker;
+use chapterhouseqe::worker::QueryWorker;
 use tracing::info;
 use tracing_subscriber;
 

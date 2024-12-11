@@ -5,10 +5,10 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::info;
 
-use crate::messenger::messenger::Messenger;
+use crate::handlers::message_handler::MessageHandler;
 
 pub struct QueryWorker {
-    messenger: Arc<Messenger>,
+    messenger: Arc<MessageHandler>,
     cancelation_token: CancellationToken,
 }
 
@@ -16,7 +16,7 @@ impl QueryWorker {
     pub fn new(address: String) -> QueryWorker {
         let ct = CancellationToken::new();
         return QueryWorker {
-            messenger: Arc::new(Messenger::new(ct.clone(), address.clone())),
+            messenger: Arc::new(MessageHandler::new(ct.clone(), address.clone())),
             cancelation_token: ct,
         };
     }

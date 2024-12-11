@@ -23,15 +23,15 @@ pub enum MessengerError {
     TimedOutWaitingForConnectionsToClose,
 }
 
-pub struct Messenger {
+pub struct MessageHandler {
     cancellation_token: CancellationToken,
     address: String,
     msg_reg: Arc<Box<MessageRegistry>>,
 }
 
-impl Messenger {
-    pub fn new(cancellation_token: CancellationToken, address: String) -> Messenger {
-        return Messenger {
+impl MessageHandler {
+    pub fn new(cancellation_token: CancellationToken, address: String) -> MessageHandler {
+        return MessageHandler {
             cancellation_token,
             address,
             msg_reg: Arc::new(Box::new(MessageRegistry::new())),
@@ -45,7 +45,7 @@ impl Messenger {
         let listener = TcpListener::bind(&self.address).await?;
 
         let (tx, rx) = mpsc::channel::<Message>(100);
-        tokio::spawn(Messenger::task_route_message(rx));
+        tokio::spawn(MessageHandler::task_route_message(rx));
 
         info!("Messenger listening on {}", self.address);
 

@@ -1,4 +1,4 @@
 pub mod client;
-pub mod messenger;
+pub mod handlers;
 pub mod planner;
 pub mod worker;

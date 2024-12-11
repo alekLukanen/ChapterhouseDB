@@ -1,20 +1,17 @@
-use crate::messenger::messages::{Message, SerializedMessageError};
 use anyhow::Result;
 use bytes::BytesMut;
 use thiserror::Error;
 
-use super::messages::{MessageName, MessageParser, PingParser, SerializedMessage};
+use super::messages::{
+    Message, MessageParser, PingParser, SerializedMessage, SerializedMessageError,
+};
 
 #[derive(Debug, Clone, Error)]
 pub enum MessageRegistryError {
-    #[error("unabled to convert data to message: registerd message id is {0}")]
-    UnableToConvertDataToMessage(u16),
     #[error("incomplete message")]
     IncompleteMessage,
     #[error("message id not in registry: {0}")]
     MessageIdNotInRegistry(u16),
-    #[error("message name not in registry: {0}")]
-    MessageNameNotInRegistry(MessageName),
 }
 
 #[derive(Debug)]
