@@ -254,26 +254,48 @@ pub struct Message {
 }
 
 impl Message {
-    pub fn new(
-        msg: Box<dyn SendableMessage>,
-        sent_from_worker_id: Option<u128>,
-        sent_from_pipeline_id: Option<u128>,
-        sent_from_operation_id: Option<u128>,
-        sent_from_client_id: Option<u128>,
-        route_to_worker_id: Option<u128>,
-        route_to_operation_id: Option<u128>,
-    ) -> Message {
+    pub fn new(msg: Box<dyn SendableMessage>) -> Message {
         Message {
             msg_name_id: msg.msg_name().as_u16(),
             msg_id: Uuid::new_v4().as_u128(),
             msg,
-            sent_from_worker_id,
-            sent_from_pipeline_id,
-            sent_from_operation_id,
-            sent_from_client_id,
-            route_to_worker_id,
-            route_to_operation_id,
+            sent_from_worker_id: None,
+            sent_from_pipeline_id: None,
+            sent_from_operation_id: None,
+            sent_from_client_id: None,
+            route_to_worker_id: None,
+            route_to_operation_id: None,
         }
+    }
+
+    pub fn set_sent_from_worker_id(mut self, _id: u128) -> Message {
+        self.sent_from_worker_id = Some(_id);
+        self
+    }
+
+    pub fn set_sent_from_pipeline_id(mut self, _id: u128) -> Message {
+        self.sent_from_pipeline_id = Some(_id);
+        self
+    }
+
+    pub fn set_sent_from_operation_id(mut self, _id: u128) -> Message {
+        self.sent_from_operation_id = Some(_id);
+        self
+    }
+
+    pub fn set_sent_from_client_id(mut self, _id: u128) -> Message {
+        self.sent_from_client_id = Some(_id);
+        self
+    }
+
+    pub fn set_route_to_worker_id(mut self, _id: u128) -> Message {
+        self.route_to_worker_id = Some(_id);
+        self
+    }
+
+    pub fn set_route_to_operation_id(mut self, _id: u128) -> Message {
+        self.route_to_operation_id = Some(_id);
+        self
     }
 
     pub fn build_from_serialized_message(

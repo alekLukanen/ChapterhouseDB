@@ -24,15 +24,7 @@ impl QueryClient {
     }
 
     pub fn new_msg(&self, msg: Box<dyn SendableMessage>) -> Message {
-        return Message::new(
-            msg,
-            None,
-            None,
-            None,
-            Some(self.client_id.clone()),
-            None,
-            None,
-        );
+        Message::new(msg).set_sent_from_client_id(self.client_id.clone())
     }
 
     pub fn get_client_id(&self) -> u128 {

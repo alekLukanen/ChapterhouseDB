@@ -6,25 +6,33 @@ use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 use tracing::info;
 
 use super::message_registry::MessageRegistry;
 use super::messages::Message;
 
 #[derive(Error, Debug)]
-pub enum MessengerErrors {
+pub enum MessengerError {
     #[error("connection reset by peer")]
     ConnectionResetByPeer,
+    #[error("buffer reached max size")]
+    BufferReachedMaxSize,
+    #[error("timed out waiting for connections to close")]
+    TimedOutWaitingForConnectionsToClose,
 }
 
 pub struct Messenger {
+    cancellation_token: CancellationToken,
     address: String,
     msg_reg: Arc<Box<MessageRegistry>>,
 }
 
 impl Messenger {
-    pub fn new(address: String) -> Messenger {
+    pub fn new(cancellation_token: CancellationToken, address: String) -> Messenger {
         return Messenger {
+            cancellation_token,
             address,
             msg_reg: Arc::new(Box::new(MessageRegistry::new())),
         };
@@ -33,6 +41,7 @@ impl Messenger {
     pub async fn listen(&self) -> Result<()> {
         info!("Starting Messenger...");
 
+        let tt = TaskTracker::new();
         let listener = TcpListener::bind(&self.address).await?;
 
         let (tx, rx) = mpsc::channel::<Message>(100);
@@ -41,19 +50,41 @@ impl Messenger {
         info!("Messenger listening on {}", self.address);
 
         loop {
-            let (socket, _) = listener.accept().await?;
-            info!("New connection established");
+            tokio::select! {
+                res = listener.accept() => {
+                    match res {
+                        Ok((socket, _)) => {
+                            let mut connection =
+                                InboundConnection::new(socket, tx.clone(), Arc::clone(&self.msg_reg));
 
-            let mut connection =
-                InboundConnection::new(socket, tx.clone(), Arc::clone(&self.msg_reg));
-
-            // Spawn a new task to handle the connection
-            tokio::spawn(async move {
-                if let Err(err) = connection.read_msgs().await {
-                    info!("error reading from tcp socket: {}", err);
+                            // Spawn a new task to handle the connection
+                            tt.spawn(async move {
+                                if let Err(err) = connection.read_msgs().await {
+                                    info!("error reading from tcp socket: {}", err);
+                                }
+                            });
+                        },
+                        Err(err) => {
+                            return Err(err.into());
+                        }
+                    }
                 }
-            });
+                _ = self.cancellation_token.cancelled() => {
+                    break;
+                }
+            }
         }
+
+        // wait for all existing connection to close
+        tt.close();
+        tokio::select! {
+            _ = tt.wait() => {},
+            _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
+                return Err(MessengerError::TimedOutWaitingForConnectionsToClose.into());
+            }
+        }
+
+        Ok(())
     }
 
     async fn task_route_message(mut rx: mpsc::Receiver<Message>) -> Result<()> {
@@ -89,6 +120,8 @@ impl InboundConnection {
     }
 
     async fn read_msgs(&mut self) -> Result<()> {
+        info!("new connection");
+
         loop {
             if let Ok(msg) = self.msg_reg.build_msg(&mut self.buf) {
                 if let Some(msg) = msg {
@@ -99,11 +132,15 @@ impl InboundConnection {
                 continue;
             }
 
+            if self.buf.len() > 1024 * 1024 * 10 {
+                return Err(MessengerError::BufferReachedMaxSize.into());
+            }
+
             if self.stream.read_buf(&mut self.buf).await? == 0 {
                 if self.buf.is_empty() {
                     return Ok(());
                 } else {
-                    return Err(MessengerErrors::ConnectionResetByPeer.into());
+                    return Err(MessengerError::ConnectionResetByPeer.into());
                 }
             }
         }
