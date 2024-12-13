@@ -41,20 +41,22 @@ pub struct SerializedMessage {
     // 1 - worker_id set (bit 0)
     // 2 - pipeline_id set (bit 1)
     // 4 - operation_id set (bit 2)
-    // 8 - client_id set (bit 3)
+    // 8 - connection_id set (bit 3)
     sent_from_flags: u8,
     sent_from_worker_id: u128,
     sent_from_pipeline_id: u128,
     sent_from_operation_id: u128,
-    sent_from_client_id: u128,
+    sent_from_connection_id: u128,
 
     // determines which of the routing values
     // have been set
     // 1 - worker_id set (bit 0)
     // 2 - operation_id set (bit 1)
+    // 4 - connection_id set (bit 2)
     routing_flags: u8,
     route_to_worker_id: u128,
     route_to_operation_id: u128,
+    route_to_connection_id: u128,
 
     // the actual user-space message
     msg_data: Vec<u8>,
@@ -82,6 +84,12 @@ impl SerializedMessage {
             routing_flags = routing_flags | (1 << 1);
         }
 
+        let mut route_to_connection_id: u128 = 0;
+        if let Some(_id) = msg.route_to_connection_id {
+            route_to_connection_id = _id;
+            routing_flags = routing_flags | (1 << 2);
+        }
+
         let mut sent_from_worker_id: u128 = 0;
         if let Some(_id) = msg.sent_from_worker_id {
             sent_from_worker_id = _id;
@@ -100,9 +108,9 @@ impl SerializedMessage {
             sent_from_flags = sent_from_flags | (1 << 2);
         }
 
-        let mut sent_from_client_id: u128 = 0;
-        if let Some(_id) = msg.sent_from_client_id {
-            sent_from_client_id = _id;
+        let mut sent_from_connection_id: u128 = 0;
+        if let Some(_id) = msg.sent_from_connection_id {
+            sent_from_connection_id = _id;
             sent_from_flags = sent_from_flags | (1 << 3);
         }
 
@@ -116,17 +124,18 @@ impl SerializedMessage {
             sent_from_worker_id,
             sent_from_pipeline_id,
             sent_from_operation_id,
-            sent_from_client_id,
+            sent_from_connection_id,
             routing_flags,
             route_to_worker_id,
             route_to_operation_id,
+            route_to_connection_id,
             msg_data,
         };
         Ok(ser_msg)
     }
 
     pub fn header_len() -> u32 {
-        8 + 2 + 2 + 16 + 1 + 16 + 16 + 16 + 16 + 1 + 16 + 16
+        8 + 2 + 2 + 16 + 1 + 16 + 16 + 16 + 16 + 1 + 16 + 16 + 16
     }
 
     pub fn parse_registered_msg_id(data: &mut BytesMut) -> Result<u16> {
@@ -157,11 +166,12 @@ impl SerializedMessage {
                 let sent_from_worker_id = buf.get_u128();
                 let sent_from_pipeline_id = buf.get_u128();
                 let sent_from_operation_id = buf.get_u128();
-                let sent_from_client_id = buf.get_u128();
+                let sent_from_connection_id = buf.get_u128();
 
                 let routing_flags = buf.get_u8();
                 let route_to_worker_id = buf.get_u128();
                 let route_to_operation_id = buf.get_u128();
+                let route_to_connection_id = buf.get_u128();
 
                 let mut msg_data = Vec::new();
                 match buf.read_to_end(&mut msg_data) {
@@ -179,10 +189,11 @@ impl SerializedMessage {
                     sent_from_worker_id,
                     sent_from_pipeline_id,
                     sent_from_operation_id,
-                    sent_from_client_id,
+                    sent_from_connection_id,
                     routing_flags,
                     route_to_worker_id,
                     route_to_operation_id,
+                    route_to_connection_id,
                     msg_data,
                 };
 
@@ -226,10 +237,11 @@ impl SerializedMessage {
         buf.put_u128(self.sent_from_worker_id);
         buf.put_u128(self.sent_from_pipeline_id);
         buf.put_u128(self.sent_from_operation_id);
-        buf.put_u128(self.sent_from_client_id);
+        buf.put_u128(self.sent_from_connection_id);
         buf.put_u8(self.routing_flags);
         buf.put_u128(self.route_to_worker_id);
         buf.put_u128(self.route_to_operation_id);
+        buf.put_u128(self.route_to_connection_id);
         buf.put(&self.msg_data[..]);
 
         buf.to_vec()
@@ -246,11 +258,12 @@ pub struct Message {
     pub sent_from_worker_id: Option<u128>,
     pub sent_from_pipeline_id: Option<u128>,
     pub sent_from_operation_id: Option<u128>,
-    pub sent_from_client_id: Option<u128>,
+    pub sent_from_connection_id: Option<u128>,
 
     // routing
     pub route_to_worker_id: Option<u128>,
     pub route_to_operation_id: Option<u128>,
+    pub route_to_connection_id: Option<u128>,
 }
 
 impl Message {
@@ -262,9 +275,10 @@ impl Message {
             sent_from_worker_id: None,
             sent_from_pipeline_id: None,
             sent_from_operation_id: None,
-            sent_from_client_id: None,
+            sent_from_connection_id: None,
             route_to_worker_id: None,
             route_to_operation_id: None,
+            route_to_connection_id: None,
         }
     }
 
@@ -283,8 +297,8 @@ impl Message {
         self
     }
 
-    pub fn set_sent_from_client_id(mut self, _id: u128) -> Message {
-        self.sent_from_client_id = Some(_id);
+    pub fn set_sent_from_connection_id(mut self, _id: u128) -> Message {
+        self.sent_from_connection_id = Some(_id);
         self
     }
 
@@ -295,6 +309,11 @@ impl Message {
 
     pub fn set_route_to_operation_id(mut self, _id: u128) -> Message {
         self.route_to_operation_id = Some(_id);
+        self
+    }
+
+    pub fn set_route_to_connection_id(mut self, _id: u128) -> Message {
+        self.route_to_connection_id = Some(_id);
         self
     }
 
@@ -321,8 +340,8 @@ impl Message {
             None
         };
 
-        let sent_from_client_id = if ser_msg.sent_from_flags & 8 == 8 {
-            Some(ser_msg.sent_from_client_id)
+        let sent_from_connection_id = if ser_msg.sent_from_flags & 8 == 8 {
+            Some(ser_msg.sent_from_connection_id)
         } else {
             None
         };
@@ -340,6 +359,12 @@ impl Message {
             None
         };
 
+        let route_to_connection_id = if ser_msg.routing_flags & 4 == 4 {
+            Some(ser_msg.route_to_connection_id)
+        } else {
+            None
+        };
+
         let msg = Message {
             msg_name_id: ser_msg.msg_name_id,
             msg_id: ser_msg.msg_id,
@@ -347,9 +372,10 @@ impl Message {
             sent_from_worker_id,
             sent_from_pipeline_id,
             sent_from_operation_id,
-            sent_from_client_id,
+            sent_from_connection_id,
             route_to_worker_id,
             route_to_operation_id,
+            route_to_connection_id,
         };
 
         msg

@@ -9,7 +9,6 @@ use tracing::info;
 use uuid::Uuid;
 
 pub struct QueryClient {
-    client_id: u128,
     address: String,
     stream: TcpStream,
 }
@@ -17,18 +16,13 @@ pub struct QueryClient {
 impl QueryClient {
     pub fn new(address: String) -> Result<QueryClient> {
         Ok(QueryClient {
-            client_id: Uuid::new_v4().as_u128(),
             address: address.clone(),
             stream: TcpStream::connect(address)?,
         })
     }
 
     pub fn new_msg(&self, msg: Box<dyn SendableMessage>) -> Message {
-        Message::new(msg).set_sent_from_client_id(self.client_id.clone())
-    }
-
-    pub fn get_client_id(&self) -> u128 {
-        self.client_id
+        Message::new(msg).set_sent_from_connection_id(Uuid::new_v4().as_u128())
     }
 
     pub fn send_ping_message(&mut self, count: u8) -> Result<()> {

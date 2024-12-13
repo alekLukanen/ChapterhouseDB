@@ -4,10 +4,12 @@ use anyhow::Result;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::info;
+use uuid::Uuid;
 
 use crate::handlers::message_handler::MessageHandler;
 
 pub struct QueryWorker {
+    worker_id: u128,
     messenger: Arc<MessageHandler>,
     cancelation_token: CancellationToken,
 }
@@ -16,7 +18,8 @@ impl QueryWorker {
     pub fn new(address: String) -> QueryWorker {
         let ct = CancellationToken::new();
         return QueryWorker {
-            messenger: Arc::new(MessageHandler::new(ct.clone(), address.clone())),
+            worker_id: Uuid::new_v4().as_u128(),
+            messenger: Arc::new(MessageHandler::new(address.clone())),
             cancelation_token: ct,
         };
     }
@@ -33,8 +36,9 @@ impl QueryWorker {
 
         // Messenger ////////////////////////
         let messenger = Arc::clone(&self.messenger);
+        let messenger_ct = self.cancelation_token.clone();
         tt.spawn(async move {
-            if let Err(err) = messenger.listen().await {
+            if let Err(err) = messenger.listen(messenger_ct).await {
                 info!("error: {}", err);
             }
         });

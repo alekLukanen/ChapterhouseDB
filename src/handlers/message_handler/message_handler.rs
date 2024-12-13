@@ -24,28 +24,26 @@ pub enum MessengerError {
 }
 
 pub struct MessageHandler {
-    cancellation_token: CancellationToken,
     address: String,
     msg_reg: Arc<Box<MessageRegistry>>,
 }
 
 impl MessageHandler {
-    pub fn new(cancellation_token: CancellationToken, address: String) -> MessageHandler {
+    pub fn new(address: String) -> MessageHandler {
         return MessageHandler {
-            cancellation_token,
             address,
             msg_reg: Arc::new(Box::new(MessageRegistry::new())),
         };
     }
 
-    pub async fn listen(&self) -> Result<()> {
+    pub async fn listen(&self, ct: CancellationToken) -> Result<()> {
         info!("Starting Messenger...");
 
         let tt = TaskTracker::new();
         let listener = TcpListener::bind(&self.address).await?;
 
         let (tx, rx) = mpsc::channel::<Message>(100);
-        tokio::spawn(MessageHandler::task_route_message(rx));
+        tt.spawn(MessageHandler::task_route_message(ct.clone(), rx));
 
         info!("Messenger listening on {}", self.address);
 
@@ -69,7 +67,7 @@ impl MessageHandler {
                         }
                     }
                 }
-                _ = self.cancellation_token.cancelled() => {
+                _ = ct.cancelled() => {
                     break;
                 }
             }
@@ -87,14 +85,21 @@ impl MessageHandler {
         Ok(())
     }
 
-    async fn task_route_message(mut rx: mpsc::Receiver<Message>) -> Result<()> {
+    async fn task_route_message(
+        ct: CancellationToken,
+        mut rx: mpsc::Receiver<Message>,
+    ) -> Result<()> {
         loop {
             tokio::select! {
                 Some(msg) = rx.recv() => {
                     info!("message: {:?}", msg);
                 },
+                _ = ct.cancelled() => {
+                    break;
+                }
             }
         }
+        Ok(())
     }
 }
 
