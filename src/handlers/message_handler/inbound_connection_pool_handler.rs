@@ -5,6 +5,7 @@ use bytes::BytesMut;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::broadcast;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -23,27 +24,47 @@ pub enum MessengerError {
     TimedOutWaitingForConnectionsToClose,
 }
 
-pub struct MessageHandler {
+pub struct InboundConnectionPoolHandler {
     address: String,
+    connect_to_addresses: Vec<String>,
+
     msg_reg: Arc<Box<MessageRegistry>>,
+    outbound_sender: broadcast::Sender<Message>,
+    outbound_receiver: broadcast::Receiver<Message>,
+    inbound_receiver: mpsc::Receiver<Message>,
+    inbound_sender: mpsc::Sender<Message>,
 }
 
-impl MessageHandler {
-    pub fn new(address: String) -> MessageHandler {
-        return MessageHandler {
+impl InboundConnectionPoolHandler {
+    pub fn new(address: String, connect_to_addresses: Vec<String>) -> InboundConnectionPoolHandler {
+        let (out_tx, out_rx) = broadcast::channel(1);
+        let (in_tx, in_rx) = mpsc::channel(1);
+        return InboundConnectionPoolHandler {
             address,
+            connect_to_addresses,
             msg_reg: Arc::new(Box::new(MessageRegistry::new())),
+            outbound_sender: out_tx,
+            outbound_receiver: out_rx,
+            inbound_receiver: in_rx,
+            inbound_sender: in_tx,
         };
     }
 
-    pub async fn listen(&self, ct: CancellationToken) -> Result<()> {
+    pub fn inbound_sender(&self) -> mpsc::Sender<Message> {
+        self.inbound_sender.clone()
+    }
+
+    pub fn outbound_receiver(&mut self) -> broadcast::Receiver<Message> {
+        self.outbound_sender.subscribe()
+    }
+
+    pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
         info!("Starting Messenger...");
 
         let tt = TaskTracker::new();
         let listener = TcpListener::bind(&self.address).await?;
 
-        let (tx, rx) = mpsc::channel::<Message>(100);
-        tt.spawn(MessageHandler::task_route_message(ct.clone(), rx));
+        let (connection_tx, mut connection_rx) = mpsc::channel::<Message>(1);
 
         info!("Messenger listening on {}", self.address);
 
@@ -53,7 +74,7 @@ impl MessageHandler {
                     match res {
                         Ok((socket, _)) => {
                             let mut connection =
-                                InboundConnection::new(socket, tx.clone(), Arc::clone(&self.msg_reg));
+                                InboundConnection::new(socket, connection_tx.clone(), Arc::clone(&self.msg_reg));
 
                             // Spawn a new task to handle the connection
                             tt.spawn(async move {
@@ -67,11 +88,19 @@ impl MessageHandler {
                         }
                     }
                 }
+                Some(msg) = connection_rx.recv() => {
+                    info!("message: {:?}", msg);
+                    if let Err(err) = self.outbound_sender.send(msg) {
+                        info!("error: {}", err);
+                    }
+                }
                 _ = ct.cancelled() => {
                     break;
                 }
             }
         }
+
+        info!("message handler closing...");
 
         // wait for all existing connection to close
         tt.close();
@@ -84,28 +113,11 @@ impl MessageHandler {
 
         Ok(())
     }
-
-    async fn task_route_message(
-        ct: CancellationToken,
-        mut rx: mpsc::Receiver<Message>,
-    ) -> Result<()> {
-        loop {
-            tokio::select! {
-                Some(msg) = rx.recv() => {
-                    info!("message: {:?}", msg);
-                },
-                _ = ct.cancelled() => {
-                    break;
-                }
-            }
-        }
-        Ok(())
-    }
 }
 
 struct InboundConnection {
     stream: TcpStream,
-    msg_chan: mpsc::Sender<Message>,
+    msg_sender: mpsc::Sender<Message>,
     msg_reg: Arc<Box<MessageRegistry>>,
     buf: BytesMut,
 }
@@ -113,12 +125,12 @@ struct InboundConnection {
 impl InboundConnection {
     fn new(
         stream: TcpStream,
-        msg_chan: mpsc::Sender<Message>,
+        msg_sender: mpsc::Sender<Message>,
         msg_reg: Arc<Box<MessageRegistry>>,
     ) -> InboundConnection {
         InboundConnection {
             stream,
-            msg_chan,
+            msg_sender,
             msg_reg,
             buf: BytesMut::with_capacity(4096),
         }
@@ -130,13 +142,13 @@ impl InboundConnection {
         loop {
             if let Ok(msg) = self.msg_reg.build_msg(&mut self.buf) {
                 if let Some(msg) = msg {
-                    info!("found message");
-                    self.msg_chan.send(msg).await?;
+                    self.msg_sender.send(msg).await?;
                     self.stream.write_all("OK".as_bytes()).await?;
                 }
                 continue;
             }
 
+            // end the conneciton if the other system has sent too much data
             if self.buf.len() > 1024 * 1024 * 10 {
                 return Err(MessengerError::BufferReachedMaxSize.into());
             }

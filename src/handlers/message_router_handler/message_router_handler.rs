@@ -4,13 +4,13 @@ use anyhow::Result;
 use thiserror::Error;
 use tokio::{
     select,
-    sync::{mpsc, Mutex},
+    sync::{broadcast, mpsc},
 };
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::info;
 
-use crate::handlers::message_handler::{Message, MessageName};
+use crate::handlers::message_handler::Message;
 
 #[derive(Debug, Error)]
 pub enum MessageRouterError {
@@ -60,25 +60,38 @@ impl MessageSubscriber {
 
 pub struct MessageRouterHandler {
     task_tracker: TaskTracker,
-    subscribers: Mutex<Vec<MessageSubscriber>>,
+    messenger_sender: mpsc::Sender<Message>,
+    messenger_receiver: broadcast::Receiver<Message>,
 }
 
 impl MessageRouterHandler {
-    pub fn new() -> MessageRouterHandler {
+    pub fn new(
+        messenger_sender: mpsc::Sender<Message>,
+        messenger_receiver: broadcast::Receiver<Message>,
+    ) -> MessageRouterHandler {
         MessageRouterHandler {
             task_tracker: TaskTracker::new(),
-            subscribers: Mutex::new(Vec::new()),
+            messenger_sender,
+            messenger_receiver,
         }
     }
 
-    pub async fn async_main(&self, ct: CancellationToken) -> Result<()> {
+    pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
         loop {
             tokio::select! {
+                msg = self.messenger_receiver.recv() => {
+                    match msg {
+                        Ok(msg) => info!("message: {:?}", msg),
+                        Err(err) => info!("error: {}", err)
+                    }
+                }
                 _ = ct.cancelled() => {
                     break;
                 }
             }
         }
+
+        info!("message router handler closing...");
 
         self.task_tracker.close();
         tokio::select! {

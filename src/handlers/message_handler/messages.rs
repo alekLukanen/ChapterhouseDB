@@ -20,6 +20,7 @@ pub enum SerializedMessageError {
 pub trait SendableMessage: fmt::Debug + Send + Sync {
     fn to_bytes(&self) -> Result<Vec<u8>>;
     fn msg_name(&self) -> MessageName;
+    fn clone_box(&self) -> Box<dyn SendableMessage>;
 }
 
 pub trait MessageParser: fmt::Debug + Send + Sync {
@@ -266,6 +267,23 @@ pub struct Message {
     pub route_to_connection_id: Option<u128>,
 }
 
+impl Clone for Message {
+    fn clone(&self) -> Self {
+        Message {
+            msg_name_id: self.msg_name_id,
+            msg_id: self.msg_id,
+            msg: self.msg.clone_box(),
+            sent_from_worker_id: self.sent_from_worker_id,
+            sent_from_pipeline_id: self.sent_from_pipeline_id,
+            sent_from_operation_id: self.sent_from_operation_id,
+            sent_from_connection_id: self.sent_from_connection_id,
+            route_to_worker_id: self.route_to_worker_id,
+            route_to_operation_id: self.route_to_operation_id,
+            route_to_connection_id: self.route_to_connection_id,
+        }
+    }
+}
+
 impl Message {
     pub fn new(msg: Box<dyn SendableMessage>) -> Message {
         Message {
@@ -440,6 +458,9 @@ impl SendableMessage for Ping {
     }
     fn msg_name(&self) -> MessageName {
         MessageName::Ping
+    }
+    fn clone_box(&self) -> Box<dyn SendableMessage> {
+        Box::new(self.clone())
     }
 }
 

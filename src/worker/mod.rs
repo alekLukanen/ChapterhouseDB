@@ -1,3 +1,3 @@
 mod query_worker;
 
-pub use self::query_worker::QueryWorker;
+pub use self::query_worker::{QueryWorker, QueryWorkerConfig};
