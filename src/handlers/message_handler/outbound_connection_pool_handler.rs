@@ -10,6 +10,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::info;
 
+use super::Pipe;
 use super::{message_registry::MessageRegistry, Message};
 
 #[derive(Error, Debug)]
@@ -22,45 +23,27 @@ pub enum ConnectionPoolError {
     TimedOutWaitingForConnectionsToClose,
 }
 
-pub struct OutboundConnectionPoolComm {
-    sender: mpsc::Sender<Message>,
-}
-
-impl OutboundConnectionPoolComm {
-    fn new(sender: mpsc::Sender<Message>) -> OutboundConnectionPoolComm {
-        OutboundConnectionPoolComm { sender }
-    }
-    pub async fn send(&self, msg: Message) -> Result<()> {
-        self.sender.send(msg).await?;
-        Ok(())
-    }
-}
-
 pub struct OutboundConnectionPoolHandler {
     connect_to_addresses: Vec<String>,
-    outbound_connections: Arc<Mutex<Vec<OutboundConnection>>>,
-    inbound_sender: mpsc::Sender<Message>,
-    outbound_receiver: mpsc::Receiver<Message>,
+    outbound_connections: Arc<Mutex<Vec<OutboundConnectionComm>>>,
     msg_reg: Arc<Box<MessageRegistry>>,
+
+    pipe: Pipe<Message>,
 }
 
 impl OutboundConnectionPoolHandler {
     pub fn new(
         connect_to_addresses: Vec<String>,
         msg_reg: Arc<Box<MessageRegistry>>,
-    ) -> OutboundConnectionPoolHandler {
-        let (send, recv) = mpsc::channel(1);
-        OutboundConnectionPoolHandler {
+    ) -> (OutboundConnectionPoolHandler, Pipe<Message>) {
+        let (p1, p2) = Pipe::new(1);
+        let hndlr = OutboundConnectionPoolHandler {
             connect_to_addresses,
             outbound_connections: Arc::new(Mutex::new(Vec::new())),
-            inbound_sender: send,
-            outbound_receiver: recv,
             msg_reg,
-        }
-    }
-
-    pub fn comm(&self) -> OutboundConnectionPoolComm {
-        OutboundConnectionPoolComm::new(self.inbound_sender.clone())
+            pipe: p1,
+        };
+        (hndlr, p2)
     }
 
     pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
@@ -68,30 +51,29 @@ impl OutboundConnectionPoolHandler {
 
         // make outbound connections
         // TODO: handle connections that close; need reconnect
-        let mut outbound_connection_comms: Vec<OutboundConnectionComm> = Vec::new();
         for address in &self.connect_to_addresses {
-            let mut connection =
+            let (mut connection, pipe) =
                 OutboundConnection::new(address.clone(), Arc::clone(&self.msg_reg));
-            let comm = connection.comm();
+            let comm = OutboundConnectionComm::new(address.clone(), pipe);
             let ct = ct.clone();
             tt.spawn(async move {
                 if let Err(err) = connection.async_main(ct).await {
                     info!("error: {}", err);
                 }
             });
-            outbound_connection_comms.push(comm);
+            self.outbound_connections.clone().lock().await.push(comm);
         }
 
         loop {
             tokio::select! {
-                Some(msg) = self.outbound_receiver.recv() => {
+                Some(msg) = self.pipe.recv() => {
                     info!("message: {:?}", msg);
-                    for comm in &outbound_connection_comms {
+                    for comm in self.outbound_connections.lock().await.iter() {
                         // TODO: add message routing based on address; the message router handler
                         // will know about addresses and relating them to workers. It will include
                         // the address on the message. For now send and the other worker will
                         // ignore the message.
-                        if let Err(err) = comm.msg_sender.send(msg.clone()).await {
+                        if let Err(err) = comm.pipe.send(msg.clone()).await {
                             // if there is an error close the connection
                             info!("error: {}", err);
                             comm.connection_ct.cancel();
@@ -118,39 +100,43 @@ impl OutboundConnectionPoolHandler {
     }
 }
 
-struct OutboundConnectionComm {
+pub struct OutboundConnectionComm {
     address: String,
-    msg_sender: mpsc::Sender<Message>,
+    pipe: Pipe<Message>,
     connection_ct: CancellationToken,
+}
+
+impl OutboundConnectionComm {
+    fn new(address: String, pipe: Pipe<Message>) -> OutboundConnectionComm {
+        OutboundConnectionComm {
+            address,
+            pipe,
+            connection_ct: CancellationToken::new(),
+        }
+    }
 }
 
 struct OutboundConnection {
     address: String,
-    msg_receiver: mpsc::Receiver<Message>,
-    msg_sender: mpsc::Sender<Message>,
     msg_reg: Arc<Box<MessageRegistry>>,
-
     connection_ct: CancellationToken,
+
+    pipe: Pipe<Message>,
 }
 
 impl OutboundConnection {
-    fn new(address: String, msg_reg: Arc<Box<MessageRegistry>>) -> OutboundConnection {
-        let (msg_sender, msg_receiver) = mpsc::channel(1);
-        OutboundConnection {
+    fn new(
+        address: String,
+        msg_reg: Arc<Box<MessageRegistry>>,
+    ) -> (OutboundConnection, Pipe<Message>) {
+        let (p1, p2) = Pipe::new(1);
+        let conn = OutboundConnection {
             address,
-            msg_receiver,
-            msg_sender,
             msg_reg,
             connection_ct: CancellationToken::new(),
-        }
-    }
-
-    fn comm(&self) -> OutboundConnectionComm {
-        OutboundConnectionComm {
-            address: self.address.clone(),
-            msg_sender: self.msg_sender.clone(),
-            connection_ct: self.connection_ct.clone(),
-        }
+            pipe: p1,
+        };
+        (conn, p2)
     }
 
     async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
@@ -158,7 +144,7 @@ impl OutboundConnection {
 
         loop {
             tokio::select! {
-                Some(msg) = self.msg_receiver.recv() => {
+                Some(msg) = self.pipe.recv() => {
                     let msg_bytes = msg.to_bytes()?;
                     stream.write_all(&msg_bytes[..]).await?;
 

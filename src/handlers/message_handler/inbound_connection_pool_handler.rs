@@ -5,7 +5,6 @@ use bytes::BytesMut;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::broadcast;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -13,6 +12,7 @@ use tracing::info;
 
 use super::message_registry::MessageRegistry;
 use super::messages::Message;
+use super::Pipe;
 
 #[derive(Error, Debug)]
 pub enum MessengerError {
@@ -24,38 +24,46 @@ pub enum MessengerError {
     TimedOutWaitingForConnectionsToClose,
 }
 
+pub struct InboundConnectionPoolComm {
+    sender: mpsc::Sender<Message>,
+    receiver: mpsc::Receiver<Message>,
+}
+
+impl InboundConnectionPoolComm {
+    fn new(
+        sender: mpsc::Sender<Message>,
+        receiver: mpsc::Receiver<Message>,
+    ) -> InboundConnectionPoolComm {
+        InboundConnectionPoolComm { sender, receiver }
+    }
+    pub async fn send(&self, msg: Message) -> Result<()> {
+        self.sender.send(msg).await?;
+        Ok(())
+    }
+    pub async fn recv(&mut self) -> Option<Message> {
+        self.receiver.recv().await
+    }
+}
+
 pub struct InboundConnectionPoolHandler {
     address: String,
-    connect_to_addresses: Vec<String>,
 
     msg_reg: Arc<Box<MessageRegistry>>,
-    outbound_sender: broadcast::Sender<Message>,
-    outbound_receiver: broadcast::Receiver<Message>,
-    inbound_receiver: mpsc::Receiver<Message>,
-    inbound_sender: mpsc::Sender<Message>,
+    pipe: Pipe<Message>,
 }
 
 impl InboundConnectionPoolHandler {
-    pub fn new(address: String, connect_to_addresses: Vec<String>) -> InboundConnectionPoolHandler {
-        let (out_tx, out_rx) = broadcast::channel(1);
-        let (in_tx, in_rx) = mpsc::channel(1);
-        return InboundConnectionPoolHandler {
+    pub fn new(
+        address: String,
+        msg_reg: Arc<Box<MessageRegistry>>,
+    ) -> (InboundConnectionPoolHandler, Pipe<Message>) {
+        let (p1, p2) = Pipe::new(1);
+        let hndlr = InboundConnectionPoolHandler {
             address,
-            connect_to_addresses,
-            msg_reg: Arc::new(Box::new(MessageRegistry::new())),
-            outbound_sender: out_tx,
-            outbound_receiver: out_rx,
-            inbound_receiver: in_rx,
-            inbound_sender: in_tx,
+            msg_reg: msg_reg,
+            pipe: p1,
         };
-    }
-
-    pub fn inbound_sender(&self) -> mpsc::Sender<Message> {
-        self.inbound_sender.clone()
-    }
-
-    pub fn outbound_receiver(&mut self) -> broadcast::Receiver<Message> {
-        self.outbound_sender.subscribe()
+        (hndlr, p2)
     }
 
     pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
@@ -90,7 +98,7 @@ impl InboundConnectionPoolHandler {
                 }
                 Some(msg) = connection_rx.recv() => {
                     info!("message: {:?}", msg);
-                    if let Err(err) = self.outbound_sender.send(msg) {
+                    if let Err(err) = self.pipe.send(msg).await {
                         info!("error: {}", err);
                     }
                 }

@@ -10,7 +10,9 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::info;
 
-use crate::handlers::message_handler::Message;
+use crate::handlers::message_handler::{
+    InboundConnectionPoolComm, InboundConnectionPoolHandler, Message, Pipe,
+};
 
 #[derive(Debug, Error)]
 pub enum MessageRouterError {
@@ -60,30 +62,27 @@ impl MessageSubscriber {
 
 pub struct MessageRouterHandler {
     task_tracker: TaskTracker,
-    messenger_sender: mpsc::Sender<Message>,
-    messenger_receiver: broadcast::Receiver<Message>,
+    inbound_connection_pipe: Pipe<Message>,
+    outbound_connection_pipe: Pipe<Message>,
 }
 
 impl MessageRouterHandler {
     pub fn new(
-        messenger_sender: mpsc::Sender<Message>,
-        messenger_receiver: broadcast::Receiver<Message>,
+        inbound_connection_pipe: Pipe<Message>,
+        outbound_connection_pipe: Pipe<Message>,
     ) -> MessageRouterHandler {
         MessageRouterHandler {
             task_tracker: TaskTracker::new(),
-            messenger_sender,
-            messenger_receiver,
+            inbound_connection_pipe,
+            outbound_connection_pipe,
         }
     }
 
     pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
         loop {
             tokio::select! {
-                msg = self.messenger_receiver.recv() => {
-                    match msg {
-                        Ok(msg) => info!("message: {:?}", msg),
-                        Err(err) => info!("error: {}", err)
-                    }
+                Some(msg) = self.inbound_connection_pipe.recv() => {
+                    info!("message: {:?}", msg);
                 }
                 _ = ct.cancelled() => {
                     break;

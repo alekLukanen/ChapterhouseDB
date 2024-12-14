@@ -1,10 +1,14 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::info;
 use uuid::Uuid;
 
-use crate::handlers::message_handler::InboundConnectionPoolHandler;
+use crate::handlers::message_handler::{
+    InboundConnectionPoolHandler, MessageRegistry, OutboundConnectionPoolHandler,
+};
 use crate::handlers::message_router_handler::MessageRouterHandler;
 
 pub struct QueryWorkerConfig {
@@ -47,22 +51,29 @@ impl QueryWorker {
     async fn async_main(&mut self) -> Result<()> {
         let tt = TaskTracker::new();
 
+        let msg_reg = Arc::new(Box::new(MessageRegistry::new()));
+
         // Messenger and Router ////////////////////////
-        let mut inbound_connection_pool_handler = InboundConnectionPoolHandler::new(
-            self.config.address.clone(),
-            self.config.connect_to_addresses.clone(),
-        );
+        let (mut inbound_connection_pool_handler, inbound_pipe) =
+            InboundConnectionPoolHandler::new(self.config.address.clone(), msg_reg.clone());
+        let (mut outbound_connection_pool_hander, outbound_pipe) =
+            OutboundConnectionPoolHandler::new(
+                self.config.connect_to_addresses.clone(),
+                msg_reg.clone(),
+            );
 
-        let router_receiver = inbound_connection_pool_handler.outbound_receiver();
-        let router_sender = inbound_connection_pool_handler.inbound_sender();
-        let mut message_router = MessageRouterHandler::new(router_sender, router_receiver);
+        let mut message_router = MessageRouterHandler::new(inbound_pipe, outbound_pipe);
 
-        let messenger_ct = self.cancelation_token.clone();
+        let ct = self.cancelation_token.clone();
         tt.spawn(async move {
-            if let Err(err) = inbound_connection_pool_handler
-                .async_main(messenger_ct)
-                .await
-            {
+            if let Err(err) = inbound_connection_pool_handler.async_main(ct).await {
+                info!("error: {}", err);
+            }
+        });
+
+        let ct = self.cancelation_token.clone();
+        tt.spawn(async move {
+            if let Err(err) = outbound_connection_pool_hander.async_main(ct).await {
                 info!("error: {}", err);
             }
         });
