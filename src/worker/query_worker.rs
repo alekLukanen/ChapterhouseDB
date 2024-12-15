@@ -6,9 +6,7 @@ use tokio_util::task::TaskTracker;
 use tracing::info;
 use uuid::Uuid;
 
-use crate::handlers::message_handler::{
-    InboundConnectionPoolHandler, MessageRegistry, OutboundConnectionPoolHandler,
-};
+use crate::handlers::message_handler::{ConnectionPoolHandler, MessageRegistry};
 use crate::handlers::message_router_handler::MessageRouterHandler;
 
 pub struct QueryWorkerConfig {
@@ -53,32 +51,22 @@ impl QueryWorker {
 
         let msg_reg = Arc::new(Box::new(MessageRegistry::new()));
 
-        // Messenger and Router ////////////////////////
-        let (mut inbound_connection_pool_handler, inbound_pipe) =
-            InboundConnectionPoolHandler::new(self.config.address.clone(), msg_reg.clone());
-        let (mut outbound_connection_pool_hander, outbound_pipe) =
-            OutboundConnectionPoolHandler::new(
-                self.config.connect_to_addresses.clone(),
-                msg_reg.clone(),
-            );
+        // Connect Pool and Router ////////////////////////
+        let (mut connection_pool_handler, connection_msg_pipe) = ConnectionPoolHandler::new(
+            self.config.address.clone(),
+            self.config.connect_to_addresses.clone(),
+            msg_reg.clone(),
+        );
 
         let mut message_router = MessageRouterHandler::new(
             self.worker_id.clone(),
             self.config.connect_to_addresses.clone(),
-            inbound_pipe,
-            outbound_pipe,
+            connection_msg_pipe,
         );
 
         let ct = self.cancelation_token.clone();
         tt.spawn(async move {
-            if let Err(err) = inbound_connection_pool_handler.async_main(ct).await {
-                info!("error: {}", err);
-            }
-        });
-
-        let ct = self.cancelation_token.clone();
-        tt.spawn(async move {
-            if let Err(err) = outbound_connection_pool_hander.async_main(ct).await {
+            if let Err(err) = connection_pool_handler.async_main(ct).await {
                 info!("error: {}", err);
             }
         });

@@ -21,8 +21,7 @@ pub struct MessageRouterHandler {
     worker_id: u128,
     connect_to_addresses: Vec<String>,
     task_tracker: TaskTracker,
-    inbound_connection_pipe: Pipe<Message>,
-    outbound_connection_pipe: Pipe<Message>,
+    connection_pipe: Pipe<Message>,
     internal_subscribers: Arc<Mutex<Vec<InternalSubscriber>>>,
     worker_subscribers: Arc<Mutex<Vec<WorkerSubscriber>>>,
 }
@@ -31,15 +30,13 @@ impl MessageRouterHandler {
     pub fn new(
         worker_id: u128,
         connect_to_addresses: Vec<String>,
-        inbound_connection_pipe: Pipe<Message>,
-        outbound_connection_pipe: Pipe<Message>,
+        connection_pipe: Pipe<Message>,
     ) -> MessageRouterHandler {
         MessageRouterHandler {
             worker_id,
             connect_to_addresses,
             task_tracker: TaskTracker::new(),
-            inbound_connection_pipe,
-            outbound_connection_pipe,
+            connection_pipe,
             internal_subscribers: Arc::new(Mutex::new(Vec::new())),
             worker_subscribers: Arc::new(Mutex::new(Vec::new())),
         }
@@ -48,11 +45,8 @@ impl MessageRouterHandler {
     pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
         loop {
             tokio::select! {
-                Some(msg) = self.inbound_connection_pipe.recv() => {
+                Some(msg) = self.connection_pipe.recv() => {
                     info!("message: {:?}", msg);
-                }
-                Some(msg) = self.outbound_connection_pipe.recv() => {
-                    info!("message: {:?}", msg)
                 }
                 _ = ct.cancelled() => {
                     break;
