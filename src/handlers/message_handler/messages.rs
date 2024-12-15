@@ -265,6 +265,10 @@ pub struct Message {
     pub route_to_worker_id: Option<u128>,
     pub route_to_operation_id: Option<u128>,
     pub route_to_connection_id: Option<u128>,
+
+    // source
+    pub inbound_stream_id: Option<u128>,
+    pub outbound_stream_id: Option<u128>,
 }
 
 impl Clone for Message {
@@ -280,6 +284,8 @@ impl Clone for Message {
             route_to_worker_id: self.route_to_worker_id,
             route_to_operation_id: self.route_to_operation_id,
             route_to_connection_id: self.route_to_connection_id,
+            inbound_stream_id: None,
+            outbound_stream_id: None,
         }
     }
 }
@@ -297,7 +303,19 @@ impl Message {
             route_to_worker_id: None,
             route_to_operation_id: None,
             route_to_connection_id: None,
+            inbound_stream_id: None,
+            outbound_stream_id: None,
         }
+    }
+
+    pub fn set_inbound_stream_id(mut self, _id: u128) -> Message {
+        self.inbound_stream_id = Some(_id);
+        self
+    }
+
+    pub fn set_outbound_stream(mut self, _id: u128) -> Message {
+        self.outbound_stream_id = Some(_id);
+        self
     }
 
     pub fn set_sent_from_worker_id(mut self, _id: u128) -> Message {
@@ -394,6 +412,8 @@ impl Message {
             route_to_worker_id,
             route_to_operation_id,
             route_to_connection_id,
+            inbound_stream_id: None,
+            outbound_stream_id: None,
         };
 
         msg
@@ -415,17 +435,20 @@ impl Message {
 #[derive(Debug, Clone, PartialEq)]
 pub enum MessageName {
     Ping,
+    Identify,
 }
 
 impl MessageName {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Ping => "ping",
+            Self::Identify => "Identify",
         }
     }
     pub fn as_u16(&self) -> u16 {
         match self {
             Self::Ping => 0,
+            Self::Identify => 1,
         }
     }
 }
@@ -433,6 +456,37 @@ impl MessageName {
 impl fmt::Display for MessageName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Identify {
+    worker_id: Option<u128>,
+    connection_id: Option<u128>,
+}
+
+impl Identify {
+    pub fn new(worker_id: Option<u128>, connection_id: Option<u128>) -> Identify {
+        Identify {
+            worker_id,
+            connection_id,
+        }
+    }
+    pub fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: Identify = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
+    }
+}
+
+impl SendableMessage for Identify {
+    fn to_bytes(&self) -> Result<Vec<u8>> {
+        Ok(serde_json::to_vec(self)?)
+    }
+    fn msg_name(&self) -> MessageName {
+        MessageName::Identify
+    }
+    fn clone_box(&self) -> Box<dyn SendableMessage> {
+        Box::new(self.clone())
     }
 }
 

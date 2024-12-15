@@ -1,18 +1,15 @@
-use core::fmt;
+use std::sync::Arc;
 
 use anyhow::Result;
 use thiserror::Error;
-use tokio::{
-    select,
-    sync::{broadcast, mpsc},
-};
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::info;
 
-use crate::handlers::message_handler::{
-    InboundConnectionPoolComm, InboundConnectionPoolHandler, Message, Pipe,
-};
+use crate::handlers::message_handler::{Message, Pipe};
+
+use super::message_subscriber::{InternalSubscriber, Subscriber, WorkerSubscriber};
 
 #[derive(Debug, Error)]
 pub enum MessageRouterError {
@@ -20,61 +17,31 @@ pub enum MessageRouterError {
     TimedOutWaitingForConnectionsToClose,
 }
 
-pub trait Subscriber: fmt::Debug + Send + Sync {
-    fn consumes_message(&self, msg: &Message) -> bool;
-}
-
-#[derive(Debug)]
-struct MessageSubscriber {
-    sub: Box<dyn Subscriber>,
-    inbound: mpsc::Receiver<Message>,
-    outbound: mpsc::Sender<Message>,
-}
-
-impl MessageSubscriber {
-    fn new(
-        sub: Box<dyn Subscriber>,
-        inbound: mpsc::Receiver<Message>,
-        outbound: mpsc::Sender<Message>,
-    ) -> MessageSubscriber {
-        MessageSubscriber {
-            sub,
-            inbound,
-            outbound,
-        }
-    }
-
-    async fn async_main(&mut self, consumer_ct: CancellationToken) -> Result<()> {
-        loop {
-            select! {
-                Some(msg) = self.inbound.recv() => {
-                    info!("message: {:?}", msg);
-                },
-                _ = consumer_ct.cancelled() => {
-                    break;
-                }
-            }
-        }
-
-        Ok(())
-    }
-}
-
 pub struct MessageRouterHandler {
+    worker_id: u128,
+    connect_to_addresses: Vec<String>,
     task_tracker: TaskTracker,
     inbound_connection_pipe: Pipe<Message>,
     outbound_connection_pipe: Pipe<Message>,
+    internal_subscribers: Arc<Mutex<Vec<InternalSubscriber>>>,
+    worker_subscribers: Arc<Mutex<Vec<WorkerSubscriber>>>,
 }
 
 impl MessageRouterHandler {
     pub fn new(
+        worker_id: u128,
+        connect_to_addresses: Vec<String>,
         inbound_connection_pipe: Pipe<Message>,
         outbound_connection_pipe: Pipe<Message>,
     ) -> MessageRouterHandler {
         MessageRouterHandler {
+            worker_id,
+            connect_to_addresses,
             task_tracker: TaskTracker::new(),
             inbound_connection_pipe,
             outbound_connection_pipe,
+            internal_subscribers: Arc::new(Mutex::new(Vec::new())),
+            worker_subscribers: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -83,6 +50,9 @@ impl MessageRouterHandler {
             tokio::select! {
                 Some(msg) = self.inbound_connection_pipe.recv() => {
                     info!("message: {:?}", msg);
+                }
+                Some(msg) = self.outbound_connection_pipe.recv() => {
+                    info!("message: {:?}", msg)
                 }
                 _ = ct.cancelled() => {
                     break;
@@ -103,21 +73,17 @@ impl MessageRouterHandler {
         Ok(())
     }
 
-    pub async fn add_subscriber(
+    pub async fn add_internal_subscriber(
         &mut self,
-        ct: CancellationToken,
         sub: Box<dyn Subscriber>,
-    ) -> Result<(mpsc::Sender<Message>, mpsc::Receiver<Message>)> {
-        let (router_tx, sub_rx) = mpsc::channel(1);
-        let (sub_tx, router_rx) = mpsc::channel(1);
+    ) -> Result<Pipe<Message>> {
+        let (p1, p2) = Pipe::new(1);
+        let msg_sub = InternalSubscriber::new(sub, p1);
+        self.internal_subscribers.lock().await.push(msg_sub);
+        Ok(p2)
+    }
 
-        let mut msg_sub = MessageSubscriber::new(sub, router_rx, router_tx);
-        self.task_tracker.spawn(async move {
-            if let Err(err) = msg_sub.async_main(ct.clone()).await {
-                info!("error: {}", err);
-            }
-        });
-
-        Ok((sub_tx.clone(), sub_rx))
+    fn route_msg(&self, msg: Message) -> bool {
+        false
     }
 }

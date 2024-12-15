@@ -9,6 +9,7 @@ use tokio::{net::TcpStream, sync::mpsc};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::info;
+use uuid::Uuid;
 
 use super::Pipe;
 use super::{message_registry::MessageRegistry, Message};
@@ -117,6 +118,7 @@ impl OutboundConnectionComm {
 }
 
 struct OutboundConnection {
+    outbound_id: u128,
     address: String,
     msg_reg: Arc<Box<MessageRegistry>>,
     connection_ct: CancellationToken,
@@ -131,6 +133,7 @@ impl OutboundConnection {
     ) -> (OutboundConnection, Pipe<Message>) {
         let (p1, p2) = Pipe::new(1);
         let conn = OutboundConnection {
+            outbound_id: Uuid::new_v4().as_u128(),
             address,
             msg_reg,
             connection_ct: CancellationToken::new(),
