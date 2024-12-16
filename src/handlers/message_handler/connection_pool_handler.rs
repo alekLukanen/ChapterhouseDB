@@ -67,20 +67,15 @@ impl ConnectionPoolHandler {
             let stream_connect_tx = stream_connect_tx.clone();
             let cta = cta.clone();
             tt.spawn(async move {
-                if let Err(err) = Self::connect_to_address(ct, stream_connect_tx, cta, 3, 1).await {
+                if let Err(err) =
+                    Self::connect_to_address(ct, stream_connect_tx, cta, 12 * 5, 5).await
+                {
                     info!("error: {}", err);
                 }
             });
         }
 
         // TODO: handle connections that close; need reconnect
-        for address in &self.connect_to_addresses {
-            let stream = if let Ok(stream) = TcpStream::connect(address.clone()).await {
-                stream
-            } else {
-                continue;
-            };
-        }
 
         loop {
             tokio::select! {
@@ -163,9 +158,10 @@ impl ConnectionPoolHandler {
                     let conn_ct = connection.connection_ct.clone();
                     let connection_tx = connection_tx.clone();
                     tt.spawn(async move {
-                        if let Err(err) = Self::forward_msgs(ct1, conn_ct, conn_recv, connection_tx).await {
+                        if let Err(err) = Self::forward_msgs(ct1, conn_ct.clone(), conn_recv, connection_tx).await {
                             info!("error forwarding messages: {}", err);
                         }
+                        conn_ct.cancel();
                     });
 
                     // Spawn a new task to handle the connection
@@ -174,6 +170,7 @@ impl ConnectionPoolHandler {
                         if let Err(err) = connection.async_main(ct2).await {
                             info!("error reading from tcp socket: {}", err);
                         }
+                        connection.cleanup();
                     });
                 }
                 _ = ct.cancelled() => {
@@ -242,6 +239,7 @@ impl ConnectionPoolHandler {
                     match stream_resp {
                         Ok(stream) => {
                             sender.send(stream).await?;
+                            break;
                         }
                         Err(err) => {
                             info!("error: {}", err);

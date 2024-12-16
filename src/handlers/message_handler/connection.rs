@@ -74,7 +74,11 @@ impl Connection {
     }
 
     pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
-        info!("new connection");
+        info!(
+            stream_id = self.stream_id,
+            ip = self.stream.peer_addr()?.to_string(),
+            "new connection",
+        );
 
         loop {
             if let Ok(msg) = self.msg_reg.build_msg(&mut self.buf) {
@@ -128,7 +132,21 @@ impl Connection {
         }
 
         info!("closing connection...");
+        tokio::select! {
+            res = self.stream.shutdown() => {
+                if let Err(err) = res {
+                    return Err(err.into());
+                }
+            }
+            _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
+                return Err(ConnectionError::TimedOutWaitingForConnectionsToClose.into());
+            }
+        }
 
         Ok(())
+    }
+
+    pub fn cleanup(&self) {
+        self.connection_ct.cancel();
     }
 }

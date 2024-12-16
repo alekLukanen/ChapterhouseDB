@@ -47,6 +47,8 @@ impl QueryWorker {
     }
 
     async fn async_main(&mut self) -> Result<()> {
+        info!("worker_id: {}", self.worker_id);
+
         let tt = TaskTracker::new();
 
         let msg_reg = Arc::new(Box::new(MessageRegistry::new()));

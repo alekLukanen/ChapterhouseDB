@@ -1,6 +1,20 @@
 # ChapterhouseQE
 An SQL based query engine for analytics workloads.
 
+## Running the Base System
+
+You and use the following commands to test out starting the system.
+
+Start first worker
+```
+cargo run --bin main -- -p=7000 -c=127.0.0.1:7001
+```
+
+Start second worker
+```
+cargo run --bin main -- -p=7001 -c=127.0.0.1:7000
+```
+
 ## Query Stages
 
 ### Parsing
