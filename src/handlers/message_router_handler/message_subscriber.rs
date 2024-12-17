@@ -1,11 +1,14 @@
+use anyhow::Result;
 use core::fmt;
-
-use tokio::sync::mpsc;
 
 use crate::handlers::message_handler::{Message, Pipe};
 
 pub trait Subscriber: fmt::Debug + Send + Sync {
     fn consumes_message(&self, msg: &Message) -> bool;
+}
+
+pub trait SubscriberSend: fmt::Debug + Send + Sync {
+    fn send(&self, msg: &Message) -> Result<()>;
 }
 
 #[derive(Debug)]
@@ -20,32 +23,33 @@ impl InternalSubscriber {
     }
 }
 
-#[derive(Debug)]
-pub struct WorkerSubscriber {
-    address: String,
-    worker_id: Option<u128>,
+#[derive(Debug, Clone)]
+pub enum ExternalSubscriber {
+    InboundClientConnection {
+        connection_id: u128,
+        inbound_stream_id: u128,
+    },
+    OutboundWorker {
+        worker_id: u128,
+        outbound_stream_id: u128,
+    },
 }
 
-impl WorkerSubscriber {
-    pub fn new(address: String) -> WorkerSubscriber {
-        WorkerSubscriber {
-            address,
-            worker_id: None,
-        }
-    }
-    pub fn set_worker_id(&mut self, worker_id: u128) {
-        self.worker_id = Some(worker_id);
-    }
-    pub fn get_worker_id(&self) -> Option<u128> {
-        self.worker_id.clone()
-    }
-}
-
-impl Subscriber for WorkerSubscriber {
+impl Subscriber for ExternalSubscriber {
     fn consumes_message(&self, msg: &Message) -> bool {
-        match (self.worker_id, msg.route_to_worker_id) {
-            (Some(worker_id), Some(route_to_worker_id)) => worker_id == route_to_worker_id,
-            _ => true,
+        match self {
+            Self::InboundClientConnection { connection_id, .. } => match msg.route_to_connection_id
+            {
+                Some(rid) => *connection_id == rid,
+                _ => false,
+            },
+            Self::OutboundWorker { worker_id, .. } => {
+                match (msg.route_to_worker_id, msg.route_to_connection_id) {
+                    (Some(w_rid), None) => *worker_id == w_rid,
+                    (None, None) => true,
+                    _ => false,
+                }
+            }
         }
     }
 }

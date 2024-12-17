@@ -59,18 +59,20 @@ pub struct Connection {
 impl Connection {
     pub fn new(
         stream: TcpStream,
+        sender: mpsc::Sender<Message>,
         msg_reg: Arc<Box<MessageRegistry>>,
-    ) -> (Connection, Pipe<Message>) {
-        let (p1, p2) = Pipe::new(1);
+    ) -> (Connection, ConnectionComm) {
+        let (pipe, sender_to_conn) = Pipe::new_with_existing_sender(sender, 1);
         let conn = Connection {
             stream_id: Uuid::new_v4().as_u128(),
             stream,
-            pipe: p1,
+            pipe: pipe,
             msg_reg,
             buf: BytesMut::with_capacity(4096),
             connection_ct: CancellationToken::new(),
         };
-        (conn, p2)
+        let comm = ConnectionComm::new(conn.connection_ct.clone(), conn.stream_id, sender_to_conn);
+        (conn, comm)
     }
 
     pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {

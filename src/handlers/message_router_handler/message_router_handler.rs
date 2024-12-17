@@ -9,7 +9,7 @@ use tracing::info;
 
 use crate::handlers::message_handler::{Message, Pipe};
 
-use super::message_subscriber::{InternalSubscriber, Subscriber, WorkerSubscriber};
+use super::message_subscriber::{ExternalSubscriber, InternalSubscriber, Subscriber};
 
 #[derive(Debug, Error)]
 pub enum MessageRouterError {
@@ -19,26 +19,20 @@ pub enum MessageRouterError {
 
 pub struct MessageRouterHandler {
     worker_id: u128,
-    connect_to_addresses: Vec<String>,
     task_tracker: TaskTracker,
     connection_pipe: Pipe<Message>,
     internal_subscribers: Arc<Mutex<Vec<InternalSubscriber>>>,
-    worker_subscribers: Arc<Mutex<Vec<WorkerSubscriber>>>,
+    external_subscribers: Arc<Mutex<Vec<ExternalSubscriber>>>,
 }
 
 impl MessageRouterHandler {
-    pub fn new(
-        worker_id: u128,
-        connect_to_addresses: Vec<String>,
-        connection_pipe: Pipe<Message>,
-    ) -> MessageRouterHandler {
+    pub fn new(worker_id: u128, connection_pipe: Pipe<Message>) -> MessageRouterHandler {
         MessageRouterHandler {
             worker_id,
-            connect_to_addresses,
             task_tracker: TaskTracker::new(),
             connection_pipe,
             internal_subscribers: Arc::new(Mutex::new(Vec::new())),
-            worker_subscribers: Arc::new(Mutex::new(Vec::new())),
+            external_subscribers: Arc::new(Mutex::new(Vec::new())),
         }
     }
 

@@ -76,27 +76,15 @@ impl ConnectionPoolHandler {
         }
 
         // TODO: handle connections that close; need reconnect
-
         loop {
             tokio::select! {
                 res = listener.accept() => {
                     match res {
                         Ok((socket, _)) => {
-                            let (mut connection, pipe) =
-                                Connection::new(socket, Arc::clone(&self.msg_reg));
+                            let (mut connection, connection_comm) =
+                                Connection::new(socket, connection_tx.clone(), Arc::clone(&self.msg_reg));
 
-                            let (conn_send, conn_recv) = pipe.split();
-                            let conn_comm = ConnectionComm::new(connection.connection_ct.clone(), connection.stream_id, conn_send);
-                            self.inbound_connections.lock().await.push(conn_comm);
-
-                            let ct1 = ct.clone();
-                            let conn_ct = connection.connection_ct.clone();
-                            let connection_tx = connection_tx.clone();
-                            tt.spawn(async move {
-                                if let Err(err) = Self::forward_msgs(ct1, conn_ct, conn_recv, connection_tx).await {
-                                    info!("error forwarding messages: {}", err);
-                                }
-                            });
+                            self.inbound_connections.lock().await.push(connection_comm);
 
                             // Spawn a new task to handle the connection
                             let ct2 = ct.clone();
@@ -144,25 +132,8 @@ impl ConnectionPoolHandler {
                     }
                 }
                 Some(new_tcpstream_connection) = stream_connect_rx.recv() => {
-                    let (mut connection, pipe) = Connection::new(new_tcpstream_connection, Arc::clone(&self.msg_reg));
-
-                    let (conn_send, conn_recv) = pipe.split();
-                    let conn_comm = ConnectionComm::new(
-                        connection.connection_ct.clone(),
-                        connection.stream_id,
-                        conn_send,
-                    );
-                    self.outbound_connections.lock().await.push(conn_comm);
-
-                    let ct1 = ct.clone();
-                    let conn_ct = connection.connection_ct.clone();
-                    let connection_tx = connection_tx.clone();
-                    tt.spawn(async move {
-                        if let Err(err) = Self::forward_msgs(ct1, conn_ct.clone(), conn_recv, connection_tx).await {
-                            info!("error forwarding messages: {}", err);
-                        }
-                        conn_ct.cancel();
-                    });
+                    let (mut connection, connection_comm) = Connection::new(new_tcpstream_connection, connection_tx.clone(), Arc::clone(&self.msg_reg));
+                    self.outbound_connections.lock().await.push(connection_comm);
 
                     // Spawn a new task to handle the connection
                     let ct2 = ct.clone();
@@ -187,30 +158,6 @@ impl ConnectionPoolHandler {
             _ = tt.wait() => {},
             _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
                 return Err(ConnectionPoolError::TimedOutWaitingForConnectionsToClose.into());
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn forward_msgs(
-        ct: CancellationToken,
-        connection_ct: CancellationToken,
-        conn_recv: mpsc::Receiver<Message>,
-        reducer: mpsc::Sender<Message>,
-    ) -> Result<()> {
-        let mut conn_recv = conn_recv;
-        loop {
-            tokio::select! {
-                Some(msg) = conn_recv.recv() => {
-                    reducer.send(msg).await?;
-                },
-                _ = ct.cancelled() => {
-                    break;
-                }
-                _ = connection_ct.cancelled() => {
-                    break;
-                }
             }
         }
 

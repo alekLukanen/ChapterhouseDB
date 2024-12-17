@@ -11,6 +11,9 @@ impl<T> Pipe<T>
 where
     T: 'static + Send + Sync,
 {
+    /*
+    Creates two pipes that can communicate with one another.
+    */
     pub fn new(size: usize) -> (Pipe<T>, Pipe<T>) {
         let (tx1, rx1) = mpsc::channel(size);
         let (tx2, rx2) = mpsc::channel(size);
@@ -23,6 +26,25 @@ where
                 sender: tx2,
                 receiver: rx1,
             },
+        )
+    }
+
+    /*
+    Returns a pipe with the supplied sender and the sender that
+    can be used to supply data to the pipe.
+    Useful if you need multiple pipes to feed into the same receiver.
+     */
+    pub fn new_with_existing_sender(
+        sender: mpsc::Sender<T>,
+        size: usize,
+    ) -> (Pipe<T>, mpsc::Sender<T>) {
+        let (tx, rx) = mpsc::channel(size);
+        (
+            Pipe {
+                sender,
+                receiver: rx,
+            },
+            tx,
         )
     }
 
