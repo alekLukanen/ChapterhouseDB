@@ -255,7 +255,7 @@ pub struct Message {
     pub msg_id: u128,
     pub msg: Box<dyn SendableMessage>,
 
-    // senf from
+    // sent from
     pub sent_from_worker_id: Option<u128>,
     pub sent_from_pipeline_id: Option<u128>,
     pub sent_from_operation_id: Option<u128>,
@@ -459,6 +459,9 @@ impl fmt::Display for MessageName {
     }
 }
 
+///////////////////////////////////////////////////////////
+//
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Identify {
     worker_id: Option<u128>,
@@ -489,6 +492,28 @@ impl SendableMessage for Identify {
         Box::new(self.clone())
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct IdentifyParser {}
+
+impl IdentifyParser {
+    pub fn new() -> IdentifyParser {
+        IdentifyParser {}
+    }
+}
+
+impl MessageParser for IdentifyParser {
+    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
+        let msg = Identify::build_msg(&ser_msg.msg_data)?;
+        Ok(Message::build_from_serialized_message(ser_msg, msg))
+    }
+    fn msg_name(&self) -> MessageName {
+        MessageName::Identify
+    }
+}
+
+////////////////////////////////////////////////////////////
+//
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ping {

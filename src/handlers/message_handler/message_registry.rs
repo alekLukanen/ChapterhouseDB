@@ -3,7 +3,7 @@ use bytes::BytesMut;
 use thiserror::Error;
 
 use super::messages::{
-    Message, MessageParser, PingParser, SerializedMessage, SerializedMessageError,
+    IdentifyParser, Message, MessageParser, PingParser, SerializedMessage, SerializedMessageError,
 };
 
 #[derive(Debug, Clone, Error)]
@@ -35,6 +35,7 @@ impl MessageRegistry {
 
     fn register_messages(&mut self) {
         self.add(Box::new(PingParser::new()));
+        self.add(Box::new(IdentifyParser::new()));
     }
 
     pub fn build_msg(&self, buf: &mut BytesMut) -> Result<Option<Message>> {

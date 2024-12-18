@@ -23,6 +23,7 @@ pub enum ConnectionPoolError {
 }
 
 pub struct ConnectionPoolHandler {
+    worker_id: u128,
     address: String,
     connect_to_addresses: Vec<String>,
 
@@ -35,12 +36,14 @@ pub struct ConnectionPoolHandler {
 
 impl ConnectionPoolHandler {
     pub fn new(
+        worker_id: u128,
         address: String,
         connect_to_addresses: Vec<String>,
         msg_reg: Arc<Box<MessageRegistry>>,
     ) -> (ConnectionPoolHandler, Pipe<Message>) {
         let (p1, p2) = Pipe::new(1);
         let hndlr = ConnectionPoolHandler {
+            worker_id,
             address,
             connect_to_addresses,
             msg_reg,
@@ -78,12 +81,12 @@ impl ConnectionPoolHandler {
         // TODO: handle connections that close; need reconnect
         loop {
             tokio::select! {
+                // connection handling
                 res = listener.accept() => {
                     match res {
                         Ok((socket, _)) => {
                             let (mut connection, connection_comm) =
-                                Connection::new(socket, connection_tx.clone(), Arc::clone(&self.msg_reg));
-
+                                Connection::new(self.worker_id.clone(), socket, connection_tx.clone(), Arc::clone(&self.msg_reg));
                             self.inbound_connections.lock().await.push(connection_comm);
 
                             // Spawn a new task to handle the connection
@@ -99,8 +102,22 @@ impl ConnectionPoolHandler {
                         }
                     }
                 }
+                Some(new_tcpstream_connection) = stream_connect_rx.recv() => {
+                    let (mut connection, connection_comm) = Connection::new(self.worker_id, new_tcpstream_connection, connection_tx.clone(), Arc::clone(&self.msg_reg));
+                    connection.set_send_identification();
+                    self.outbound_connections.lock().await.push(connection_comm);
+
+                    // Spawn a new task to handle the connection
+                    let ct2 = ct.clone();
+                    tt.spawn(async move {
+                        if let Err(err) = connection.async_main(ct2).await {
+                            info!("error reading from tcp socket: {}", err);
+                        }
+                        connection.cleanup();
+                    });
+                }
+                // message routing
                 Some(msg) = connection_rx.recv() => {
-                    info!("message: {:?}", msg);
                     if let Err(err) = self.pipe.send(msg).await {
                         info!("error: {}", err);
                     }
@@ -131,19 +148,7 @@ impl ConnectionPoolHandler {
                         }
                     }
                 }
-                Some(new_tcpstream_connection) = stream_connect_rx.recv() => {
-                    let (mut connection, connection_comm) = Connection::new(new_tcpstream_connection, connection_tx.clone(), Arc::clone(&self.msg_reg));
-                    self.outbound_connections.lock().await.push(connection_comm);
-
-                    // Spawn a new task to handle the connection
-                    let ct2 = ct.clone();
-                    tt.spawn(async move {
-                        if let Err(err) = connection.async_main(ct2).await {
-                            info!("error reading from tcp socket: {}", err);
-                        }
-                        connection.cleanup();
-                    });
-                }
+                // handle cancellationg token
                 _ = ct.cancelled() => {
                     break;
                 }

@@ -7,14 +7,45 @@ use tracing_subscriber;
 
 use chapterhouseqe::client::query_client::QueryClient;
 
+use std::any::Any;
+
+trait MyTrait: Any {
+    fn as_any(&self) -> &dyn Any;
+}
+
+struct MyStruct {
+    val: u32,
+}
+
+impl MyTrait for MyStruct {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     // sql_parser_examples()
 
-    client_examples()?;
+    // client_examples()?;
+
+    let start = std::time::Instant::now();
+    downcast_example();
+    let duration = start.elapsed();
+    println!("Time taken: {:?}", duration);
 
     Ok(())
+}
+
+fn downcast_example() {
+    let mut sum = 0u32;
+    for _ in 0..1_000_000 {
+        let obj: Box<dyn MyTrait> = Box::new(MyStruct { val: 123 });
+        if let Some(sample) = obj.as_any().downcast_ref::<MyStruct>() {
+            sum += sample.val;
+        }
+    }
 }
 
 fn client_examples() -> Result<()> {

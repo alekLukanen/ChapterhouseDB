@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::info;
 
-use crate::handlers::message_handler::{Message, Pipe};
+use crate::handlers::message_handler::{Message, MessageName, Pipe};
 
 use super::message_subscriber::{ExternalSubscriber, InternalSubscriber, Subscriber};
 
@@ -15,6 +15,8 @@ use super::message_subscriber::{ExternalSubscriber, InternalSubscriber, Subscrib
 pub enum MessageRouterError {
     #[error("timed out waiting for the tasks to close")]
     TimedOutWaitingForConnectionsToClose,
+    #[error("routing rule not implemented for message {0}")]
+    RoutingRuleNotImplementedForMessage(String),
 }
 
 pub struct MessageRouterHandler {
@@ -41,6 +43,7 @@ impl MessageRouterHandler {
             tokio::select! {
                 Some(msg) = self.connection_pipe.recv() => {
                     info!("message: {:?}", msg);
+                    self.route_msg(msg);
                 }
                 _ = ct.cancelled() => {
                     break;
@@ -61,17 +64,28 @@ impl MessageRouterHandler {
         Ok(())
     }
 
-    pub async fn add_internal_subscriber(
-        &mut self,
-        sub: Box<dyn Subscriber>,
-    ) -> Result<Pipe<Message>> {
+    async fn add_internal_subscriber(&mut self, sub: Box<dyn Subscriber>) -> Result<Pipe<Message>> {
         let (p1, p2) = Pipe::new(1);
         let msg_sub = InternalSubscriber::new(sub, p1);
         self.internal_subscribers.lock().await.push(msg_sub);
         Ok(p2)
     }
 
-    fn route_msg(&self, msg: Message) -> bool {
-        false
+    async fn add_external_subscriber(&mut self, sub: ExternalSubscriber) -> Result<()> {
+        self.external_subscribers.lock().await.push(sub);
+        Ok(())
+    }
+
+    async fn identify_worker(&mut self, msg: Message) -> Result<()> {
+        Ok(())
+    }
+
+    async fn route_msg(&mut self, msg: Message) -> Result<()> {
+        match msg.msg.msg_name() {
+            MessageName::Identify => self.identify_worker(msg).await,
+            val => {
+                Err(MessageRouterError::RoutingRuleNotImplementedForMessage(val.to_string()).into())
+            }
+        }
     }
 }

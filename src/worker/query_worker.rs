@@ -55,6 +55,7 @@ impl QueryWorker {
 
         // Connect Pool and Router ////////////////////////
         let (mut connection_pool_handler, connection_msg_pipe) = ConnectionPoolHandler::new(
+            self.worker_id,
             self.config.address.clone(),
             self.config.connect_to_addresses.clone(),
             msg_reg.clone(),
