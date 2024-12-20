@@ -56,6 +56,7 @@ pub struct Connection {
     buf: BytesMut,
     pub connection_ct: CancellationToken,
     send_identification_msg: bool,
+    is_inbound: bool,
 }
 
 impl Connection {
@@ -64,6 +65,7 @@ impl Connection {
         stream: TcpStream,
         sender: mpsc::Sender<Message>,
         msg_reg: Arc<Box<MessageRegistry>>,
+        is_inbound: bool,
     ) -> (Connection, ConnectionComm) {
         let (pipe, sender_to_conn) = Pipe::new_with_existing_sender(sender, 1);
         let conn = Connection {
@@ -75,6 +77,7 @@ impl Connection {
             buf: BytesMut::with_capacity(4096),
             connection_ct: CancellationToken::new(),
             send_identification_msg: false,
+            is_inbound,
         };
         let comm = ConnectionComm::new(conn.connection_ct.clone(), conn.stream_id, sender_to_conn);
         (conn, comm)
@@ -93,9 +96,10 @@ impl Connection {
         );
 
         if self.send_identification_msg {
-            let identity_msg =
-                Message::new(Box::new(Identify::new(Some(self.worker_id.clone()), None)))
-                    .set_sent_from_worker_id(self.worker_id.clone());
+            let identity_msg = Message::new(Box::new(Identify::Worker {
+                id: self.worker_id.clone(),
+            }))
+            .set_sent_from_worker_id(self.worker_id.clone());
             self.stream.write_all(&identity_msg.to_bytes()?[..]).await?;
             self.read_ok().await?;
         }
@@ -103,7 +107,11 @@ impl Connection {
         loop {
             if let Ok(msg) = self.msg_reg.build_msg(&mut self.buf) {
                 if let Some(mut msg) = msg {
-                    msg = msg.set_inbound_stream_id(self.stream_id);
+                    if self.is_inbound {
+                        msg = msg.set_inbound_stream_id(self.stream_id);
+                    } else {
+                        msg = msg.set_outbound_stream(self.stream_id);
+                    }
                     self.pipe.send(msg).await?;
                     self.stream.write_all("OK".as_bytes()).await?;
                 }

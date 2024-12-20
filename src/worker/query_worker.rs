@@ -62,7 +62,7 @@ impl QueryWorker {
         );
 
         let mut message_router =
-            MessageRouterHandler::new(self.worker_id.clone(), connection_msg_pipe);
+            MessageRouterHandler::new(self.worker_id.clone(), connection_msg_pipe, msg_reg.clone());
 
         let ct = self.cancelation_token.clone();
         tt.spawn(async move {

@@ -86,7 +86,7 @@ impl ConnectionPoolHandler {
                     match res {
                         Ok((socket, _)) => {
                             let (mut connection, connection_comm) =
-                                Connection::new(self.worker_id.clone(), socket, connection_tx.clone(), Arc::clone(&self.msg_reg));
+                                Connection::new(self.worker_id.clone(), socket, connection_tx.clone(), Arc::clone(&self.msg_reg), true);
                             self.inbound_connections.lock().await.push(connection_comm);
 
                             // Spawn a new task to handle the connection
@@ -103,7 +103,7 @@ impl ConnectionPoolHandler {
                     }
                 }
                 Some(new_tcpstream_connection) = stream_connect_rx.recv() => {
-                    let (mut connection, connection_comm) = Connection::new(self.worker_id, new_tcpstream_connection, connection_tx.clone(), Arc::clone(&self.msg_reg));
+                    let (mut connection, connection_comm) = Connection::new(self.worker_id, new_tcpstream_connection, connection_tx.clone(), Arc::clone(&self.msg_reg), false);
                     connection.set_send_identification();
                     self.outbound_connections.lock().await.push(connection_comm);
 
@@ -123,7 +123,6 @@ impl ConnectionPoolHandler {
                     }
                 }
                 Some(msg) = self.pipe.recv() => {
-                    info!("message: {:?}", msg);
                     if let Some(inbound_stream_id) = msg.inbound_stream_id {
                         for comm in self.inbound_connections.lock().await.iter() {
                             if comm.stream_id != inbound_stream_id {
@@ -146,6 +145,8 @@ impl ConnectionPoolHandler {
                                 comm.connection_ct.cancel();
                             };
                         }
+                    } else {
+                        info!("inbound or outbound stream id was not set");
                     }
                 }
                 // handle cancellationg token

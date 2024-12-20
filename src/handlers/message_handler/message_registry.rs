@@ -2,8 +2,12 @@ use anyhow::Result;
 use bytes::BytesMut;
 use thiserror::Error;
 
-use super::messages::{
-    IdentifyParser, Message, MessageParser, PingParser, SerializedMessage, SerializedMessageError,
+use super::{
+    messages::{
+        IdentifyParser, Message, MessageParser, PingParser, SerializedMessage,
+        SerializedMessageError,
+    },
+    SendableMessage,
 };
 
 #[derive(Debug, Clone, Error)]
@@ -56,6 +60,16 @@ impl MessageRegistry {
                 Err(MessageRegistryError::IncompleteMessage.into())
             }
             Err(err) => Err(err.into()),
+        }
+    }
+
+    pub fn cast_msg<'a, T: SendableMessage>(&'a self, msg: &'a Message) -> &'a T
+    where
+        T: 'static + SendableMessage,
+    {
+        match msg.msg.as_any().downcast_ref::<T>() {
+            Some(cast_msg) => return cast_msg,
+            None => panic!("unable to cast message by name: {}", msg.msg.msg_name()),
         }
     }
 

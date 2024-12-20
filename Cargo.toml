@@ -3,6 +3,12 @@ name = "chapterhouseqe"
 version = "0.1.0"
 edition = "2021"
 
+[profile.release]
+opt-level = 3  # Optimize for binary size; use "3" for speed
+lto = "fat"       # Enable Link-Time Optimization
+codegen-units = 1 # Reduce parallel code generation for better optimization
+debug = false    # Disable debug information
+
 [[bin]]
 name = "main"
 path = "src/bin/main.rs"

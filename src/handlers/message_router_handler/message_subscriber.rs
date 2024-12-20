@@ -23,7 +23,7 @@ impl InternalSubscriber {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ExternalSubscriber {
     InboundClientConnection {
         connection_id: u128,

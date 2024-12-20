@@ -1,4 +1,5 @@
 use core::fmt;
+use std::any::Any;
 
 use anyhow::Result;
 use bytes::{Buf, BufMut, BytesMut};
@@ -15,12 +16,15 @@ pub enum SerializedMessageError {
     Incomplete,
     #[error("buffer read to end failed")]
     BufferReadToEndFailed,
+    #[error("unable to cast message type {0} to base type")]
+    UnableToCastMessageToType(String),
 }
 
-pub trait SendableMessage: fmt::Debug + Send + Sync {
+pub trait SendableMessage: fmt::Debug + Send + Sync + Any {
     fn to_bytes(&self) -> Result<Vec<u8>>;
     fn msg_name(&self) -> MessageName;
     fn clone_box(&self) -> Box<dyn SendableMessage>;
+    fn as_any(&self) -> &dyn Any;
 }
 
 pub trait MessageParser: fmt::Debug + Send + Sync {
@@ -463,18 +467,12 @@ impl fmt::Display for MessageName {
 //
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Identify {
-    worker_id: Option<u128>,
-    connection_id: Option<u128>,
+pub enum Identify {
+    Worker { id: u128 },
+    Connection { id: u128 },
 }
 
 impl Identify {
-    pub fn new(worker_id: Option<u128>, connection_id: Option<u128>) -> Identify {
-        Identify {
-            worker_id,
-            connection_id,
-        }
-    }
     pub fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
         let msg: Identify = serde_json::from_slice(data)?;
         Ok(Box::new(msg))
@@ -490,6 +488,9 @@ impl SendableMessage for Identify {
     }
     fn clone_box(&self) -> Box<dyn SendableMessage> {
         Box::new(self.clone())
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -540,6 +541,9 @@ impl SendableMessage for Ping {
     }
     fn clone_box(&self) -> Box<dyn SendableMessage> {
         Box::new(self.clone())
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 

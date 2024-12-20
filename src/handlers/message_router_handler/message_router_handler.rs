@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::info;
 
-use crate::handlers::message_handler::{Message, MessageName, Pipe};
+use crate::handlers::message_handler::{Identify, Message, MessageName, MessageRegistry, Pipe};
 
 use super::message_subscriber::{ExternalSubscriber, InternalSubscriber, Subscriber};
 
@@ -25,16 +25,23 @@ pub struct MessageRouterHandler {
     connection_pipe: Pipe<Message>,
     internal_subscribers: Arc<Mutex<Vec<InternalSubscriber>>>,
     external_subscribers: Arc<Mutex<Vec<ExternalSubscriber>>>,
+
+    msg_reg: Arc<Box<MessageRegistry>>,
 }
 
 impl MessageRouterHandler {
-    pub fn new(worker_id: u128, connection_pipe: Pipe<Message>) -> MessageRouterHandler {
+    pub fn new(
+        worker_id: u128,
+        connection_pipe: Pipe<Message>,
+        msg_reg: Arc<Box<MessageRegistry>>,
+    ) -> MessageRouterHandler {
         MessageRouterHandler {
             worker_id,
             task_tracker: TaskTracker::new(),
             connection_pipe,
             internal_subscribers: Arc::new(Mutex::new(Vec::new())),
             external_subscribers: Arc::new(Mutex::new(Vec::new())),
+            msg_reg,
         }
     }
 
@@ -43,7 +50,8 @@ impl MessageRouterHandler {
             tokio::select! {
                 Some(msg) = self.connection_pipe.recv() => {
                     info!("message: {:?}", msg);
-                    self.route_msg(msg);
+                    self.route_msg(msg).await?;
+                    info!("external_subscribers: {:?}", self.external_subscribers.lock().await);
                 }
                 _ = ct.cancelled() => {
                     break;
@@ -71,18 +79,59 @@ impl MessageRouterHandler {
         Ok(p2)
     }
 
-    async fn add_external_subscriber(&mut self, sub: ExternalSubscriber) -> Result<()> {
-        self.external_subscribers.lock().await.push(sub);
-        Ok(())
+    async fn add_external_subscriber(&mut self, sub: ExternalSubscriber) {
+        let mut es = self.external_subscribers.lock().await;
+        es.retain(|item| *item != sub);
+        es.push(sub);
     }
 
-    async fn identify_worker(&mut self, msg: Message) -> Result<()> {
+    async fn identify_external_subscriber(&mut self, msg: Message) -> Result<()> {
+        let identify_msg: &Identify = self.msg_reg.cast_msg(&msg);
+        match identify_msg {
+            Identify::Worker { id } => {
+                if let Some(inbound_stream_id) = msg.inbound_stream_id {
+                    info!("[IN] received identification request");
+                    let identify_back = Message::new(Box::new(Identify::Worker {
+                        id: self.worker_id.clone(),
+                    }))
+                    .set_sent_from_worker_id(self.worker_id.clone())
+                    .set_inbound_stream_id(inbound_stream_id);
+                    self.connection_pipe.send(identify_back).await?;
+                } else if let Some(outbound_stream_id) = msg.outbound_stream_id {
+                    info!("[OUT] received identification back");
+                    let sub = ExternalSubscriber::OutboundWorker {
+                        worker_id: id.clone(),
+                        outbound_stream_id,
+                    };
+                    self.add_external_subscriber(sub).await;
+                } else {
+                    info!("message ignored: {:?}", msg);
+                }
+            }
+            Identify::Connection { id } => {
+                if let Some(inbound_stream_id) = msg.inbound_stream_id {
+                    let sub = ExternalSubscriber::InboundClientConnection {
+                        connection_id: id.clone(),
+                        inbound_stream_id,
+                    };
+                    self.add_external_subscriber(sub).await;
+
+                    let identify_back = Message::new(Box::new(Identify::Worker {
+                        id: self.worker_id.clone(),
+                    }));
+                    self.connection_pipe.send(identify_back).await?;
+                } else {
+                    info!("message ignored: {:?}", msg);
+                }
+            }
+        }
+
         Ok(())
     }
 
     async fn route_msg(&mut self, msg: Message) -> Result<()> {
         match msg.msg.msg_name() {
-            MessageName::Identify => self.identify_worker(msg).await,
+            MessageName::Identify => self.identify_external_subscriber(msg).await,
             val => {
                 Err(MessageRouterError::RoutingRuleNotImplementedForMessage(val.to_string()).into())
             }
