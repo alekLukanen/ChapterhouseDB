@@ -49,9 +49,8 @@ impl MessageRouterHandler {
         loop {
             tokio::select! {
                 Some(msg) = self.connection_pipe.recv() => {
-                    info!("message: {:?}", msg);
+                    // info!("message: {:?}", msg);
                     self.route_msg(msg).await?;
-                    info!("external_subscribers: {:?}", self.external_subscribers.lock().await);
                 }
                 _ = ct.cancelled() => {
                     break;
@@ -90,7 +89,6 @@ impl MessageRouterHandler {
         match identify_msg {
             Identify::Worker { id } => {
                 if let Some(inbound_stream_id) = msg.inbound_stream_id {
-                    info!("[IN] received identification request");
                     let identify_back = Message::new(Box::new(Identify::Worker {
                         id: self.worker_id.clone(),
                     }))
@@ -98,12 +96,16 @@ impl MessageRouterHandler {
                     .set_inbound_stream_id(inbound_stream_id);
                     self.connection_pipe.send(identify_back).await?;
                 } else if let Some(outbound_stream_id) = msg.outbound_stream_id {
-                    info!("[OUT] received identification back");
+                    let worker_id = id.clone();
                     let sub = ExternalSubscriber::OutboundWorker {
-                        worker_id: id.clone(),
+                        worker_id: worker_id.clone(),
                         outbound_stream_id,
                     };
                     self.add_external_subscriber(sub).await;
+                    info!(
+                        "added new external worker subscriber: {}",
+                        worker_id.clone()
+                    );
                 } else {
                     info!("message ignored: {:?}", msg);
                 }
