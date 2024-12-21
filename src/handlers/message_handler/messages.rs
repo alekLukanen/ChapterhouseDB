@@ -24,7 +24,8 @@ pub trait SendableMessage: fmt::Debug + Send + Sync + Any {
     fn to_bytes(&self) -> Result<Vec<u8>>;
     fn msg_name(&self) -> MessageName;
     fn clone_box(&self) -> Box<dyn SendableMessage>;
-    fn as_any(&self) -> &dyn Any;
+    fn as_any(self: Box<Self>) -> Box<dyn Any>;
+    fn as_any_ref(&self) -> &dyn Any;
 }
 
 pub trait MessageParser: fmt::Debug + Send + Sync {
@@ -253,6 +254,18 @@ impl SerializedMessage {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct CastMessage<'a, T: SendableMessage> {
+    msg: &'a Message,
+    cast_msg: &'a T,
+}
+
+impl<'a, T: SendableMessage> CastMessage<'a, T> {
+    pub fn new(msg: &'a Message, cast_msg: &'a T) -> CastMessage<'a, T> {
+        CastMessage { msg, cast_msg }
+    }
+}
+
 #[derive(Debug)]
 pub struct Message {
     pub msg_name_id: u16,
@@ -310,6 +323,10 @@ impl Message {
             inbound_stream_id: None,
             outbound_stream_id: None,
         }
+    }
+
+    pub fn take_msg(self) -> Box<dyn SendableMessage> {
+        self.msg
     }
 
     pub fn set_inbound_stream_id(mut self, _id: u128) -> Message {
@@ -441,6 +458,7 @@ pub enum MessageName {
     Ping,
     Identify,
     RunQuery,
+    RunQueryResp,
 }
 
 impl MessageName {
@@ -449,6 +467,7 @@ impl MessageName {
             Self::Ping => "ping",
             Self::Identify => "Identify",
             Self::RunQuery => "run_query",
+            Self::RunQueryResp => "run_query_resp",
         }
     }
     pub fn as_u16(&self) -> u16 {
@@ -456,6 +475,7 @@ impl MessageName {
             Self::Ping => 0,
             Self::Identify => 1,
             Self::RunQuery => 2,
+            Self::RunQueryResp => 3,
         }
     }
 }
@@ -492,7 +512,10 @@ impl SendableMessage for Identify {
     fn clone_box(&self) -> Box<dyn SendableMessage> {
         Box::new(self.clone())
     }
-    fn as_any(&self) -> &dyn Any {
+    fn as_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+    fn as_any_ref(&self) -> &dyn Any {
         self
     }
 }
@@ -545,7 +568,10 @@ impl SendableMessage for Ping {
     fn clone_box(&self) -> Box<dyn SendableMessage> {
         Box::new(self.clone())
     }
-    fn as_any(&self) -> &dyn Any {
+    fn as_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+    fn as_any_ref(&self) -> &dyn Any {
         self
     }
 }
@@ -598,7 +624,10 @@ impl SendableMessage for RunQuery {
     fn clone_box(&self) -> Box<dyn SendableMessage> {
         Box::new(self.clone())
     }
-    fn as_any(&self) -> &dyn Any {
+    fn as_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+    fn as_any_ref(&self) -> &dyn Any {
         self
     }
 }
@@ -619,5 +648,61 @@ impl MessageParser for RunQueryParser {
     }
     fn msg_name(&self) -> MessageName {
         MessageName::RunQuery
+    }
+}
+
+////////////////////////////////////////////////////////////
+//
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunQueryResp {
+    pub created: bool,
+}
+
+impl RunQueryResp {
+    pub fn new(created: bool) -> RunQueryResp {
+        RunQueryResp { created }
+    }
+
+    pub fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: RunQueryResp = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
+    }
+}
+
+impl SendableMessage for RunQueryResp {
+    fn to_bytes(&self) -> Result<Vec<u8>> {
+        Ok(serde_json::to_vec(self)?)
+    }
+    fn msg_name(&self) -> MessageName {
+        MessageName::RunQueryResp
+    }
+    fn clone_box(&self) -> Box<dyn SendableMessage> {
+        Box::new(self.clone())
+    }
+    fn as_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RunQueryRespParser {}
+
+impl RunQueryRespParser {
+    pub fn new() -> RunQueryRespParser {
+        RunQueryRespParser {}
+    }
+}
+
+impl MessageParser for RunQueryRespParser {
+    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
+        let msg = RunQueryResp::build_msg(&ser_msg.msg_data)?;
+        Ok(Message::build_from_serialized_message(ser_msg, msg))
+    }
+    fn msg_name(&self) -> MessageName {
+        MessageName::RunQueryResp
     }
 }

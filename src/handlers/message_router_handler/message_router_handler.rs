@@ -93,8 +93,10 @@ impl MessageRouterHandler {
         loop {
             tokio::select! {
                 Some(msg) = self.connection_pipe.recv() => {
-                    // info!("message: {:?}", msg);
-                    self.route_msg(msg).await?;
+                    let routed = self.route_msg(&msg).await?;
+                    if !routed {
+                        info!("message ignored: {:?}", msg);
+                    }
                 }
                 _ = ct.cancelled() => {
                     break;
@@ -115,8 +117,8 @@ impl MessageRouterHandler {
         Ok(())
     }
 
-    async fn identify_external_subscriber(&mut self, msg: Message) -> Result<()> {
-        let identify_msg: &Identify = self.msg_reg.cast_msg(&msg);
+    async fn identify_external_subscriber(&mut self, msg: &Message) -> Result<bool> {
+        let identify_msg: &Identify = self.msg_reg.cast_msg(msg);
         match identify_msg {
             Identify::Worker { id } => {
                 if let Some(inbound_stream_id) = msg.inbound_stream_id {
@@ -124,6 +126,7 @@ impl MessageRouterHandler {
                         id: self.worker_id.clone(),
                     }))
                     .set_sent_from_worker_id(self.worker_id.clone())
+                    .set_route_to_worker_id(id.clone())
                     .set_inbound_stream_id(inbound_stream_id);
                     self.connection_pipe.send(identify_back).await?;
                 } else if let Some(outbound_stream_id) = msg.outbound_stream_id {
@@ -138,7 +141,7 @@ impl MessageRouterHandler {
                         worker_id.clone()
                     );
                 } else {
-                    info!("message ignored: {:?}", msg);
+                    return Ok(false);
                 }
             }
             Identify::Connection { id } => {
@@ -151,21 +154,24 @@ impl MessageRouterHandler {
 
                     let identify_back = Message::new(Box::new(Identify::Worker {
                         id: self.worker_id.clone(),
-                    }));
+                    }))
+                    .set_sent_from_worker_id(self.worker_id.clone())
+                    .set_route_to_connection_id(id.clone())
+                    .set_inbound_stream_id(inbound_stream_id);
                     self.connection_pipe.send(identify_back).await?;
                 } else {
-                    info!("message ignored: {:?}", msg);
+                    return Ok(false);
                 }
             }
         }
 
-        Ok(())
+        Ok(true)
     }
 
-    async fn route_to_internal_subscriber(&mut self, msg: Message) -> Result<()> {
+    async fn route_to_internal_subscriber(&mut self, msg: &Message) -> Result<bool> {
         if let Some(route_to_worker_id) = msg.route_to_worker_id {
             if route_to_worker_id != self.worker_id {
-                return Ok(());
+                return Ok(false);
             }
         }
 
@@ -175,16 +181,18 @@ impl MessageRouterHandler {
             .iter()
             .filter(|&item| item.sub.consumes_message(&msg));
 
+        let mut sent = false;
         for sub in subs {
             if let Err(err) = sub.sender.send(msg.clone()).await {
                 info!("unable to send to subscriber; received error: {}", err);
             }
+            sent = true;
         }
 
-        Ok(())
+        Ok(sent)
     }
 
-    async fn route_msg(&mut self, msg: Message) -> Result<()> {
+    async fn route_msg(&mut self, msg: &Message) -> Result<bool> {
         match msg.msg.msg_name() {
             MessageName::Identify => self.identify_external_subscriber(msg).await,
             MessageName::RunQuery => self.route_to_internal_subscriber(msg).await,

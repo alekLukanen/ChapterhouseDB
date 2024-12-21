@@ -22,7 +22,9 @@ impl QueryClient {
     }
 
     pub fn new_msg(&self, msg: Box<dyn SendableMessage>) -> Message {
-        Message::new(msg).set_sent_from_connection_id(Uuid::new_v4().as_u128())
+        Message::new(msg)
+            .set_sent_from_connection_id(Uuid::new_v4().as_u128())
+            .clone()
     }
 
     pub fn send_ping_message(&mut self, count: u8) -> Result<()> {

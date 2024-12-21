@@ -28,7 +28,7 @@ impl QueryHandler {
         msg_reg: Arc<Box<MessageRegistry>>,
     ) -> QueryHandler {
         let router_sender = message_router_state.lock().await.sender();
-        let (pipe, sender) = Pipe::new_with_existing_sender(router_sender, 0);
+        let (pipe, sender) = Pipe::new_with_existing_sender(router_sender, 1);
 
         let handler = QueryHandler {
             state: QueryHandlerState::new(),
@@ -86,6 +86,8 @@ impl QueryHandler {
 
         self.state.add_query(query);
 
+        info!("added query: {:?}", self.state);
+
         Ok(())
     }
 }
@@ -104,7 +106,10 @@ impl Subscriber for QueryHandlerSubscriber {}
 
 impl MessageConsumer for QueryHandlerSubscriber {
     fn consumes_message(&self, msg: &Message) -> bool {
-        false
+        match msg.msg.msg_name() {
+            MessageName::RunQuery => true,
+            _ => false,
+        }
     }
 }
 

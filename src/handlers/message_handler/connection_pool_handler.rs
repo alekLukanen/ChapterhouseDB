@@ -147,6 +147,7 @@ impl ConnectionPoolHandler {
                         }
                     } else {
                         info!("inbound or outbound stream id was not set");
+                        info!("message: {:?}", msg);
                     }
                 }
                 // handle cancellationg token

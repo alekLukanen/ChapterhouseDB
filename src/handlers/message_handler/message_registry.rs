@@ -7,7 +7,7 @@ use super::{
         IdentifyParser, Message, MessageParser, PingParser, SerializedMessage,
         SerializedMessageError,
     },
-    RunQueryParser, SendableMessage,
+    RunQueryParser, RunQueryRespParser, SendableMessage,
 };
 
 #[derive(Debug, Clone, Error)]
@@ -16,6 +16,8 @@ pub enum MessageRegistryError {
     IncompleteMessage,
     #[error("message id not in registry: {0}")]
     MessageIdNotInRegistry(u16),
+    #[error("unable to cast message to expected type: {0}")]
+    UnableToCastMessageToExpectedType(String),
 }
 
 #[derive(Debug)]
@@ -41,6 +43,7 @@ impl MessageRegistry {
         self.add(Box::new(PingParser::new()));
         self.add(Box::new(IdentifyParser::new()));
         self.add(Box::new(RunQueryParser::new()));
+        self.add(Box::new(RunQueryRespParser::new()));
     }
 
     pub fn build_msg(&self, buf: &mut BytesMut) -> Result<Option<Message>> {
@@ -68,9 +71,33 @@ impl MessageRegistry {
     where
         T: 'static + SendableMessage,
     {
-        match msg.msg.as_any().downcast_ref::<T>() {
+        match msg.msg.as_any_ref().downcast_ref::<T>() {
             Some(cast_msg) => return cast_msg,
             None => panic!("unable to cast message by name: {}", msg.msg.msg_name()),
+        }
+    }
+
+    pub fn try_cast_msg<'a, T: SendableMessage>(&'a self, msg: &'a Message) -> Result<&'a T>
+    where
+        T: 'static + SendableMessage,
+    {
+        match msg.msg.as_any_ref().downcast_ref::<T>() {
+            Some(cast_msg) => Ok(cast_msg),
+            None => Err(MessageRegistryError::UnableToCastMessageToExpectedType(
+                msg.msg.msg_name().to_string(),
+            )
+            .into()),
+        }
+    }
+
+    pub fn try_cast_msg_owned<T: SendableMessage>(&self, msg: Message) -> Result<T> {
+        let msg_name = msg.msg.msg_name();
+        match msg.msg.as_any().downcast::<T>() {
+            Ok(cast_msg) => Ok(*cast_msg),
+            Err(_) => Err(MessageRegistryError::UnableToCastMessageToExpectedType(
+                msg_name.to_string(),
+            )
+            .into()),
         }
     }
 
