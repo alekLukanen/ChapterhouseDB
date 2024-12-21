@@ -57,6 +57,10 @@ where
         self.receiver.recv().await
     }
 
+    pub fn close_receiver(&mut self) {
+        self.receiver.close();
+    }
+
     pub fn split(self) -> (mpsc::Sender<T>, mpsc::Receiver<T>) {
         (self.sender, self.receiver)
     }

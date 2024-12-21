@@ -5,7 +5,7 @@ use sqlparser::parser::Parser;
 use tracing::info;
 use tracing_subscriber;
 
-use chapterhouseqe::client::query_client::QueryClient;
+use chapterhouseqe::client::QueryClient;
 
 use std::any::Any;
 

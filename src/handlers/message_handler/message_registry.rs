@@ -7,7 +7,7 @@ use super::{
         IdentifyParser, Message, MessageParser, PingParser, SerializedMessage,
         SerializedMessageError,
     },
-    SendableMessage,
+    RunQueryParser, SendableMessage,
 };
 
 #[derive(Debug, Clone, Error)]
@@ -40,6 +40,7 @@ impl MessageRegistry {
     fn register_messages(&mut self) {
         self.add(Box::new(PingParser::new()));
         self.add(Box::new(IdentifyParser::new()));
+        self.add(Box::new(RunQueryParser::new()));
     }
 
     pub fn build_msg(&self, buf: &mut BytesMut) -> Result<Option<Message>> {
@@ -88,18 +89,4 @@ impl MessageRegistry {
             None
         }
     }
-
-    /*
-    fn find_by_msg_name(&self, msg_name: MessageName) -> Option<&RegisteredMessage> {
-        if let Some(reg_msg) = self
-            .msg_listing
-            .iter()
-            .find(|&item| item.msg_parser.msg_name() == msg_name)
-        {
-            Some(reg_msg)
-        } else {
-            None
-        }
-    }
-    */
 }

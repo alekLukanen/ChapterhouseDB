@@ -15,8 +15,8 @@ pub trait Subscriber: MessageConsumer + MessageReceiver {}
 
 #[derive(Debug)]
 pub struct InternalSubscriber {
-    sub: Box<dyn Subscriber>,
-    sender: Sender<Message>,
+    pub sub: Box<dyn Subscriber>,
+    pub sender: Sender<Message>,
 }
 
 impl InternalSubscriber {

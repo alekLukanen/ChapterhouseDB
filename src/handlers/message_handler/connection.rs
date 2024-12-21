@@ -120,6 +120,7 @@ impl Connection {
 
             // end the conneciton if the other system has sent too much data
             if self.buf.len() > 1024 * 1024 * 10 {
+                self.pipe.close_receiver();
                 return Err(ConnectionError::BufferReachedMaxSize.into());
             }
 
@@ -128,6 +129,7 @@ impl Connection {
                     match read_res {
                         Ok(size) => {
                             if size == 0 {
+                                self.pipe.close_receiver();
                                 if self.buf.is_empty() {
                                     return Ok(());
                                 } else {
@@ -135,7 +137,10 @@ impl Connection {
                                 }
                             }
                         },
-                        Err(err) => return Err(err.into()),
+                        Err(err) => {
+                            self.pipe.close_receiver();
+                            return Err(err.into())
+                        },
                     }
                 },
                 Some(msg) = self.pipe.recv() => {
@@ -153,6 +158,7 @@ impl Connection {
         }
 
         info!("closing connection...");
+        self.pipe.close_receiver();
         tokio::select! {
             res = self.stream.shutdown() => {
                 if let Err(err) = res {

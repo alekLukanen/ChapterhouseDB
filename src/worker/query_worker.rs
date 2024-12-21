@@ -7,7 +7,8 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::handlers::message_handler::{ConnectionPoolHandler, MessageRegistry};
-use crate::handlers::message_router_handler::MessageRouterHandler;
+use crate::handlers::message_router_handler::{MessageRouterHandler, MessageRouterState};
+use crate::handlers::query_handler::QueryHandler;
 
 pub struct QueryWorkerConfig {
     address: String,
@@ -61,8 +62,12 @@ impl QueryWorker {
             msg_reg.clone(),
         );
 
-        let mut message_router =
+        let (mut message_router, message_router_state) =
             MessageRouterHandler::new(self.worker_id.clone(), connection_msg_pipe, msg_reg.clone());
+
+        // add internal subscribers
+        let mut query_handler =
+            QueryHandler::new(message_router_state.clone(), msg_reg.clone()).await;
 
         let ct = self.cancelation_token.clone();
         tt.spawn(async move {
@@ -74,6 +79,13 @@ impl QueryWorker {
         let message_router_ct = self.cancelation_token.clone();
         tt.spawn(async move {
             if let Err(err) = message_router.async_main(message_router_ct).await {
+                info!("error: {}", err);
+            }
+        });
+
+        let query_handler_ct = self.cancelation_token.clone();
+        tt.spawn(async move {
+            if let Err(err) = query_handler.async_main(query_handler_ct).await {
                 info!("error: {}", err);
             }
         });

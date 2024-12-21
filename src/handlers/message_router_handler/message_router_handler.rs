@@ -12,9 +12,7 @@ use tracing::info;
 
 use crate::handlers::message_handler::{Identify, Message, MessageName, MessageRegistry, Pipe};
 
-use super::message_subscriber::{
-    ExternalSubscriber, InternalSubscriber, MessageConsumer, Subscriber,
-};
+use super::message_subscriber::{ExternalSubscriber, InternalSubscriber, Subscriber};
 
 #[derive(Debug, Error)]
 pub enum MessageRouterError {
@@ -24,17 +22,51 @@ pub enum MessageRouterError {
     RoutingRuleNotImplementedForMessage(String),
 }
 
-pub struct MessageRouterHandler {
-    worker_id: u128,
-    task_tracker: TaskTracker,
-    connection_pipe: Pipe<Message>,
-    external_subscribers: Arc<Mutex<Vec<ExternalSubscriber>>>,
+#[derive(Debug)]
+pub struct MessageRouterState {
+    external_subscribers: Vec<ExternalSubscriber>,
+    internal_subscribers: Vec<InternalSubscriber>,
+    internal_sub_sender: Sender<Message>,
+}
 
-    internal_subscribers: Arc<Mutex<Vec<InternalSubscriber>>>,
+impl MessageRouterState {
+    pub fn new(internal_sub_sender: Sender<Message>) -> MessageRouterState {
+        MessageRouterState {
+            external_subscribers: Vec::new(),
+            internal_subscribers: Vec::new(),
+            internal_sub_sender,
+        }
+    }
+
+    pub fn add_internal_subscriber(&mut self, sub: Box<dyn Subscriber>) -> Result<()> {
+        let sub_sender = sub.sender();
+        let msg_sub = InternalSubscriber::new(sub, sub_sender);
+        self.internal_subscribers.push(msg_sub);
+        Ok(())
+    }
+
+    pub fn add_external_subscriber(&mut self, sub: ExternalSubscriber) -> Result<()> {
+        self.external_subscribers.retain(|item| *item != sub);
+        self.external_subscribers.push(sub);
+        Ok(())
+    }
+
+    pub fn sender(&self) -> Sender<Message> {
+        self.internal_sub_sender.clone()
+    }
+}
+
+pub struct MessageRouterHandler {
+    state: Arc<Mutex<MessageRouterState>>,
+
+    worker_id: u128,
+    msg_reg: Arc<Box<MessageRegistry>>,
+    task_tracker: TaskTracker,
+
+    connection_pipe: Pipe<Message>,
+
     internal_sub_sender: Sender<Message>,
     internal_sub_receiver: Receiver<Message>,
-
-    msg_reg: Arc<Box<MessageRegistry>>,
 }
 
 impl MessageRouterHandler {
@@ -42,18 +74,19 @@ impl MessageRouterHandler {
         worker_id: u128,
         connection_pipe: Pipe<Message>,
         msg_reg: Arc<Box<MessageRegistry>>,
-    ) -> MessageRouterHandler {
+    ) -> (MessageRouterHandler, Arc<Mutex<MessageRouterState>>) {
         let (sender, receiver) = mpsc::channel(1);
-        MessageRouterHandler {
+        let state = Arc::new(Mutex::new(MessageRouterState::new(sender.clone())));
+        let handler = MessageRouterHandler {
             worker_id,
             task_tracker: TaskTracker::new(),
             connection_pipe,
-            external_subscribers: Arc::new(Mutex::new(Vec::new())),
-            internal_subscribers: Arc::new(Mutex::new(Vec::new())),
             internal_sub_sender: sender,
             internal_sub_receiver: receiver,
+            state: state.clone(),
             msg_reg,
-        }
+        };
+        (handler, state)
     }
 
     pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
@@ -82,19 +115,6 @@ impl MessageRouterHandler {
         Ok(())
     }
 
-    async fn add_internal_subscriber(&mut self, sub: Box<dyn Subscriber>) -> Result<()> {
-        let sub_sender = sub.sender();
-        let msg_sub = InternalSubscriber::new(sub, sub_sender);
-        self.internal_subscribers.lock().await.push(msg_sub);
-        Ok(())
-    }
-
-    async fn add_external_subscriber(&mut self, sub: ExternalSubscriber) {
-        let mut es = self.external_subscribers.lock().await;
-        es.retain(|item| *item != sub);
-        es.push(sub);
-    }
-
     async fn identify_external_subscriber(&mut self, msg: Message) -> Result<()> {
         let identify_msg: &Identify = self.msg_reg.cast_msg(&msg);
         match identify_msg {
@@ -112,7 +132,7 @@ impl MessageRouterHandler {
                         worker_id: worker_id.clone(),
                         outbound_stream_id,
                     };
-                    self.add_external_subscriber(sub).await;
+                    self.state.lock().await.add_external_subscriber(sub)?;
                     info!(
                         "added new external worker subscriber: {}",
                         worker_id.clone()
@@ -127,7 +147,7 @@ impl MessageRouterHandler {
                         connection_id: id.clone(),
                         inbound_stream_id,
                     };
-                    self.add_external_subscriber(sub).await;
+                    self.state.lock().await.add_external_subscriber(sub)?;
 
                     let identify_back = Message::new(Box::new(Identify::Worker {
                         id: self.worker_id.clone(),
@@ -142,9 +162,32 @@ impl MessageRouterHandler {
         Ok(())
     }
 
+    async fn route_to_internal_subscriber(&mut self, msg: Message) -> Result<()> {
+        if let Some(route_to_worker_id) = msg.route_to_worker_id {
+            if route_to_worker_id != self.worker_id {
+                return Ok(());
+            }
+        }
+
+        let state = self.state.lock().await;
+        let subs = state
+            .internal_subscribers
+            .iter()
+            .filter(|&item| item.sub.consumes_message(&msg));
+
+        for sub in subs {
+            if let Err(err) = sub.sender.send(msg.clone()).await {
+                info!("unable to send to subscriber; received error: {}", err);
+            }
+        }
+
+        Ok(())
+    }
+
     async fn route_msg(&mut self, msg: Message) -> Result<()> {
         match msg.msg.msg_name() {
             MessageName::Identify => self.identify_external_subscriber(msg).await,
+            MessageName::RunQuery => self.route_to_internal_subscriber(msg).await,
             val => {
                 Err(MessageRouterError::RoutingRuleNotImplementedForMessage(val.to_string()).into())
             }
