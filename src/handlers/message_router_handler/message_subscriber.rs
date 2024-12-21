@@ -1,25 +1,27 @@
-use anyhow::Result;
 use core::fmt;
+use tokio::sync::mpsc::{self, Sender};
 
-use crate::handlers::message_handler::{Message, Pipe};
+use crate::handlers::message_handler::Message;
 
-pub trait Subscriber: fmt::Debug + Send + Sync {
+pub trait MessageConsumer: fmt::Debug + Send + Sync {
     fn consumes_message(&self, msg: &Message) -> bool;
 }
 
-pub trait SubscriberSend: fmt::Debug + Send + Sync {
-    fn send(&self, msg: &Message) -> Result<()>;
+pub trait MessageReceiver: fmt::Debug + Send + Sync {
+    fn sender(&self) -> mpsc::Sender<Message>;
 }
+
+pub trait Subscriber: MessageConsumer + MessageReceiver {}
 
 #[derive(Debug)]
 pub struct InternalSubscriber {
     sub: Box<dyn Subscriber>,
-    pipe: Pipe<Message>,
+    sender: Sender<Message>,
 }
 
 impl InternalSubscriber {
-    pub fn new(sub: Box<dyn Subscriber>, pipe: Pipe<Message>) -> InternalSubscriber {
-        InternalSubscriber { sub, pipe }
+    pub fn new(sub: Box<dyn Subscriber>, sender: Sender<Message>) -> InternalSubscriber {
+        InternalSubscriber { sub, sender }
     }
 }
 
@@ -35,7 +37,7 @@ pub enum ExternalSubscriber {
     },
 }
 
-impl Subscriber for ExternalSubscriber {
+impl MessageConsumer for ExternalSubscriber {
     fn consumes_message(&self, msg: &Message) -> bool {
         match self {
             Self::InboundClientConnection { connection_id, .. } => match msg.route_to_connection_id

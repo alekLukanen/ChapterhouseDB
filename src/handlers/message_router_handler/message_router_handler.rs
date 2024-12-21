@@ -2,14 +2,19 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{
+    mpsc::{self, Receiver, Sender},
+    Mutex,
+};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::info;
 
 use crate::handlers::message_handler::{Identify, Message, MessageName, MessageRegistry, Pipe};
 
-use super::message_subscriber::{ExternalSubscriber, InternalSubscriber, Subscriber};
+use super::message_subscriber::{
+    ExternalSubscriber, InternalSubscriber, MessageConsumer, Subscriber,
+};
 
 #[derive(Debug, Error)]
 pub enum MessageRouterError {
@@ -23,8 +28,11 @@ pub struct MessageRouterHandler {
     worker_id: u128,
     task_tracker: TaskTracker,
     connection_pipe: Pipe<Message>,
-    internal_subscribers: Arc<Mutex<Vec<InternalSubscriber>>>,
     external_subscribers: Arc<Mutex<Vec<ExternalSubscriber>>>,
+
+    internal_subscribers: Arc<Mutex<Vec<InternalSubscriber>>>,
+    internal_sub_sender: Sender<Message>,
+    internal_sub_receiver: Receiver<Message>,
 
     msg_reg: Arc<Box<MessageRegistry>>,
 }
@@ -35,12 +43,15 @@ impl MessageRouterHandler {
         connection_pipe: Pipe<Message>,
         msg_reg: Arc<Box<MessageRegistry>>,
     ) -> MessageRouterHandler {
+        let (sender, receiver) = mpsc::channel(1);
         MessageRouterHandler {
             worker_id,
             task_tracker: TaskTracker::new(),
             connection_pipe,
-            internal_subscribers: Arc::new(Mutex::new(Vec::new())),
             external_subscribers: Arc::new(Mutex::new(Vec::new())),
+            internal_subscribers: Arc::new(Mutex::new(Vec::new())),
+            internal_sub_sender: sender,
+            internal_sub_receiver: receiver,
             msg_reg,
         }
     }
@@ -71,11 +82,11 @@ impl MessageRouterHandler {
         Ok(())
     }
 
-    async fn add_internal_subscriber(&mut self, sub: Box<dyn Subscriber>) -> Result<Pipe<Message>> {
-        let (p1, p2) = Pipe::new(1);
-        let msg_sub = InternalSubscriber::new(sub, p1);
+    async fn add_internal_subscriber(&mut self, sub: Box<dyn Subscriber>) -> Result<()> {
+        let sub_sender = sub.sender();
+        let msg_sub = InternalSubscriber::new(sub, sub_sender);
         self.internal_subscribers.lock().await.push(msg_sub);
-        Ok(p2)
+        Ok(())
     }
 
     async fn add_external_subscriber(&mut self, sub: ExternalSubscriber) {
