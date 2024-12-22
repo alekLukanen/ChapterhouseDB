@@ -12,8 +12,6 @@ pub enum PhysicalPlanError {
     UnableToFindRootNodeInLogicalPlan,
     #[error("unable to build {0} operator for non-{1} logical plan node type")]
     UnableToBuildOperatorForLogicalPlanNodeType(&'static str, &'static str),
-    #[error("missing exchange operators that are required by plan node {0}")]
-    MissingExhcnageOperatorsThatAreRequiredByPlanNode(usize),
     #[error("max build iterations reached: {0}")]
     MaxBuildIterationsReached(usize),
     #[error("expected all inbound nodes to have operators already")]
@@ -56,6 +54,8 @@ pub enum TaskType {
 pub enum OperatorTask {
     Producer {
         typ: TaskType,
+        // push based: will mostly use outbound
+        outbound_exchange_id: String,
         inbound_exchange_ids: Vec<String>,
     },
     // an exchange manage the state of reading from
@@ -66,7 +66,9 @@ pub enum OperatorTask {
     // exits when the operator exits.
     Exchange {
         typ: TaskType,
-        inbound_producer_id: String,
+        // push based: will mostly use outbound
+        outbound_producer_ids: Vec<String>,
+        inbound_producer_ids: Vec<String>,
     },
 }
 
@@ -77,7 +79,7 @@ pub struct Operator {
     pub operator_task: OperatorTask,
     // compute requirements
     pub memory_in_mib: usize,
-    pub cpu_in_thousandths: usize, // 10 = 1 cpu 1
+    pub cpu_in_thousandths: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -207,7 +209,7 @@ impl PhysicalPlanner {
             }
 
             if let Some(plan_node) = self.logical_plan.get_node(plan_node_id) {
-                let plan_nodes_physical_operations = self.build_operators(&plan_node, &pipeline)?;
+                let plan_nodes_physical_operations = self.build_operators(&plan_node)?;
                 pipeline.add_operators(plan_nodes_physical_operations);
             }
             iters += 1;
@@ -218,16 +220,10 @@ impl PhysicalPlanner {
         Ok(physical_plan)
     }
 
-    fn build_operators(
-        &mut self,
-        lpn: &LogicalPlanNode,
-        pipeline: &Pipeline,
-    ) -> Result<Vec<Operator>> {
+    fn build_operators(&mut self, lpn: &LogicalPlanNode) -> Result<Vec<Operator>> {
         match lpn.node {
-            LogicalPlanNodeType::Materialize { .. } => {
-                self.build_materialize_operators(lpn, pipeline)
-            }
-            LogicalPlanNodeType::Filter { .. } => self.build_filter_operators(lpn, pipeline),
+            LogicalPlanNodeType::Materialize { .. } => self.build_materialize_operators(lpn),
+            LogicalPlanNodeType::Filter { .. } => self.build_filter_operators(lpn),
             LogicalPlanNodeType::TableFunc { .. } => self.build_table_func_operators(lpn),
             _ => Err(PhysicalPlanError::NotImplemented(format!(
                 "LogicalPlanNodeType isn't implemented to build resources: {:?}",
@@ -261,21 +257,23 @@ impl PhysicalPlanner {
         let mut operators: Vec<Operator> = Vec::new();
 
         let producer = Operator {
-            id: self.new_operator_id(lpn.id),
+            id: self.new_operator_id(lpn.id, "producer"),
             plan_id: lpn.id,
             operator_task: OperatorTask::Producer {
                 typ: task_type.clone(),
+                outbound_exchange_id: self.new_operator_id(lpn.id, "exchange"),
                 inbound_exchange_ids: Vec::new(),
             },
             cpu_in_thousandths: 1000,
             memory_in_mib: 512,
         };
         let exchange = Operator {
-            id: self.new_operator_id(lpn.id),
+            id: self.new_operator_id(lpn.id, "exchange"),
             plan_id: lpn.id,
             operator_task: OperatorTask::Exchange {
                 typ: task_type.clone(),
-                inbound_producer_id: producer.id.clone(),
+                outbound_producer_ids: self.get_outbound_operators(lpn, "producer")?,
+                inbound_producer_ids: vec![producer.id.clone()],
             },
             cpu_in_thousandths: 200,
             memory_in_mib: 128,
@@ -290,7 +288,6 @@ impl PhysicalPlanner {
     pub(crate) fn build_filter_operators(
         &mut self,
         lpn: &LogicalPlanNode,
-        pipeline: &Pipeline,
     ) -> Result<Vec<Operator>> {
         let filter_expr = match lpn.node.clone() {
             LogicalPlanNodeType::Filter { expr } => expr,
@@ -304,27 +301,27 @@ impl PhysicalPlanner {
             }
         };
 
-        let inbound_exchange_ids = self.get_inbound_exchange_nodes(&lpn, pipeline)?;
-
         let task_type = TaskType::Filter { expr: filter_expr };
         let mut operators: Vec<Operator> = Vec::new();
 
         let producer = Operator {
-            id: self.new_operator_id(lpn.id),
+            id: self.new_operator_id(lpn.id, "producer"),
             plan_id: lpn.id,
             operator_task: OperatorTask::Producer {
                 typ: task_type.clone(),
-                inbound_exchange_ids,
+                outbound_exchange_id: self.new_operator_id(lpn.id, "exchange"),
+                inbound_exchange_ids: self.get_inbound_operators(&lpn, "exchange")?,
             },
             cpu_in_thousandths: 1000,
             memory_in_mib: 512,
         };
         let exchange = Operator {
-            id: self.new_operator_id(lpn.id),
+            id: self.new_operator_id(lpn.id, "exchange"),
             plan_id: lpn.id,
             operator_task: OperatorTask::Exchange {
                 typ: task_type.clone(),
-                inbound_producer_id: producer.id.clone(),
+                outbound_producer_ids: self.get_outbound_operators(&lpn, "producer")?,
+                inbound_producer_ids: vec![producer.id.clone()],
             },
             cpu_in_thousandths: 200,
             memory_in_mib: 128,
@@ -339,7 +336,6 @@ impl PhysicalPlanner {
     pub(crate) fn build_materialize_operators(
         &mut self,
         lpn: &LogicalPlanNode,
-        pipeline: &Pipeline,
     ) -> Result<Vec<Operator>> {
         let fields = match lpn.node.clone() {
             LogicalPlanNodeType::Materialize { fields } => fields,
@@ -354,8 +350,6 @@ impl PhysicalPlanner {
             }
         };
 
-        let inbound_exchange_ids = self.get_inbound_exchange_nodes(&lpn, pipeline)?;
-
         let task_type = TaskType::Materialize {
             data_format: DataFormat::Parquet,
             fields,
@@ -363,21 +357,23 @@ impl PhysicalPlanner {
         let mut operators: Vec<Operator> = Vec::new();
 
         let producer = Operator {
-            id: self.new_operator_id(lpn.id),
+            id: self.new_operator_id(lpn.id, "producer"),
             plan_id: lpn.id,
             operator_task: OperatorTask::Producer {
                 typ: task_type.clone(),
-                inbound_exchange_ids,
+                outbound_exchange_id: self.new_operator_id(lpn.id, "exchange"),
+                inbound_exchange_ids: self.get_inbound_operators(lpn, "exchange")?,
             },
             cpu_in_thousandths: 1000,
             memory_in_mib: 512,
         };
         let exchange = Operator {
-            id: self.new_operator_id(lpn.id),
+            id: self.new_operator_id(lpn.id, "exchange"),
             plan_id: lpn.id,
             operator_task: OperatorTask::Exchange {
                 typ: task_type.clone(),
-                inbound_producer_id: producer.id.clone(),
+                outbound_producer_ids: self.get_outbound_operators(lpn, "producer")?,
+                inbound_producer_ids: vec![producer.id.clone()],
             },
             cpu_in_thousandths: 200,
             memory_in_mib: 128,
@@ -389,69 +385,38 @@ impl PhysicalPlanner {
         Ok(operators)
     }
 
-    fn get_inbound_exchange_nodes(
+    fn get_outbound_operators(
         &self,
         lpn: &LogicalPlanNode,
-        pipeline: &Pipeline,
-    ) -> Result<Vec<String>> {
-        // get the inbound nodes from the logical plan
-        // then find the physical producer operation corresponding
-        // to the logical plan node. This operation will be
-        // used as the filter source producers.
-        let inbound_logical_plan_nodes = self.logical_plan.get_inbound_nodes(lpn.id);
-        let mut inbound_exchange_ids: Vec<String> = Vec::new();
-        if let Some(inbound_logical_plan_nodes) = inbound_logical_plan_nodes {
-            for in_lpn_id in inbound_logical_plan_nodes {
-                let inbound_exchange_operators =
-                    pipeline.get_exchange_operators_for_plan_id(in_lpn_id);
-                if inbound_exchange_operators.len() == 0 {
-                    return Err(
-                        PhysicalPlanError::MissingExhcnageOperatorsThatAreRequiredByPlanNode(
-                            lpn.id,
-                        )
-                        .into(),
-                    );
-                }
-                for op in inbound_exchange_operators {
-                    inbound_exchange_ids.push(op.id.clone());
-                }
-            }
-        }
-        Ok(inbound_exchange_ids)
-    }
-
-    fn get_outbound_exchange_nodes(
-        &self,
-        lpn: &LogicalPlanNode,
-        pipeline: &Pipeline,
+        task_type_name: &str,
     ) -> Result<Vec<String>> {
         let outbound_logical_plan_nodes = self.logical_plan.get_outbound_nodes(lpn.id);
         let mut outbound_exchange_ids: Vec<String> = Vec::new();
         if let Some(outbound_logical_plan_nodes) = outbound_logical_plan_nodes {
             for out_lpn_id in outbound_logical_plan_nodes {
-                let outbound_exchange_operators =
-                    pipeline.get_exchange_operators_for_plan_id(out_lpn_id);
-                if outbound_exchange_operators.len() == 0 {
-                    return Err(
-                        PhysicalPlanError::MissingExhcnageOperatorsThatAreRequiredByPlanNode(
-                            lpn.id,
-                        )
-                        .into(),
-                    );
-                }
-                for op in outbound_exchange_operators {
-                    outbound_exchange_ids.push(op.id.clone());
-                }
+                outbound_exchange_ids.push(self.new_operator_id(out_lpn_id, task_type_name));
             }
         }
         Ok(outbound_exchange_ids)
     }
 
-    fn new_operator_id(&mut self, plan_nod_id: usize) -> String {
-        let id = self.operator_idx;
-        let sid = format!("operator_p{}_op{}", plan_nod_id, id);
-        self.operator_idx += 1;
-        sid
+    fn get_inbound_operators(
+        &self,
+        lpn: &LogicalPlanNode,
+        task_type_name: &str,
+    ) -> Result<Vec<String>> {
+        let inbound_logical_plan_nodes = self.logical_plan.get_inbound_nodes(lpn.id);
+        let mut inbound_exchange_ids: Vec<String> = Vec::new();
+        if let Some(inbound_logical_plan_nodes) = inbound_logical_plan_nodes {
+            for in_lpn_id in inbound_logical_plan_nodes {
+                inbound_exchange_ids.push(self.new_operator_id(in_lpn_id, task_type_name));
+            }
+        }
+        Ok(inbound_exchange_ids)
+    }
+
+    fn new_operator_id(&self, plan_node_id: usize, task_type_name: &str) -> String {
+        format!("operator_p{}_{}", plan_node_id, task_type_name)
     }
 
     fn new_pipeline_id(&mut self) -> String {

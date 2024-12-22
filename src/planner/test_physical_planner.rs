@@ -84,13 +84,17 @@ fn test_build_materialize_operators() -> Result<()> {
 
     // add the inbound filter exchange
     let ref filter_exchange = Operator {
-        id: format!("operator_p{}_op99", filter_node.id),
+        id: format!("operator_p{}_exchange", filter_node.id),
         plan_id: filter_node.id,
         operator_task: OperatorTask::Exchange {
             typ: TaskType::Filter {
                 expr: Expr::Value(Value::Boolean(true)),
             },
-            inbound_producer_id: "fake_id_here".to_string(),
+            outbound_producer_ids: vec![format!(
+                "operator_p{}_exchange",
+                materialize_node.id.clone()
+            )],
+            inbound_producer_ids: vec![format!("operator_p{}_producer", filter_node.id.clone())],
         },
         cpu_in_thousandths: 1000,
         memory_in_mib: 128,
@@ -98,8 +102,7 @@ fn test_build_materialize_operators() -> Result<()> {
     pipeline.add_operator(filter_exchange.clone());
 
     let mut physical_planner = PhysicalPlanner::new(logical_plan);
-    let mut operations =
-        physical_planner.build_materialize_operators(&materialize_node, &pipeline)?;
+    let mut operations = physical_planner.build_materialize_operators(&materialize_node)?;
 
     assert_eq!(2, operations.len());
 
@@ -114,21 +117,23 @@ fn test_build_materialize_operators() -> Result<()> {
         })],
     };
     let expected_producer = Operator {
-        id: format!("operator_p{}_op0", materialize_node.id),
+        id: format!("operator_p{}_producer", materialize_node.id),
         plan_id: materialize_node.id,
         operator_task: OperatorTask::Producer {
             typ: expected_task_type.clone(),
-            inbound_exchange_ids: vec![format!("operator_p{}_op99", filter_node.id)],
+            outbound_exchange_id: format!("operator_p{}_exchange", materialize_node.id.clone()),
+            inbound_exchange_ids: vec![format!("operator_p{}_exchange", filter_node.id.clone())],
         },
         cpu_in_thousandths: 1000,
         memory_in_mib: 512,
     };
     let expected_exchange = Operator {
-        id: format!("operator_p{}_op1", materialize_node.id),
+        id: format!("operator_p{}_exchange", materialize_node.id),
         plan_id: materialize_node.id,
         operator_task: OperatorTask::Exchange {
             typ: expected_task_type.clone(),
-            inbound_producer_id: expected_producer.id.clone(),
+            outbound_producer_ids: vec![],
+            inbound_producer_ids: vec![expected_producer.id.clone()],
         },
         cpu_in_thousandths: 200,
         memory_in_mib: 128,
