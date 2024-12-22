@@ -5,7 +5,6 @@ use bytes::BytesMut;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tracing::info;
 use uuid::Uuid;
 
 use crate::handlers::message_handler::{
@@ -22,10 +21,6 @@ pub enum AsyncQueryClientError {
     ConnectionResetByPeer,
     #[error("expected message but received none")]
     ExpectedMessageButReceivedNone,
-}
-
-pub struct QueryTracker {
-    query_id: u128,
 }
 
 #[derive(Debug)]
@@ -70,13 +65,10 @@ impl AsyncQueryClient {
         let ref mut identify = Message::new(Box::new(Identify::Connection { id: connection_id }));
         self.send_msg(stream, identify, connection_id).await?;
 
-        info!("1");
-
-        let identify: Identify = self
+        let _: Identify = self
             .expect_msg(stream)
             .await
             .context("failed to receive response identification from the worker")?;
-        info!("identified with worker: {:?}", identify);
 
         Ok(())
     }
@@ -92,7 +84,6 @@ impl AsyncQueryClient {
     async fn read_msg(&self, stream: &mut TcpStream) -> Result<Option<Message>> {
         let ref mut buf = BytesMut::new();
         loop {
-            info!("buf: {:?}", buf);
             if let Ok(msg) = self.msg_reg.build_msg(buf) {
                 if let Some(msg) = msg {
                     stream.write_all("OK".as_bytes()).await?;
@@ -130,16 +121,13 @@ impl AsyncQueryClient {
         msg.set_sent_from_connection_id(connection_id);
 
         stream.write_all(&msg.to_bytes()?[..]).await?;
-
-        info!("sent message");
         self.read_ok(stream).await?;
 
-        info!("received OK message");
         Ok(())
     }
 
     async fn read_ok(&self, stream: &mut TcpStream) -> Result<()> {
-        let mut resp = [0; 3];
+        let mut resp = [0; 2];
         let resp_size = stream.read(&mut resp).await?;
 
         let resp_msg = str::from_utf8(&resp[..resp_size])?.to_string();

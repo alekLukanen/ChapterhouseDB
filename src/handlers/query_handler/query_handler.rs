@@ -6,7 +6,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use super::query_handler_state::{self, QueryHandlerState};
-use crate::handlers::message_handler::{Message, MessageName, MessageRegistry, Pipe, RunQuery};
+use crate::handlers::message_handler::{
+    Message, MessageName, MessageRegistry, Pipe, RunQuery, RunQueryResp,
+};
 use crate::handlers::message_router_handler::{
     MessageConsumer, MessageReceiver, MessageRouterState, Subscriber,
 };
@@ -18,8 +20,6 @@ pub struct QueryHandler {
     router_pipe: Pipe<Message>,
     sender: mpsc::Sender<Message>,
     msg_reg: Arc<Box<MessageRegistry>>,
-
-    ct: CancellationToken,
 }
 
 impl QueryHandler {
@@ -36,7 +36,6 @@ impl QueryHandler {
             router_pipe: pipe,
             sender,
             msg_reg,
-            ct: CancellationToken::new(),
         };
 
         handler
@@ -45,7 +44,6 @@ impl QueryHandler {
     pub fn subscriber(&self) -> Box<dyn Subscriber> {
         Box::new(QueryHandlerSubscriber {
             sender: self.sender.clone(),
-            ct: self.ct.clone(),
         })
     }
 
@@ -80,13 +78,16 @@ impl QueryHandler {
 
     async fn run_query(&mut self, msg: &Message) -> Result<()> {
         let run_query: &RunQuery = self.msg_reg.cast_msg(&msg);
-        let query = query_handler_state::Query {
-            query: run_query.query.clone(),
-        };
+        let query = query_handler_state::Query::new(run_query.query.clone());
+
+        let run_query_resp = msg.reply(Box::new(RunQueryResp::Created {
+            query_id: query.id.clone(),
+        }));
 
         self.state.add_query(query);
+        self.router_pipe.send(run_query_resp).await?;
 
-        info!("added query: {:?}", self.state);
+        info!("added a new query");
 
         Ok(())
     }
@@ -99,7 +100,6 @@ impl QueryHandler {
 #[derive(Debug)]
 pub struct QueryHandlerSubscriber {
     sender: mpsc::Sender<Message>,
-    ct: CancellationToken,
 }
 
 impl Subscriber for QueryHandlerSubscriber {}

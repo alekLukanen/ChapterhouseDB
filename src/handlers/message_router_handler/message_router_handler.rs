@@ -64,8 +64,6 @@ pub struct MessageRouterHandler {
     task_tracker: TaskTracker,
 
     connection_pipe: Pipe<Message>,
-
-    internal_sub_sender: Sender<Message>,
     internal_sub_receiver: Receiver<Message>,
 }
 
@@ -81,7 +79,6 @@ impl MessageRouterHandler {
             worker_id,
             task_tracker: TaskTracker::new(),
             connection_pipe,
-            internal_sub_sender: sender,
             internal_sub_receiver: receiver,
             state: state.clone(),
             msg_reg,
@@ -96,6 +93,13 @@ impl MessageRouterHandler {
                     let routed = self.route_msg(&msg).await?;
                     if !routed {
                         info!("message ignored: {:?}", msg);
+                    }
+                }
+                Some(msg) = self.internal_sub_receiver.recv() => {
+                    if msg.inbound_stream_id.is_some() || msg.outbound_stream_id.is_some() {
+                        self.connection_pipe.send(msg).await?;
+                    } else {
+                        info!("message did not set inbound or outbound stread id");
                     }
                 }
                 _ = ct.cancelled() => {

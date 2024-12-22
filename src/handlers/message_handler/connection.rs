@@ -112,8 +112,8 @@ impl Connection {
                     } else {
                         msg = msg.set_outbound_stream(self.stream_id);
                     }
-                    self.pipe.send(msg).await?;
                     self.stream.write_all("OK".as_bytes()).await?;
+                    self.pipe.send(msg).await?;
                 }
                 continue;
             }
@@ -178,7 +178,7 @@ impl Connection {
     }
 
     async fn read_ok(&mut self) -> Result<()> {
-        let mut resp = [0; 3];
+        let mut resp = [0; 2];
         let resp_size = self.stream.read(&mut resp).await?;
 
         let resp_msg = str::from_utf8(&resp[..resp_size])?.to_string();

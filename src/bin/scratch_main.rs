@@ -2,7 +2,6 @@ use anyhow::Result;
 use serde_json;
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
-use tracing::info;
 use tracing_subscriber;
 
 use chapterhouseqe::client::QueryClient;

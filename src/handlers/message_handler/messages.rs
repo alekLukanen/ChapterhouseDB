@@ -254,18 +254,6 @@ impl SerializedMessage {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct CastMessage<'a, T: SendableMessage> {
-    msg: &'a Message,
-    cast_msg: &'a T,
-}
-
-impl<'a, T: SendableMessage> CastMessage<'a, T> {
-    pub fn new(msg: &'a Message, cast_msg: &'a T) -> CastMessage<'a, T> {
-        CastMessage { msg, cast_msg }
-    }
-}
-
 #[derive(Debug)]
 pub struct Message {
     pub msg_name_id: u16,
@@ -301,8 +289,8 @@ impl Clone for Message {
             route_to_worker_id: self.route_to_worker_id,
             route_to_operation_id: self.route_to_operation_id,
             route_to_connection_id: self.route_to_connection_id,
-            inbound_stream_id: None,
-            outbound_stream_id: None,
+            inbound_stream_id: self.inbound_stream_id,
+            outbound_stream_id: self.outbound_stream_id,
         }
     }
 }
@@ -323,6 +311,16 @@ impl Message {
             inbound_stream_id: None,
             outbound_stream_id: None,
         }
+    }
+
+    pub fn reply(&self, sendable: Box<dyn SendableMessage>) -> Message {
+        let mut msg = Message::new(sendable);
+        msg.route_to_worker_id = self.sent_from_worker_id.clone();
+        msg.route_to_operation_id = self.sent_from_operation_id.clone();
+        msg.route_to_connection_id = self.sent_from_connection_id.clone();
+        msg.inbound_stream_id = self.inbound_stream_id.clone();
+        msg.outbound_stream_id = self.outbound_stream_id.clone();
+        msg
     }
 
     pub fn take_msg(self) -> Box<dyn SendableMessage> {
@@ -655,15 +653,12 @@ impl MessageParser for RunQueryParser {
 //
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunQueryResp {
-    pub created: bool,
+pub enum RunQueryResp {
+    Created { query_id: u128 },
+    NotCreated,
 }
 
 impl RunQueryResp {
-    pub fn new(created: bool) -> RunQueryResp {
-        RunQueryResp { created }
-    }
-
     pub fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
         let msg: RunQueryResp = serde_json::from_slice(data)?;
         Ok(Box::new(msg))
