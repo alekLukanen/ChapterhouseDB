@@ -6,4 +6,4 @@ mod test_logical_planner;
 mod test_physical_planner;
 
 pub use logical_planner::{LogicalPlan, LogicalPlanner};
-pub use physical_planner::{PhysicalPlan, PhysicalPlanner};
+pub use physical_planner::{Operator, OperatorTask, PhysicalPlan, PhysicalPlanner};

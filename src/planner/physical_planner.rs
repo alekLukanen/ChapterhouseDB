@@ -78,6 +78,7 @@ pub struct Operator {
     pub plan_id: usize,
     pub operator_task: OperatorTask,
     // compute requirements
+    pub instances: usize,
     pub memory_in_mib: usize,
     pub cpu_in_thousandths: usize,
 }
@@ -94,6 +95,10 @@ impl Pipeline {
             id,
             operators: Vec::new(),
         };
+    }
+
+    pub fn get_operators(&self) -> Vec<Operator> {
+        self.operators.clone()
     }
 
     pub fn has_operators_for_plan_id(&self, plan_id: usize) -> bool {
@@ -264,6 +269,7 @@ impl PhysicalPlanner {
                 outbound_exchange_id: self.new_operator_id(lpn.id, "exchange"),
                 inbound_exchange_ids: Vec::new(),
             },
+            instances: 1,
             cpu_in_thousandths: 1000,
             memory_in_mib: 512,
         };
@@ -275,6 +281,7 @@ impl PhysicalPlanner {
                 outbound_producer_ids: self.get_outbound_operators(lpn, "producer")?,
                 inbound_producer_ids: vec![producer.id.clone()],
             },
+            instances: 1,
             cpu_in_thousandths: 200,
             memory_in_mib: 128,
         };
@@ -312,6 +319,7 @@ impl PhysicalPlanner {
                 outbound_exchange_id: self.new_operator_id(lpn.id, "exchange"),
                 inbound_exchange_ids: self.get_inbound_operators(&lpn, "exchange")?,
             },
+            instances: 1,
             cpu_in_thousandths: 1000,
             memory_in_mib: 512,
         };
@@ -323,6 +331,7 @@ impl PhysicalPlanner {
                 outbound_producer_ids: self.get_outbound_operators(&lpn, "producer")?,
                 inbound_producer_ids: vec![producer.id.clone()],
             },
+            instances: 1,
             cpu_in_thousandths: 200,
             memory_in_mib: 128,
         };
@@ -364,6 +373,7 @@ impl PhysicalPlanner {
                 outbound_exchange_id: self.new_operator_id(lpn.id, "exchange"),
                 inbound_exchange_ids: self.get_inbound_operators(lpn, "exchange")?,
             },
+            instances: 1,
             cpu_in_thousandths: 1000,
             memory_in_mib: 512,
         };
@@ -375,6 +385,7 @@ impl PhysicalPlanner {
                 outbound_producer_ids: self.get_outbound_operators(lpn, "producer")?,
                 inbound_producer_ids: vec![producer.id.clone()],
             },
+            instances: 1,
             cpu_in_thousandths: 200,
             memory_in_mib: 128,
         };

@@ -103,6 +103,7 @@ impl QueryHandler {
         let run_query_resp = msg.reply(Box::new(RunQueryResp::Created {
             query_id: query.id.clone(),
         }));
+        let query_id = query.id;
 
         info!("query: {:?}", query);
 
@@ -110,6 +111,8 @@ impl QueryHandler {
         self.router_pipe.send(run_query_resp).await?;
 
         info!("added a new query");
+
+        let operator_instances = self.state.get_available_operator_instance_ids(query_id);
 
         Ok(())
     }
