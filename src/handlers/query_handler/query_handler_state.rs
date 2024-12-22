@@ -1,16 +1,20 @@
 use uuid::Uuid;
 
+use crate::planner::PhysicalPlan;
+
 #[derive(Debug)]
 pub struct Query {
     pub id: u128,
     pub query: String,
+    pub physical_plan: PhysicalPlan,
 }
 
 impl Query {
-    pub fn new(query: String) -> Query {
+    pub fn new(query: String, physical_plan: PhysicalPlan) -> Query {
         Query {
             id: Uuid::new_v4().as_u128(),
             query,
+            physical_plan,
         }
     }
 }

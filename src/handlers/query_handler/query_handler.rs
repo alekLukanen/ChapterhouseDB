@@ -12,6 +12,7 @@ use crate::handlers::message_handler::{
 use crate::handlers::message_router_handler::{
     MessageConsumer, MessageReceiver, MessageRouterState, Subscriber,
 };
+use crate::planner::{LogicalPlanner, PhysicalPlanner};
 
 #[derive(Debug)]
 pub struct QueryHandler {
@@ -78,11 +79,32 @@ impl QueryHandler {
 
     async fn run_query(&mut self, msg: &Message) -> Result<()> {
         let run_query: &RunQuery = self.msg_reg.cast_msg(&msg);
-        let query = query_handler_state::Query::new(run_query.query.clone());
 
+        let logical_plan = match LogicalPlanner::new(run_query.query.clone()).build() {
+            Ok(plan) => plan,
+            Err(err) => {
+                info!("error: {}", err);
+                let not_created_resp = msg.reply(Box::new(RunQueryResp::NotCreated));
+                self.router_pipe.send(not_created_resp).await?;
+                return Ok(());
+            }
+        };
+        let physical_plan = match PhysicalPlanner::new(logical_plan).build() {
+            Ok(plan) => plan,
+            Err(err) => {
+                info!("error: {}", err);
+                let not_created_resp = msg.reply(Box::new(RunQueryResp::NotCreated));
+                self.router_pipe.send(not_created_resp).await?;
+                return Ok(());
+            }
+        };
+
+        let query = query_handler_state::Query::new(run_query.query.clone(), physical_plan);
         let run_query_resp = msg.reply(Box::new(RunQueryResp::Created {
             query_id: query.id.clone(),
         }));
+
+        info!("query: {:?}", query);
 
         self.state.add_query(query);
         self.router_pipe.send(run_query_resp).await?;
