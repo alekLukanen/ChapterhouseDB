@@ -59,4 +59,5 @@ RUST_BACKTRACE=1 cargo run
 1. SQL grammar for H2 embedded database system: http://www.h2database.com/html/commands.html#select
 2. SQL grammar for phoenix an SQL layer over the HBase database system: https://forcedotcom.github.io/phoenix/
 3. Parsing example: http://craftinginterpreters.com/parsing-expressions.html
+4. Rayon and Tokio methods for blocking code: https://ryhl.io/blog/async-what-is-blocking/
 

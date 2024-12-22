@@ -111,6 +111,13 @@ impl LogicalPlan {
         ids
     }
 
+    pub fn get_outbound_nodes(&self, node_idx: usize) -> Option<Vec<usize>> {
+        match self.outbound_edges.get(&node_idx) {
+            Some(nodes) => Some(nodes.clone()),
+            _ => None,
+        }
+    }
+
     pub fn get_inbound_nodes(&self, node_idx: usize) -> Option<Vec<usize>> {
         match self.inbound_edges.get(&node_idx) {
             Some(nodes) => Some(nodes.clone()),

@@ -3,7 +3,7 @@ use sqlparser::ast::{Expr, SelectItem, Value, WildcardAdditionalOptions};
 
 use crate::planner::logical_planner::{LogicalPlan, LogicalPlanner};
 use crate::planner::physical_planner::{
-    DataFormat, Operation, OperationTask, PhysicalPlan, PhysicalPlanner, Pipeline, TaskType,
+    DataFormat, Operator, OperatorTask, PhysicalPlan, PhysicalPlanner, Pipeline, TaskType,
 };
 
 use super::logical_planner::LogicalPlanNodeType;
@@ -31,11 +31,11 @@ fn test_simple_physical_plans() -> Result<()> {
 
             let query_pipeline = &pipelines.remove(0);
 
-            // ensure all plan nodes have a corresponding physical operation
+            // ensure all plan nodes have a corresponding physical operator
             for plan_node_id in plan_node_ids {
-                if !query_pipeline.has_operations_for_plan_id(plan_node_id.clone()) {
+                if !query_pipeline.has_operators_for_plan_id(plan_node_id.clone()) {
                     return Err(Error::msg(format!(
-                        "plan_node_id {} is missing physical operations",
+                        "plan_node_id {} is missing physical operators",
                         plan_node_id
                     )));
                 }
@@ -58,7 +58,7 @@ fn test_simple_physical_plans() -> Result<()> {
 }
 
 #[test]
-fn test_build_materialize_operations() -> Result<()> {
+fn test_build_materialize_operators() -> Result<()> {
     let query = "select * from read_files('data/path/*.parquet') where true";
     let logical_plan = LogicalPlanner::new(query.to_string()).build()?;
     let mut pipeline = Pipeline::new("pipeline_0".to_string());
@@ -83,23 +83,23 @@ fn test_build_materialize_operations() -> Result<()> {
     };
 
     // add the inbound filter exchange
-    let ref filter_exchange = Operation {
-        id: format!("operation_p{}_op99", filter_node.id),
+    let ref filter_exchange = Operator {
+        id: format!("operator_p{}_op99", filter_node.id),
         plan_id: filter_node.id,
-        operation_task: OperationTask::Exchange {
+        operator_task: OperatorTask::Exchange {
             typ: TaskType::Filter {
                 expr: Expr::Value(Value::Boolean(true)),
             },
-            source_producer_id: "fake_id_here".to_string(),
+            inbound_producer_id: "fake_id_here".to_string(),
         },
         cpu_in_thousandths: 1000,
         memory_in_mib: 128,
     };
-    pipeline.add_operation(filter_exchange.clone());
+    pipeline.add_operator(filter_exchange.clone());
 
     let mut physical_planner = PhysicalPlanner::new(logical_plan);
     let mut operations =
-        physical_planner.build_materialize_operations(&materialize_node, &pipeline)?;
+        physical_planner.build_materialize_operators(&materialize_node, &pipeline)?;
 
     assert_eq!(2, operations.len());
 
@@ -113,32 +113,32 @@ fn test_build_materialize_operations() -> Result<()> {
             opt_replace: None,
         })],
     };
-    let expected_producer = Operation {
-        id: format!("operation_p{}_op0", materialize_node.id),
+    let expected_producer = Operator {
+        id: format!("operator_p{}_op0", materialize_node.id),
         plan_id: materialize_node.id,
-        operation_task: OperationTask::Producer {
+        operator_task: OperatorTask::Producer {
             typ: expected_task_type.clone(),
-            source_exchange_ids: vec![format!("operation_p{}_op99", filter_node.id)],
+            inbound_exchange_ids: vec![format!("operator_p{}_op99", filter_node.id)],
         },
         cpu_in_thousandths: 1000,
         memory_in_mib: 512,
     };
-    let expected_exchange = Operation {
-        id: format!("operation_p{}_op1", materialize_node.id),
+    let expected_exchange = Operator {
+        id: format!("operator_p{}_op1", materialize_node.id),
         plan_id: materialize_node.id,
-        operation_task: OperationTask::Exchange {
+        operator_task: OperatorTask::Exchange {
             typ: expected_task_type.clone(),
-            source_producer_id: expected_producer.id.clone(),
+            inbound_producer_id: expected_producer.id.clone(),
         },
         cpu_in_thousandths: 200,
         memory_in_mib: 128,
     };
-    let mut expected_operations = vec![expected_producer, expected_exchange];
+    let mut expected_operators = vec![expected_producer, expected_exchange];
 
     operations.sort();
-    expected_operations.sort();
+    expected_operators.sort();
 
-    assert_eq!(expected_operations, operations);
+    assert_eq!(expected_operators, operations);
 
     Ok(())
 }
