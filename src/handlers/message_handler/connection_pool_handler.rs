@@ -118,8 +118,10 @@ impl ConnectionPoolHandler {
                 }
                 // message routing
                 Some(msg) = connection_rx.recv() => {
+                    info!("message: {:?}", msg);
                     if let Err(err) = self.pipe.send(msg).await {
                         info!("error: {}", err);
+                        info!("error on receive");
                     }
                 }
                 Some(msg) = self.pipe.recv() => {

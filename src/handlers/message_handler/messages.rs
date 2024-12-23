@@ -8,6 +8,8 @@ use std::io::{Cursor, Read};
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::planner;
+
 const HEADER_VERSION: u16 = 0;
 
 #[derive(Debug, Error)]
@@ -23,9 +25,9 @@ pub enum SerializedMessageError {
 pub trait SendableMessage: fmt::Debug + Send + Sync + Any {
     fn to_bytes(&self) -> Result<Vec<u8>>;
     fn msg_name(&self) -> MessageName;
-    fn clone_box(&self) -> Box<dyn SendableMessage>;
     fn as_any(self: Box<Self>) -> Box<dyn Any>;
     fn as_any_ref(&self) -> &dyn Any;
+    fn clone_box(&self) -> Box<dyn SendableMessage>;
 }
 
 pub trait MessageParser: fmt::Debug + Send + Sync {
@@ -274,6 +276,7 @@ pub struct Message {
     // source
     pub inbound_stream_id: Option<u128>,
     pub outbound_stream_id: Option<u128>,
+    pub created_on_this_worker: bool,
 }
 
 impl Clone for Message {
@@ -291,6 +294,7 @@ impl Clone for Message {
             route_to_connection_id: self.route_to_connection_id,
             inbound_stream_id: self.inbound_stream_id,
             outbound_stream_id: self.outbound_stream_id,
+            created_on_this_worker: self.created_on_this_worker,
         }
     }
 }
@@ -310,6 +314,7 @@ impl Message {
             route_to_connection_id: None,
             inbound_stream_id: None,
             outbound_stream_id: None,
+            created_on_this_worker: true,
         }
     }
 
@@ -433,6 +438,7 @@ impl Message {
             route_to_connection_id,
             inbound_stream_id: None,
             outbound_stream_id: None,
+            created_on_this_worker: false,
         };
 
         msg
@@ -457,6 +463,7 @@ pub enum MessageName {
     Identify,
     RunQuery,
     RunQueryResp,
+    OperatorInstanceAvailable,
 }
 
 impl MessageName {
@@ -466,6 +473,7 @@ impl MessageName {
             Self::Identify => "Identify",
             Self::RunQuery => "run_query",
             Self::RunQueryResp => "run_query_resp",
+            Self::OperatorInstanceAvailable => "operator_instance_available",
         }
     }
     pub fn as_u16(&self) -> u16 {
@@ -474,6 +482,7 @@ impl MessageName {
             Self::Identify => 1,
             Self::RunQuery => 2,
             Self::RunQueryResp => 3,
+            Self::OperatorInstanceAvailable => 4,
         }
     }
 }
@@ -699,5 +708,66 @@ impl MessageParser for RunQueryRespParser {
     }
     fn msg_name(&self) -> MessageName {
         MessageName::RunQueryResp
+    }
+}
+
+////////////////////////////////////////////////////////////
+//
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperatorInstanceAvailable {
+    op_instance_id: u128,
+    compute: planner::OperatorCompute,
+}
+
+impl OperatorInstanceAvailable {
+    pub fn new(
+        op_instance_id: u128,
+        compute: planner::OperatorCompute,
+    ) -> OperatorInstanceAvailable {
+        OperatorInstanceAvailable {
+            op_instance_id,
+            compute,
+        }
+    }
+}
+
+impl SendableMessage for OperatorInstanceAvailable {
+    fn to_bytes(&self) -> Result<Vec<u8>> {
+        Ok(serde_json::to_vec(self)?)
+    }
+    fn msg_name(&self) -> MessageName {
+        MessageName::OperatorInstanceAvailable
+    }
+    fn clone_box(&self) -> Box<dyn SendableMessage> {
+        Box::new(self.clone())
+    }
+    fn as_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OperatorInstanceAvailableParser {}
+
+impl OperatorInstanceAvailableParser {
+    pub fn new() -> OperatorInstanceAvailableParser {
+        OperatorInstanceAvailableParser {}
+    }
+}
+
+impl MessageParser for OperatorInstanceAvailableParser {
+    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
+        let msg: OperatorInstanceAvailable = serde_json::from_slice(&ser_msg.msg_data)?;
+        Ok(Message::build_from_serialized_message(
+            ser_msg,
+            Box::new(msg),
+        ))
+    }
+    fn msg_name(&self) -> MessageName {
+        MessageName::OperatorInstanceAvailable
     }
 }

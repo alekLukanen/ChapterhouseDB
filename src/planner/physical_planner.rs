@@ -1,4 +1,5 @@
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use sqlparser::ast::{Expr, FunctionArg, SelectItem};
 use thiserror::Error;
 
@@ -72,15 +73,20 @@ pub enum OperatorTask {
     },
 }
 
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
+pub struct OperatorCompute {
+    pub instances: usize,
+    pub memory_in_mib: usize,
+    pub cpu_in_thousandths: usize,
+}
+
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
 pub struct Operator {
     pub id: String,
     pub plan_id: usize,
     pub operator_task: OperatorTask,
     // compute requirements
-    pub instances: usize,
-    pub memory_in_mib: usize,
-    pub cpu_in_thousandths: usize,
+    pub compute: OperatorCompute,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -269,9 +275,11 @@ impl PhysicalPlanner {
                 outbound_exchange_id: self.new_operator_id(lpn.id, "exchange"),
                 inbound_exchange_ids: Vec::new(),
             },
-            instances: 1,
-            cpu_in_thousandths: 1000,
-            memory_in_mib: 512,
+            compute: OperatorCompute {
+                instances: 1,
+                cpu_in_thousandths: 1000,
+                memory_in_mib: 512,
+            },
         };
         let exchange = Operator {
             id: self.new_operator_id(lpn.id, "exchange"),
@@ -281,9 +289,11 @@ impl PhysicalPlanner {
                 outbound_producer_ids: self.get_outbound_operators(lpn, "producer")?,
                 inbound_producer_ids: vec![producer.id.clone()],
             },
-            instances: 1,
-            cpu_in_thousandths: 200,
-            memory_in_mib: 128,
+            compute: OperatorCompute {
+                instances: 1,
+                cpu_in_thousandths: 200,
+                memory_in_mib: 128,
+            },
         };
 
         operators.push(producer);
@@ -319,9 +329,11 @@ impl PhysicalPlanner {
                 outbound_exchange_id: self.new_operator_id(lpn.id, "exchange"),
                 inbound_exchange_ids: self.get_inbound_operators(&lpn, "exchange")?,
             },
-            instances: 1,
-            cpu_in_thousandths: 1000,
-            memory_in_mib: 512,
+            compute: OperatorCompute {
+                instances: 1,
+                cpu_in_thousandths: 1000,
+                memory_in_mib: 512,
+            },
         };
         let exchange = Operator {
             id: self.new_operator_id(lpn.id, "exchange"),
@@ -331,9 +343,11 @@ impl PhysicalPlanner {
                 outbound_producer_ids: self.get_outbound_operators(&lpn, "producer")?,
                 inbound_producer_ids: vec![producer.id.clone()],
             },
-            instances: 1,
-            cpu_in_thousandths: 200,
-            memory_in_mib: 128,
+            compute: OperatorCompute {
+                instances: 1,
+                cpu_in_thousandths: 200,
+                memory_in_mib: 128,
+            },
         };
 
         operators.push(producer);
@@ -373,9 +387,11 @@ impl PhysicalPlanner {
                 outbound_exchange_id: self.new_operator_id(lpn.id, "exchange"),
                 inbound_exchange_ids: self.get_inbound_operators(lpn, "exchange")?,
             },
-            instances: 1,
-            cpu_in_thousandths: 1000,
-            memory_in_mib: 512,
+            compute: OperatorCompute {
+                instances: 1,
+                cpu_in_thousandths: 1000,
+                memory_in_mib: 512,
+            },
         };
         let exchange = Operator {
             id: self.new_operator_id(lpn.id, "exchange"),
@@ -385,9 +401,11 @@ impl PhysicalPlanner {
                 outbound_producer_ids: self.get_outbound_operators(lpn, "producer")?,
                 inbound_producer_ids: vec![producer.id.clone()],
             },
-            instances: 1,
-            cpu_in_thousandths: 200,
-            memory_in_mib: 128,
+            compute: OperatorCompute {
+                instances: 1,
+                cpu_in_thousandths: 200,
+                memory_in_mib: 128,
+            },
         };
 
         operators.push(producer);

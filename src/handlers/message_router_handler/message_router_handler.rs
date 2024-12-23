@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, u128};
 
 use anyhow::Result;
 use thiserror::Error;
@@ -51,6 +51,38 @@ impl MessageRouterState {
         Ok(())
     }
 
+    pub fn get_all_outbound_streams(&self) -> Vec<u128> {
+        let mut outbound_stream_ids = Vec::new();
+        for sub in &self.external_subscribers {
+            match sub {
+                ExternalSubscriber::OutboundWorker {
+                    outbound_stream_id, ..
+                } => {
+                    outbound_stream_ids.push(outbound_stream_id.clone());
+                }
+                _ => (),
+            }
+        }
+        outbound_stream_ids
+    }
+
+    pub fn get_worker_outbound_stream(&self, w_id: u128) -> Option<u128> {
+        for sub in &self.external_subscribers {
+            match sub {
+                ExternalSubscriber::OutboundWorker {
+                    worker_id,
+                    outbound_stream_id,
+                } => {
+                    if w_id == *worker_id {
+                        return Some(outbound_stream_id.clone());
+                    }
+                }
+                _ => (),
+            }
+        }
+        return None;
+    }
+
     pub fn sender(&self) -> Sender<Message> {
         self.internal_sub_sender.clone()
     }
@@ -95,11 +127,38 @@ impl MessageRouterHandler {
                         info!("message ignored: {:?}", msg);
                     }
                 }
-                Some(msg) = self.internal_sub_receiver.recv() => {
+                Some(mut msg) = self.internal_sub_receiver.recv() => {
                     if msg.inbound_stream_id.is_some() || msg.outbound_stream_id.is_some() {
+                        // route to known stream
                         self.connection_pipe.send(msg).await?;
+
+                    } else if let Some(route_to_worker_id) = msg.route_to_worker_id {
+                        // route to specific outbound worker
+                        let outbound_stream_id = self.state.lock().await.get_worker_outbound_stream(route_to_worker_id);
+                        if let Some(outbound_stream_id) = outbound_stream_id {
+                            msg = msg.set_outbound_stream(outbound_stream_id);
+                            self.connection_pipe.send(msg).await?;
+                        }
+
+                    } else if let Some(_) = msg.route_to_connection_id {
+                        // route to inbound connection
+                        info!("route to connection not implemented: {:?}", msg);
+
+                    } else if msg.route_to_worker_id.is_none() && msg.route_to_operation_id.is_some() {
+                        // route to internal operation subscriber
+                        info!("route to operation not implemented: {:?}", msg);
+
+                    } else if msg.route_to_worker_id.is_none() && msg.route_to_operation_id.is_none() && msg.route_to_connection_id.is_none() {
+                        // broadcast to all outbound workers
+                        info!("broadcasting message");
+                        let outbound_stream_ids = self.state.lock().await.get_all_outbound_streams();
+                        for out_id in outbound_stream_ids {
+                            let msg = msg.clone().set_outbound_stream(out_id);
+                            self.connection_pipe.send(msg).await?;
+                        }
+
                     } else {
-                        info!("message did not set inbound or outbound stread id");
+                        info!("unable to route message from internal sub: {:?}", msg);
                     }
                 }
                 _ = ct.cancelled() => {
@@ -200,9 +259,8 @@ impl MessageRouterHandler {
         match msg.msg.msg_name() {
             MessageName::Identify => self.identify_external_subscriber(msg).await,
             MessageName::RunQuery => self.route_to_internal_subscriber(msg).await,
-            val => {
-                Err(MessageRouterError::RoutingRuleNotImplementedForMessage(val.to_string()).into())
-            }
+            MessageName::OperatorInstanceAvailable => self.route_to_internal_subscriber(msg).await,
+            _ => Ok(false),
         }
     }
 }

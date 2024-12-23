@@ -1,6 +1,16 @@
+use anyhow::Result;
+use thiserror::Error;
 use uuid::Uuid;
 
 use crate::planner;
+
+#[derive(Debug, Error)]
+pub enum QueryHandlerStateError {
+    #[error("query not found: {0}")]
+    QueryNotFound(u128),
+    #[error("operator instance not found: {0}")]
+    OperatorInstanceNotFound(u128),
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Status {
@@ -18,7 +28,7 @@ pub struct OperatorInstanceGroup {
 
 impl OperatorInstanceGroup {
     pub fn new(op: planner::Operator) -> OperatorInstanceGroup {
-        let instances = op.instances;
+        let instances = op.compute.instances;
         OperatorInstanceGroup {
             operator: op,
             instances: (0..instances)
@@ -67,16 +77,13 @@ impl Query {
         query
     }
 
-    pub fn add_operator_instances_from_physical_plan(&mut self) -> &Self {
+    fn add_operator_instances_from_physical_plan(&mut self) -> &Self {
         for pipeline in self.physical_plan.get_pipelines() {
             for op in pipeline.get_operators() {
-                for _ in 0..op.instances {
-                    self.operator_instances
-                        .push(OperatorInstanceGroup::new(op.clone()))
-                }
+                self.operator_instances
+                    .push(OperatorInstanceGroup::new(op.clone()))
             }
         }
-
         self
     }
 }
@@ -97,14 +104,14 @@ impl QueryHandlerState {
         self.queries.push(query);
     }
 
-    pub fn get_available_operator_instance_ids(&self, query_id: u128) -> Vec<u128> {
+    pub fn get_available_operator_instance_ids(&self, query_id: u128) -> Result<Vec<u128>> {
         let query = self
             .queries
             .iter()
             .filter(|item| item.id == query_id)
             .next();
         if let Some(query) = query {
-            return query
+            Ok(query
                 .operator_instances
                 .iter()
                 .map(|item| {
@@ -115,9 +122,37 @@ impl QueryHandlerState {
                         .collect::<Vec<u128>>()
                 })
                 .flatten()
-                .collect();
+                .collect())
+        } else {
+            Err(QueryHandlerStateError::QueryNotFound(query_id).into())
         }
+    }
 
-        vec![]
+    pub fn get_operator_instance_compute(
+        &self,
+        query_id: u128,
+        op_instance_id: u128,
+    ) -> Result<planner::OperatorCompute> {
+        let query = self
+            .queries
+            .iter()
+            .filter(|item| item.id == query_id)
+            .next();
+        if let Some(query) = query {
+            let operator_group = query.operator_instances.iter().find(|item| {
+                item.instances
+                    .iter()
+                    .find(|inner_item| inner_item.id == op_instance_id)
+                    .is_some()
+            });
+            match operator_group {
+                Some(op_group) => Ok(op_group.operator.compute.clone()),
+                None => {
+                    Err(QueryHandlerStateError::OperatorInstanceNotFound(op_instance_id).into())
+                }
+            }
+        } else {
+            Err(QueryHandlerStateError::QueryNotFound(query_id).into())
+        }
     }
 }

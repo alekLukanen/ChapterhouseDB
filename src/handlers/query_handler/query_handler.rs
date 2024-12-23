@@ -7,7 +7,7 @@ use tracing::info;
 
 use super::query_handler_state::{self, QueryHandlerState};
 use crate::handlers::message_handler::{
-    Message, MessageName, MessageRegistry, Pipe, RunQuery, RunQueryResp,
+    Message, MessageName, MessageRegistry, OperatorInstanceAvailable, Pipe, RunQuery, RunQueryResp,
 };
 use crate::handlers::message_router_handler::{
     MessageConsumer, MessageReceiver, MessageRouterState, Subscriber,
@@ -72,6 +72,7 @@ impl QueryHandler {
             }
         }
 
+        info!("closing the query handler...");
         self.router_pipe.close_receiver();
 
         Ok(())
@@ -112,7 +113,21 @@ impl QueryHandler {
 
         info!("added a new query");
 
-        let operator_instances = self.state.get_available_operator_instance_ids(query_id);
+        // get all of the new operator instances and send out notifications for each
+        let operator_instances = self
+            .state
+            .get_available_operator_instance_ids(query_id.clone())?;
+
+        for op_in_id in operator_instances {
+            let compute = self
+                .state
+                .get_operator_instance_compute(query_id.clone(), op_in_id)?;
+            self.router_pipe
+                .send(Message::new(Box::new(OperatorInstanceAvailable::new(
+                    op_in_id, compute,
+                ))))
+                .await?;
+        }
 
         Ok(())
     }

@@ -3,7 +3,8 @@ use sqlparser::ast::{Expr, SelectItem, Value, WildcardAdditionalOptions};
 
 use crate::planner::logical_planner::{LogicalPlan, LogicalPlanner};
 use crate::planner::physical_planner::{
-    DataFormat, Operator, OperatorTask, PhysicalPlan, PhysicalPlanner, Pipeline, TaskType,
+    DataFormat, Operator, OperatorCompute, OperatorTask, PhysicalPlan, PhysicalPlanner, Pipeline,
+    TaskType,
 };
 
 use super::logical_planner::LogicalPlanNodeType;
@@ -96,9 +97,11 @@ fn test_build_materialize_operators() -> Result<()> {
             )],
             inbound_producer_ids: vec![format!("operator_p{}_producer", filter_node.id.clone())],
         },
-        instances: 1,
-        cpu_in_thousandths: 1000,
-        memory_in_mib: 128,
+        compute: OperatorCompute {
+            instances: 1,
+            cpu_in_thousandths: 1000,
+            memory_in_mib: 128,
+        },
     };
     pipeline.add_operator(filter_exchange.clone());
 
@@ -125,9 +128,11 @@ fn test_build_materialize_operators() -> Result<()> {
             outbound_exchange_id: format!("operator_p{}_exchange", materialize_node.id.clone()),
             inbound_exchange_ids: vec![format!("operator_p{}_exchange", filter_node.id.clone())],
         },
-        instances: 1,
-        cpu_in_thousandths: 1000,
-        memory_in_mib: 512,
+        compute: OperatorCompute {
+            instances: 1,
+            cpu_in_thousandths: 1000,
+            memory_in_mib: 512,
+        },
     };
     let expected_exchange = Operator {
         id: format!("operator_p{}_exchange", materialize_node.id),
@@ -137,9 +142,11 @@ fn test_build_materialize_operators() -> Result<()> {
             outbound_producer_ids: vec![],
             inbound_producer_ids: vec![expected_producer.id.clone()],
         },
-        instances: 1,
-        cpu_in_thousandths: 200,
-        memory_in_mib: 128,
+        compute: OperatorCompute {
+            instances: 1,
+            cpu_in_thousandths: 200,
+            memory_in_mib: 128,
+        },
     };
     let mut expected_operators = vec![expected_producer, expected_exchange];
 
