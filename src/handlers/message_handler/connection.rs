@@ -10,6 +10,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 use uuid::Uuid;
 
+use crate::handlers::message_handler::SerializedMessageError;
+
 use super::message_registry::MessageRegistry;
 use super::messages::{Identify, Message};
 use super::Pipe;
@@ -101,18 +103,27 @@ impl Connection {
         }
 
         loop {
-            info!("buf: {:?}", self.buf);
-            if let Ok(msg) = self.msg_reg.build_msg(&mut self.buf) {
-                if let Some(mut msg) = msg {
-                    if self.is_inbound {
-                        msg = msg.set_inbound_stream_id(self.stream_id);
-                    } else {
-                        msg = msg.set_outbound_stream(self.stream_id);
+            match self.msg_reg.build_msg(&mut self.buf) {
+                Ok(msg) => {
+                    if let Some(mut msg) = msg {
+                        if self.is_inbound {
+                            msg = msg.set_inbound_stream_id(self.stream_id);
+                        } else {
+                            msg = msg.set_outbound_stream(self.stream_id);
+                        }
+                        self.pipe.send(msg).await?;
                     }
-                    info!("sending message to router");
-                    self.pipe.send(msg).await?;
+                    continue;
                 }
-                continue;
+                Err(err) => {
+                    let ser_msg_err = err.downcast_ref::<SerializedMessageError>();
+                    match ser_msg_err {
+                        Some(SerializedMessageError::Incomplete) => (),
+                        _ => {
+                            info!("error: {}", err);
+                        }
+                    }
+                }
             }
 
             // end the conneciton if the other system has sent too much data

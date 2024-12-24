@@ -181,8 +181,9 @@ impl SerializedMessage {
                 let route_to_operation_id = buf.get_u128();
                 let route_to_connection_id = buf.get_u128();
 
-                let mut msg_data = Vec::new();
-                match buf.read_to_end(&mut msg_data) {
+                let mut msg_data = BytesMut::with_capacity(data_len as usize);
+                msg_data.resize(data_len as usize, 0);
+                match buf.read_exact(&mut msg_data) {
                     Err(_) => return Err(SerializedMessageError::BufferReadToEndFailed),
                     _ => (),
                 }
@@ -202,7 +203,7 @@ impl SerializedMessage {
                     route_to_worker_id,
                     route_to_operation_id,
                     route_to_connection_id,
-                    msg_data,
+                    msg_data: msg_data.to_vec(),
                 };
 
                 // claim the data from the buffer
