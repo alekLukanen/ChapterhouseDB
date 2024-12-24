@@ -8,18 +8,25 @@ use uuid::Uuid;
 
 use crate::handlers::message_handler::{ConnectionPoolHandler, MessageRegistry};
 use crate::handlers::message_router_handler::{MessageRouterHandler, MessageRouterState};
+use crate::handlers::operator_handler::{OperatorHandler, TotalOperatorCompute};
 use crate::handlers::query_handler::QueryHandler;
 
 pub struct QueryWorkerConfig {
     address: String,
     connect_to_addresses: Vec<String>,
+    allowed_compute: TotalOperatorCompute,
 }
 
 impl QueryWorkerConfig {
-    pub fn new(address: String, connect_to_addresses: Vec<String>) -> QueryWorkerConfig {
+    pub fn new(
+        address: String,
+        connect_to_addresses: Vec<String>,
+        allowed_compute: TotalOperatorCompute,
+    ) -> QueryWorkerConfig {
         QueryWorkerConfig {
             address,
             connect_to_addresses,
+            allowed_compute,
         }
     }
 }
@@ -68,6 +75,13 @@ impl QueryWorker {
         // add internal subscribers
         let mut query_handler =
             QueryHandler::new(message_router_state.clone(), msg_reg.clone()).await;
+
+        let mut operator_handler = OperatorHandler::new(
+            message_router_state.clone(),
+            msg_reg.clone(),
+            self.config.allowed_compute.clone(),
+        )
+        .await;
 
         let ct = self.cancelation_token.clone();
         tt.spawn(async move {

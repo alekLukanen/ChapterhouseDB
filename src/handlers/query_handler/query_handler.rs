@@ -133,10 +133,8 @@ impl QueryHandler {
     }
 }
 
-// the following struct defines the Subscriber that the
-// message router will use to route messages to the QueryHandler
-// struct. It needs to me it's own struct due to rust ownership
-// rules.
+/////////////////////////////////////////////////
+// Message subscriber for the query handler
 #[derive(Debug)]
 pub struct QueryHandlerSubscriber {
     sender: mpsc::Sender<Message>,

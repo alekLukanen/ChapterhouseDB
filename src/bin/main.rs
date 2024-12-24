@@ -1,7 +1,10 @@
 use clap;
 use tracing_subscriber;
 
-use chapterhouseqe::worker::{QueryWorker, QueryWorkerConfig};
+use chapterhouseqe::{
+    handlers::operator_handler::TotalOperatorCompute,
+    worker::{QueryWorker, QueryWorkerConfig},
+};
 
 use clap::Parser;
 
@@ -26,6 +29,11 @@ fn main() {
     let mut worker = QueryWorker::new(QueryWorkerConfig::new(
         format!("127.0.0.1:{}", args.port),
         args.connect_to_addresses,
+        TotalOperatorCompute {
+            instances: 10,
+            memory_in_mib: 1 << 11, // 2048 mebibytes
+            cpu_in_thousandths: 2_000,
+        },
     ));
 
     match worker.start() {

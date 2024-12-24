@@ -464,6 +464,7 @@ pub enum MessageName {
     RunQuery,
     RunQueryResp,
     OperatorInstanceAvailable,
+    OperatorInstanceAvailableResponse,
 }
 
 impl MessageName {
@@ -474,6 +475,7 @@ impl MessageName {
             Self::RunQuery => "run_query",
             Self::RunQueryResp => "run_query_resp",
             Self::OperatorInstanceAvailable => "operator_instance_available",
+            Self::OperatorInstanceAvailableResponse => "operator_instance_available_response",
         }
     }
     pub fn as_u16(&self) -> u16 {
@@ -483,6 +485,7 @@ impl MessageName {
             Self::RunQuery => 2,
             Self::RunQueryResp => 3,
             Self::OperatorInstanceAvailable => 4,
+            Self::OperatorInstanceAvailableResponse => 5,
         }
     }
 }
@@ -716,8 +719,8 @@ impl MessageParser for RunQueryRespParser {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperatorInstanceAvailable {
-    op_instance_id: u128,
-    compute: planner::OperatorCompute,
+    pub op_instance_id: u128,
+    pub compute: planner::OperatorCompute,
 }
 
 impl OperatorInstanceAvailable {
@@ -769,5 +772,63 @@ impl MessageParser for OperatorInstanceAvailableParser {
     }
     fn msg_name(&self) -> MessageName {
         MessageName::OperatorInstanceAvailable
+    }
+}
+
+////////////////////////////////////////////////////////////
+//
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperatorInstanceAvailableResponse {
+    pub op_instance_id: u128,
+    pub accept_operator: bool,
+}
+
+impl OperatorInstanceAvailableResponse {
+    pub fn new(op_instance_id: u128, accept_operator: bool) -> OperatorInstanceAvailableResponse {
+        OperatorInstanceAvailableResponse {
+            op_instance_id,
+            accept_operator,
+        }
+    }
+}
+
+impl SendableMessage for OperatorInstanceAvailableResponse {
+    fn to_bytes(&self) -> Result<Vec<u8>> {
+        Ok(serde_json::to_vec(self)?)
+    }
+    fn msg_name(&self) -> MessageName {
+        MessageName::OperatorInstanceAvailableResponse
+    }
+    fn clone_box(&self) -> Box<dyn SendableMessage> {
+        Box::new(self.clone())
+    }
+    fn as_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OperatorInstanceAvailableResponseParser {}
+
+impl OperatorInstanceAvailableResponseParser {
+    pub fn new() -> OperatorInstanceAvailableResponseParser {
+        OperatorInstanceAvailableResponseParser {}
+    }
+}
+
+impl MessageParser for OperatorInstanceAvailableResponseParser {
+    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
+        let msg: OperatorInstanceAvailableResponse = serde_json::from_slice(&ser_msg.msg_data)?;
+        Ok(Message::build_from_serialized_message(
+            ser_msg,
+            Box::new(msg),
+        ))
+    }
+    fn msg_name(&self) -> MessageName {
+        MessageName::OperatorInstanceAvailableResponse
     }
 }
