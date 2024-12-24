@@ -7,7 +7,7 @@ use tracing::info;
 
 use super::query_handler_state::{self, QueryHandlerState};
 use crate::handlers::message_handler::{
-    Message, MessageName, MessageRegistry, OperatorInstanceAvailable,
+    Message, MessageName, MessageRegistry, OperatorInstanceAssignment, OperatorInstanceAvailable,
     OperatorInstanceAvailableResponse, Pipe, RunQuery, RunQueryResp,
 };
 use crate::handlers::message_router_handler::{
@@ -92,7 +92,28 @@ impl QueryHandler {
     async fn handle_operator_instance_response(&mut self, msg: &Message) -> Result<()> {
         let op_avail_resp: &OperatorInstanceAvailableResponse = self.msg_reg.try_cast_msg(msg)?;
 
-        info!("received response for operator instance...");
+        let claimed = self.state.claim_operator_instance_if_queued(
+            op_avail_resp.query_id,
+            op_avail_resp.op_instance_id,
+        )?;
+        if !claimed {
+            return Ok(());
+        }
+
+        let operator = self
+            .state
+            .get_operator_instance_operator(op_avail_resp.query_id, op_avail_resp.op_instance_id)?;
+        let compute = self
+            .state
+            .get_operator_instance_compute(op_avail_resp.query_id, op_avail_resp.op_instance_id)?;
+
+        let msg = msg.reply(Box::new(OperatorInstanceAssignment::new(
+            op_avail_resp.query_id,
+            op_avail_resp.op_instance_id,
+            compute,
+            operator,
+        )));
+        self.router_pipe.send(msg).await?;
 
         Ok(())
     }
@@ -141,7 +162,7 @@ impl QueryHandler {
                 .get_operator_instance_compute(query_id.clone(), op_in_id)?;
             self.router_pipe
                 .send(Message::new(Box::new(OperatorInstanceAvailable::new(
-                    op_in_id, compute,
+                    query_id, op_in_id, compute,
                 ))))
                 .await?;
         }

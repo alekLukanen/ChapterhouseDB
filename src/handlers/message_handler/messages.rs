@@ -466,6 +466,7 @@ pub enum MessageName {
     RunQueryResp,
     OperatorInstanceAvailable,
     OperatorInstanceAvailableResponse,
+    OperatorInstanceAssignment,
 }
 
 impl MessageName {
@@ -477,6 +478,7 @@ impl MessageName {
             Self::RunQueryResp => "run_query_resp",
             Self::OperatorInstanceAvailable => "operator_instance_available",
             Self::OperatorInstanceAvailableResponse => "operator_instance_available_response",
+            Self::OperatorInstanceAssignment => "operator_instance_assignment",
         }
     }
     pub fn as_u16(&self) -> u16 {
@@ -487,6 +489,7 @@ impl MessageName {
             Self::RunQueryResp => 3,
             Self::OperatorInstanceAvailable => 4,
             Self::OperatorInstanceAvailableResponse => 5,
+            Self::OperatorInstanceAssignment => 6,
         }
     }
 }
@@ -720,16 +723,19 @@ impl MessageParser for RunQueryRespParser {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperatorInstanceAvailable {
+    pub query_id: u128,
     pub op_instance_id: u128,
     pub compute: planner::OperatorCompute,
 }
 
 impl OperatorInstanceAvailable {
     pub fn new(
+        query_id: u128,
         op_instance_id: u128,
         compute: planner::OperatorCompute,
     ) -> OperatorInstanceAvailable {
         OperatorInstanceAvailable {
+            query_id,
             op_instance_id,
             compute,
         }
@@ -781,13 +787,19 @@ impl MessageParser for OperatorInstanceAvailableParser {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperatorInstanceAvailableResponse {
+    pub query_id: u128,
     pub op_instance_id: u128,
     pub accept_operator: bool,
 }
 
 impl OperatorInstanceAvailableResponse {
-    pub fn new(op_instance_id: u128, accept_operator: bool) -> OperatorInstanceAvailableResponse {
+    pub fn new(
+        query_id: u128,
+        op_instance_id: u128,
+        accept_operator: bool,
+    ) -> OperatorInstanceAvailableResponse {
         OperatorInstanceAvailableResponse {
+            query_id,
             op_instance_id,
             accept_operator,
         }
@@ -831,5 +843,72 @@ impl MessageParser for OperatorInstanceAvailableResponseParser {
     }
     fn msg_name(&self) -> MessageName {
         MessageName::OperatorInstanceAvailableResponse
+    }
+}
+
+////////////////////////////////////////////////////////////
+//
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperatorInstanceAssignment {
+    pub query_id: u128,
+    pub op_instance_id: u128,
+    pub compute: planner::OperatorCompute,
+    pub operator: planner::Operator,
+}
+
+impl OperatorInstanceAssignment {
+    pub fn new(
+        query_id: u128,
+        op_instance_id: u128,
+        compute: planner::OperatorCompute,
+        operator: planner::Operator,
+    ) -> OperatorInstanceAssignment {
+        OperatorInstanceAssignment {
+            query_id,
+            op_instance_id,
+            compute,
+            operator,
+        }
+    }
+}
+
+impl SendableMessage for OperatorInstanceAssignment {
+    fn to_bytes(&self) -> Result<Vec<u8>> {
+        Ok(serde_json::to_vec(self)?)
+    }
+    fn msg_name(&self) -> MessageName {
+        MessageName::OperatorInstanceAssignment
+    }
+    fn clone_box(&self) -> Box<dyn SendableMessage> {
+        Box::new(self.clone())
+    }
+    fn as_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OperatorInstanceAssignmentParser {}
+
+impl OperatorInstanceAssignmentParser {
+    pub fn new() -> OperatorInstanceAssignmentParser {
+        OperatorInstanceAssignmentParser {}
+    }
+}
+
+impl MessageParser for OperatorInstanceAssignmentParser {
+    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
+        let msg: OperatorInstanceAssignment = serde_json::from_slice(&ser_msg.msg_data)?;
+        Ok(Message::build_from_serialized_message(
+            ser_msg,
+            Box::new(msg),
+        ))
+    }
+    fn msg_name(&self) -> MessageName {
+        MessageName::OperatorInstanceAssignment
     }
 }

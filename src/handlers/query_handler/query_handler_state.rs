@@ -4,15 +4,17 @@ use uuid::Uuid;
 
 use crate::planner;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum QueryHandlerStateError {
     #[error("query not found: {0}")]
     QueryNotFound(u128),
     #[error("operator instance not found: {0}")]
     OperatorInstanceNotFound(u128),
+    #[error("operator instance group not found for query_id {0} and instance {1}")]
+    OperatorInstanceGroupNotFound(u128, u128),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Status {
     Queued,
     Running,
@@ -20,7 +22,7 @@ pub enum Status {
     Error(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OperatorInstanceGroup {
     pub operator: planner::Operator,
     pub instances: Vec<OperatorInstance>,
@@ -39,7 +41,7 @@ impl OperatorInstanceGroup {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OperatorInstance {
     pub id: u128,
     pub status: Status,
@@ -54,7 +56,7 @@ impl OperatorInstance {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Query {
     pub id: u128,
     pub query: String,
@@ -104,28 +106,83 @@ impl QueryHandlerState {
         self.queries.push(query);
     }
 
-    pub fn get_available_operator_instance_ids(&self, query_id: u128) -> Result<Vec<u128>> {
-        let query = self
-            .queries
+    fn find_query(&self, query_id: u128) -> Result<&Query> {
+        self.queries
             .iter()
-            .filter(|item| item.id == query_id)
-            .next();
-        if let Some(query) = query {
-            Ok(query
-                .operator_instances
-                .iter()
-                .map(|item| {
-                    item.instances
-                        .iter()
-                        .filter(|inner_item| inner_item.status == Status::Queued)
-                        .map(|inner_item| inner_item.id)
-                        .collect::<Vec<u128>>()
-                })
-                .flatten()
-                .collect())
-        } else {
-            Err(QueryHandlerStateError::QueryNotFound(query_id).into())
-        }
+            .find(|item| item.id == query_id)
+            .ok_or(QueryHandlerStateError::QueryNotFound(query_id).into())
+    }
+
+    fn find_query_mut(&mut self, query_id: u128) -> Result<&mut Query> {
+        self.queries
+            .iter_mut()
+            .find(|item| item.id == query_id)
+            .ok_or(QueryHandlerStateError::QueryNotFound(query_id).into())
+    }
+
+    fn find_operator_instance<'a>(
+        &'a self,
+        query: &'a Query,
+        op_instance_id: u128,
+    ) -> Result<&'a OperatorInstance> {
+        query
+            .operator_instances
+            .iter()
+            .map(|item| {
+                item.instances
+                    .iter()
+                    .filter(|inner_item| inner_item.id == op_instance_id)
+                    .collect::<Vec<&OperatorInstance>>()
+            })
+            .flatten()
+            .find(|item| item.id == op_instance_id.clone())
+            .ok_or(QueryHandlerStateError::OperatorInstanceNotFound(op_instance_id).into())
+    }
+
+    fn find_operator_instance_group<'a>(
+        &'a self,
+        query: &'a Query,
+        op_instance_id: u128,
+    ) -> Result<&'a OperatorInstanceGroup> {
+        query
+            .operator_instances
+            .iter()
+            .find(|item| {
+                item.instances
+                    .iter()
+                    .find(|inner_item| inner_item.id == op_instance_id)
+                    .is_some()
+            })
+            .ok_or(
+                QueryHandlerStateError::OperatorInstanceGroupNotFound(query.id, op_instance_id)
+                    .into(),
+            )
+    }
+
+    pub fn get_operator_instance(
+        &self,
+        query_id: u128,
+        op_instance_id: u128,
+    ) -> Result<OperatorInstance> {
+        let query = self.find_query(query_id)?;
+        let op_in = self.find_operator_instance(query, op_instance_id)?;
+        Ok(op_in.clone())
+    }
+
+    pub fn get_available_operator_instance_ids(&self, query_id: u128) -> Result<Vec<u128>> {
+        let query = self.find_query(query_id)?;
+        Ok(query
+            .operator_instances
+            .iter()
+            .map(|item| {
+                item.instances
+                    .iter()
+                    .filter(|inner_item| inner_item.status == Status::Queued)
+                    .map(|inner_item| inner_item.id)
+                    .collect::<Vec<u128>>()
+            })
+            .flatten()
+            .collect())
     }
 
     pub fn get_operator_instance_compute(
@@ -133,26 +190,62 @@ impl QueryHandlerState {
         query_id: u128,
         op_instance_id: u128,
     ) -> Result<planner::OperatorCompute> {
-        let query = self
-            .queries
-            .iter()
-            .filter(|item| item.id == query_id)
-            .next();
-        if let Some(query) = query {
-            let operator_group = query.operator_instances.iter().find(|item| {
-                item.instances
-                    .iter()
-                    .find(|inner_item| inner_item.id == op_instance_id)
-                    .is_some()
-            });
-            match operator_group {
-                Some(op_group) => Ok(op_group.operator.compute.clone()),
-                None => {
-                    Err(QueryHandlerStateError::OperatorInstanceNotFound(op_instance_id).into())
-                }
-            }
+        let query = self.find_query(query_id)?;
+        let operator_group = query.operator_instances.iter().find(|item| {
+            item.instances
+                .iter()
+                .find(|inner_item| inner_item.id == op_instance_id)
+                .is_some()
+        });
+        match operator_group {
+            Some(op_group) => Ok(op_group.operator.compute.clone()),
+            None => Err(QueryHandlerStateError::OperatorInstanceNotFound(op_instance_id).into()),
+        }
+    }
+
+    pub fn get_operator_instance_operator(
+        &self,
+        query_id: u128,
+        op_instance_id: u128,
+    ) -> Result<planner::Operator> {
+        let query = self.find_query(query_id)?;
+        let group = self.find_operator_instance_group(query, op_instance_id)?;
+        Ok(group.operator.clone())
+    }
+
+    pub fn claim_operator_instance_if_queued(
+        &mut self,
+        query_id: u128,
+        op_instance_id: u128,
+    ) -> Result<bool> {
+        let query = if let Some(query) = self.queries.iter_mut().find(|item| item.id == query_id) {
+            query
         } else {
-            Err(QueryHandlerStateError::QueryNotFound(query_id).into())
+            return Err(QueryHandlerStateError::QueryNotFound(query_id).into());
+        };
+
+        let instance = if let Some(instance) = query
+            .operator_instances
+            .iter_mut()
+            .map(|item| {
+                item.instances
+                    .iter_mut()
+                    .filter(|inner_item| inner_item.id == op_instance_id)
+                    .collect::<Vec<&mut OperatorInstance>>()
+            })
+            .flatten()
+            .find(|item| item.id == op_instance_id.clone())
+        {
+            instance
+        } else {
+            return Err(QueryHandlerStateError::OperatorInstanceNotFound(op_instance_id).into());
+        };
+
+        if instance.status == Status::Queued {
+            instance.status = Status::Running;
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
 }

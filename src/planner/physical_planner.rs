@@ -21,12 +21,12 @@ pub enum PhysicalPlanError {
     NotImplemented(String),
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
 pub enum DataFormat {
     Parquet,
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
 pub enum TaskType {
     // table source stage
     TableFunc {
@@ -51,7 +51,7 @@ pub enum TaskType {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
 pub enum OperatorTask {
     Producer {
         typ: TaskType,
@@ -80,7 +80,7 @@ pub struct OperatorCompute {
     pub cpu_in_thousandths: usize,
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
 pub struct Operator {
     pub id: String,
     pub plan_id: usize,

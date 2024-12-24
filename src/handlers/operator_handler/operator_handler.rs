@@ -108,6 +108,7 @@ impl OperatorHandler {
         }
 
         let resp = msg.reply(Box::new(OperatorInstanceAvailableResponse::new(
+            op_in_avail.query_id,
             op_in_avail.op_instance_id,
             true,
         )));
@@ -130,6 +131,7 @@ impl MessageConsumer for OperatorHandlerSubscriber {
     fn consumes_message(&self, msg: &Message) -> bool {
         match msg.msg.msg_name() {
             MessageName::OperatorInstanceAvailable => true,
+            MessageName::OperatorInstanceAssignment => true,
             _ => false,
         }
     }
