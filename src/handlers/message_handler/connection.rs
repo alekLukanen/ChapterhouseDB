@@ -1,4 +1,3 @@
-use core::str;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -23,8 +22,6 @@ pub enum ConnectionError {
     BufferReachedMaxSize,
     #[error("timed out waiting for connections to close")]
     TimedOutWaitingForConnectionsToClose,
-    #[error("connection responded with none ok response")]
-    ConnectionRespondedWithNoneOkResponse,
 }
 
 pub struct ConnectionComm {
@@ -101,10 +98,10 @@ impl Connection {
             }))
             .set_sent_from_worker_id(self.worker_id.clone());
             self.stream.write_all(&identity_msg.to_bytes()?[..]).await?;
-            self.read_ok().await?;
         }
 
         loop {
+            info!("buf: {:?}", self.buf);
             if let Ok(msg) = self.msg_reg.build_msg(&mut self.buf) {
                 if let Some(mut msg) = msg {
                     if self.is_inbound {
@@ -112,7 +109,7 @@ impl Connection {
                     } else {
                         msg = msg.set_outbound_stream(self.stream_id);
                     }
-                    self.stream.write_all("OK".as_bytes()).await?;
+                    info!("sending message to router");
                     self.pipe.send(msg).await?;
                 }
                 continue;
@@ -146,7 +143,6 @@ impl Connection {
                 Some(msg) = self.pipe.recv() => {
                     let msg_bytes = msg.to_bytes()?;
                     self.stream.write_all(&msg_bytes[..]).await?;
-                    self.read_ok().await?;
                 },
                 _ = self.connection_ct.cancelled() => {
                     break;
@@ -175,17 +171,5 @@ impl Connection {
 
     pub fn cleanup(&self) {
         self.connection_ct.cancel();
-    }
-
-    async fn read_ok(&mut self) -> Result<()> {
-        let mut resp = [0; 2];
-        let resp_size = self.stream.read(&mut resp).await?;
-
-        let resp_msg = str::from_utf8(&resp[..resp_size])?.to_string();
-        if resp_msg != "OK" {
-            return Err(ConnectionError::ConnectionRespondedWithNoneOkResponse.into());
-        }
-
-        Ok(())
     }
 }

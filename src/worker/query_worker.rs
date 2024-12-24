@@ -104,6 +104,13 @@ impl QueryWorker {
             }
         });
 
+        let operator_handler_ct = self.cancelation_token.clone();
+        tt.spawn(async move {
+            if let Err(err) = operator_handler.async_main(operator_handler_ct).await {
+                info!("error: {}", err);
+            }
+        });
+
         // TaskTracker /////////////////////
         // wait for the cancelation token to be cancelled and all tasks to be cancelled
         tt.close();

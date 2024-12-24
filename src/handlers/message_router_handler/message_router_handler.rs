@@ -18,8 +18,6 @@ use super::message_subscriber::{ExternalSubscriber, InternalSubscriber, Subscrib
 pub enum MessageRouterError {
     #[error("timed out waiting for the tasks to close")]
     TimedOutWaitingForConnectionsToClose,
-    #[error("routing rule not implemented for message {0}")]
-    RoutingRuleNotImplementedForMessage(String),
 }
 
 #[derive(Debug)]
@@ -128,6 +126,8 @@ impl MessageRouterHandler {
                     }
                 }
                 Some(mut msg) = self.internal_sub_receiver.recv() => {
+                    msg = msg.set_sent_from_worker_id(self.worker_id.clone());
+
                     if msg.inbound_stream_id.is_some() || msg.outbound_stream_id.is_some() {
                         // route to known stream
                         self.connection_pipe.send(msg).await?;
@@ -260,6 +260,9 @@ impl MessageRouterHandler {
             MessageName::Identify => self.identify_external_subscriber(msg).await,
             MessageName::RunQuery => self.route_to_internal_subscriber(msg).await,
             MessageName::OperatorInstanceAvailable => self.route_to_internal_subscriber(msg).await,
+            MessageName::OperatorInstanceAvailableResponse => {
+                self.route_to_internal_subscriber(msg).await
+            }
             _ => Ok(false),
         }
     }

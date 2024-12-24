@@ -71,7 +71,7 @@ impl ConnectionPoolHandler {
             let cta = cta.clone();
             tt.spawn(async move {
                 if let Err(err) =
-                    Self::connect_to_address(ct, stream_connect_tx, cta, 12 * 5, 5).await
+                    Self::connect_to_address(ct, stream_connect_tx, cta, 12 * 5, 1).await
                 {
                     info!("error: {}", err);
                 }
@@ -118,7 +118,6 @@ impl ConnectionPoolHandler {
                 }
                 // message routing
                 Some(msg) = connection_rx.recv() => {
-                    info!("message: {:?}", msg);
                     if let Err(err) = self.pipe.send(msg).await {
                         info!("error: {}", err);
                         info!("error on receive");

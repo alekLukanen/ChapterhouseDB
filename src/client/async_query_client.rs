@@ -1,5 +1,3 @@
-use core::str;
-
 use anyhow::{Context, Result};
 use bytes::BytesMut;
 use thiserror::Error;
@@ -13,8 +11,6 @@ use crate::handlers::message_handler::{
 
 #[derive(Debug, Error)]
 pub enum AsyncQueryClientError {
-    #[error("connection responded with none ok response")]
-    ConnectionRespondedWithNoneOkResponse,
     #[error("buffer reach max size")]
     BufferReachedMaxSize,
     #[error("connection reset by peer")]
@@ -86,7 +82,6 @@ impl AsyncQueryClient {
         loop {
             if let Ok(msg) = self.msg_reg.build_msg(buf) {
                 if let Some(msg) = msg {
-                    stream.write_all("OK".as_bytes()).await?;
                     return Ok(Some(msg));
                 }
                 continue;
@@ -119,21 +114,7 @@ impl AsyncQueryClient {
         connection_id: u128,
     ) -> Result<()> {
         msg.set_sent_from_connection_id(connection_id);
-
         stream.write_all(&msg.to_bytes()?[..]).await?;
-        self.read_ok(stream).await?;
-
-        Ok(())
-    }
-
-    async fn read_ok(&self, stream: &mut TcpStream) -> Result<()> {
-        let mut resp = [0; 2];
-        let resp_size = stream.read(&mut resp).await?;
-
-        let resp_msg = str::from_utf8(&resp[..resp_size])?.to_string();
-        if resp_msg != "OK" {
-            return Err(AsyncQueryClientError::ConnectionRespondedWithNoneOkResponse.into());
-        }
 
         Ok(())
     }

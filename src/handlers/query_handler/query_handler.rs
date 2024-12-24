@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use super::query_handler_state::{self, QueryHandlerState};
 use crate::handlers::message_handler::{
-    Message, MessageName, MessageRegistry, OperatorInstanceAvailable, Pipe, RunQuery, RunQueryResp,
+    Message, MessageName, MessageRegistry, OperatorInstanceAvailable,
+    OperatorInstanceAvailableResponse, Pipe, RunQuery, RunQueryResp,
 };
 use crate::handlers::message_router_handler::{
     MessageConsumer, MessageReceiver, MessageRouterState, Subscriber,
@@ -57,14 +58,7 @@ impl QueryHandler {
         loop {
             tokio::select! {
                 Some(msg) = self.router_pipe.recv() => {
-                    match msg.msg.msg_name() {
-                        MessageName::RunQuery => {
-                            self.run_query(&msg).await?;
-                        },
-                        _ => {
-                            info!("unknown message received");
-                        },
-                    }
+                    self.handle_message(msg).await?;
                 }
                 _ = ct.cancelled() => {
                     break;
@@ -78,8 +72,33 @@ impl QueryHandler {
         Ok(())
     }
 
-    async fn run_query(&mut self, msg: &Message) -> Result<()> {
-        let run_query: &RunQuery = self.msg_reg.cast_msg(&msg);
+    async fn handle_message(&mut self, msg: Message) -> Result<()> {
+        match msg.msg.msg_name() {
+            MessageName::RunQuery => self
+                .handle_run_query(&msg)
+                .await
+                .context("failed handling the run query message")?,
+            MessageName::OperatorInstanceAvailableResponse => self
+                .handle_operator_instance_response(&msg)
+                .await
+                .context("failed handling the operator instance available response message")?,
+            _ => {
+                info!("unknown message received: {:?}", msg);
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_operator_instance_response(&mut self, msg: &Message) -> Result<()> {
+        let op_avail_resp: &OperatorInstanceAvailableResponse = self.msg_reg.try_cast_msg(msg)?;
+
+        info!("received response for operator instance...");
+
+        Ok(())
+    }
+
+    async fn handle_run_query(&mut self, msg: &Message) -> Result<()> {
+        let run_query: &RunQuery = self.msg_reg.try_cast_msg(&msg)?;
 
         let logical_plan = match LogicalPlanner::new(run_query.query.clone()).build() {
             Ok(plan) => plan,
@@ -105,8 +124,6 @@ impl QueryHandler {
             query_id: query.id.clone(),
         }));
         let query_id = query.id;
-
-        info!("query: {:?}", query);
 
         self.state.add_query(query);
         self.router_pipe.send(run_query_resp).await?;
@@ -146,6 +163,7 @@ impl MessageConsumer for QueryHandlerSubscriber {
     fn consumes_message(&self, msg: &Message) -> bool {
         match msg.msg.msg_name() {
             MessageName::RunQuery => true,
+            MessageName::OperatorInstanceAvailableResponse => true,
             _ => false,
         }
     }

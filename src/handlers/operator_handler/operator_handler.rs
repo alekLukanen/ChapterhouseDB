@@ -59,6 +59,7 @@ impl OperatorHandler {
         loop {
             tokio::select! {
                 Some(msg) = self.router_pipe.recv() => {
+                    info!("operator handler received message");
                     if let Err(err) = self.handle_message(msg).await {
                         info!("error: {:?}", err);
                     }
@@ -77,8 +78,13 @@ impl OperatorHandler {
 
     async fn handle_message(&self, msg: Message) -> Result<()> {
         match msg.msg.msg_name() {
-            MessageName::OperatorInstanceAvailable => {}
-            _ => (),
+            MessageName::OperatorInstanceAvailable => self
+                .handle_operator_instance_available(msg)
+                .await
+                .context("failed handling operator instance message")?,
+            _ => {
+                info!("unknown message received: {:?}", msg);
+            }
         }
         Ok(())
     }
@@ -86,17 +92,17 @@ impl OperatorHandler {
     async fn handle_operator_instance_available(&self, msg: Message) -> Result<()> {
         let op_in_avail: &OperatorInstanceAvailable = self.msg_reg.try_cast_msg(&msg)?;
 
-        let ref mut total_compute = self.state.total_operator_compute();
-        total_compute.add(&TotalOperatorCompute {
-            instances: 1,
-            memory_in_mib: op_in_avail.compute.memory_in_mib,
-            cpu_in_thousandths: op_in_avail.compute.cpu_in_thousandths,
-        });
-
         let is_at_capacity = self
             .state
-            .get_allowed_compute()
-            .any_greater_than(total_compute);
+            .total_operator_compute()
+            .add(&TotalOperatorCompute {
+                instances: 1,
+                memory_in_mib: op_in_avail.compute.memory_in_mib,
+                cpu_in_thousandths: op_in_avail.compute.cpu_in_thousandths,
+            })
+            .any_greater_than(&self.state.get_allowed_compute());
+
+        info!("is_at_capacity: {:?}", is_at_capacity);
         if is_at_capacity {
             return Ok(());
         }
