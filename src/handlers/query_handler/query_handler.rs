@@ -154,7 +154,9 @@ impl QueryHandler {
             }
         };
 
-        let query = query_handler_state::Query::new(run_query.query.clone(), physical_plan);
+        let ref mut query = query_handler_state::Query::new(run_query.query.clone(), physical_plan);
+        query.init();
+
         let run_query_resp = msg.reply(Box::new(RunQueryResp::Created {
             query_id: query.id.clone(),
         }));

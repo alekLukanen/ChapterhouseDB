@@ -107,6 +107,10 @@ impl Pipeline {
         self.operators.clone()
     }
 
+    pub fn get_operators_ref(&self) -> Vec<&Operator> {
+        self.operators.iter().collect()
+    }
+
     pub fn has_operators_for_plan_id(&self, plan_id: usize) -> bool {
         self.operators.iter().any(|item| item.plan_id == plan_id)
     }
@@ -150,6 +154,10 @@ impl PhysicalPlan {
 
     pub fn get_pipelines(&self) -> Vec<Pipeline> {
         self.pipelines.clone()
+    }
+
+    pub fn get_pipelines_ref(&self) -> Vec<&Pipeline> {
+        self.pipelines.iter().collect()
     }
 }
 

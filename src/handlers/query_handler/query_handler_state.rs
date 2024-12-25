@@ -33,67 +33,51 @@ impl Status {
 }
 
 #[derive(Debug, Clone)]
-pub struct OperatorInstanceGroup {
-    pub operator: planner::Operator,
-    pub instances: Vec<OperatorInstance>,
-}
-
-impl OperatorInstanceGroup {
-    pub fn new(op: planner::Operator) -> OperatorInstanceGroup {
-        let instances = op.compute.instances;
-        OperatorInstanceGroup {
-            operator: op,
-            instances: (0..instances)
-                .into_iter()
-                .map(|_| OperatorInstance::new())
-                .collect(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct OperatorInstance {
+pub struct OperatorInstance<'a> {
     pub id: u128,
     pub status: Status,
+    pub operator: &'a planner::Operator,
 }
 
-impl OperatorInstance {
-    pub fn new() -> OperatorInstance {
+impl<'a> OperatorInstance<'a> {
+    pub fn new(op: &'a planner::Operator) -> OperatorInstance<'a> {
         OperatorInstance {
             id: Uuid::new_v4().as_u128(),
             status: Status::Queued,
+            operator: op,
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct Query {
+pub struct Query<'a> {
     pub id: u128,
     pub query: String,
     pub physical_plan: planner::PhysicalPlan,
     pub status: Status,
 
-    pub operator_instances: Vec<OperatorInstance>,
+    pub operator_instances: Vec<OperatorInstance<'a>>,
 }
 
-impl Query {
-    pub fn new(query: String, physical_plan: planner::PhysicalPlan) -> Query {
-        let mut query = Query {
+impl<'a> Query<'a> {
+    pub fn new(query: String, physical_plan: planner::PhysicalPlan) -> Query<'a> {
+        Query {
             id: Uuid::new_v4().as_u128(),
             query,
             physical_plan,
             status: Status::Queued,
             operator_instances: Vec::new(),
-        };
-        query.add_operator_instances_from_physical_plan();
-        query
+        }
     }
 
-    fn add_operator_instances_from_physical_plan(&mut self) -> &Self {
-        for pipeline in self.physical_plan.get_pipelines() {
-            for op in pipeline.get_operators() {
-                self.operator_instances
-                    .push(OperatorInstanceGroup::new(op.clone()))
+    pub fn init(&'a mut self) -> &'a Self {
+        self.add_operator_instances_from_physical_plan()
+    }
+
+    fn add_operator_instances_from_physical_plan(&'a mut self) -> &'a Self {
+        for pipeline in self.physical_plan.get_pipelines_ref() {
+            for op in pipeline.get_operators_ref() {
+                self.operator_instances.push(OperatorInstance::new(op));
             }
         }
         self
@@ -101,36 +85,36 @@ impl Query {
 }
 
 #[derive(Debug)]
-pub struct QueryHandlerState {
-    queries: Vec<Query>,
+pub struct QueryHandlerState<'a> {
+    queries: Vec<Query<'a>>,
 }
 
-impl QueryHandlerState {
-    pub fn new() -> QueryHandlerState {
+impl<'a> QueryHandlerState<'a> {
+    pub fn new() -> QueryHandlerState<'a> {
         QueryHandlerState {
             queries: Vec::new(),
         }
     }
 
-    pub fn add_query(&mut self, query: Query) {
-        self.queries.push(query);
+    pub fn add_query(&mut self, query: &'a Query) {
+        self.queries.push(query.clone());
     }
 
-    fn find_query(&self, query_id: u128) -> Result<&Query> {
+    fn find_query(&'a self, query_id: u128) -> Result<&'a Query> {
         self.queries
             .iter()
             .find(|item| item.id == query_id)
             .ok_or(QueryHandlerStateError::QueryNotFound(query_id).into())
     }
 
-    fn find_query_mut(&mut self, query_id: u128) -> Result<&mut Query> {
+    fn find_query_mut(&'a mut self, query_id: u128) -> Result<&'a mut Query> {
         self.queries
             .iter_mut()
             .find(|item| item.id == query_id)
             .ok_or(QueryHandlerStateError::QueryNotFound(query_id).into())
     }
 
-    fn find_operator_instance<'a>(
+    fn find_operator_instance(
         &'a self,
         query: &'a Query,
         op_instance_id: u128,
@@ -149,7 +133,7 @@ impl QueryHandlerState {
             .ok_or(QueryHandlerStateError::OperatorInstanceNotFound(op_instance_id).into())
     }
 
-    fn find_operator_instance_group<'a>(
+    fn find_operator_instance_group(
         &'a self,
         query: &'a Query,
         op_instance_id: u128,
