@@ -2,7 +2,7 @@ use anyhow::Result;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::planner;
+use crate::{handlers::operator_handler::TotalOperatorCompute, planner};
 
 #[derive(Debug, Clone, Error)]
 pub enum QueryHandlerStateError {
@@ -20,6 +20,16 @@ pub enum Status {
     Running,
     Complete,
     Error(String),
+}
+
+impl Status {
+    pub fn terminal(&self) -> bool {
+        match self {
+            Status::Complete => true,
+            Status::Error(_) => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -63,7 +73,7 @@ pub struct Query {
     pub physical_plan: planner::PhysicalPlan,
     pub status: Status,
 
-    pub operator_instances: Vec<OperatorInstanceGroup>,
+    pub operator_instances: Vec<OperatorInstance>,
 }
 
 impl Query {
@@ -211,6 +221,52 @@ impl QueryHandlerState {
         let query = self.find_query(query_id)?;
         let group = self.find_operator_instance_group(query, op_instance_id)?;
         Ok(group.operator.clone())
+    }
+
+    pub fn claim_operator_instances_up_to_compute_available(
+        &mut self,
+        available_compute: &TotalOperatorCompute,
+    ) -> Vec<&OperatorInstance> {
+        let mut compute = available_compute.clone();
+
+        let mut result: Vec<&OperatorInstance> = Vec::new();
+        for query in &mut self.queries {
+            if compute.any_depleated() {
+                break;
+            }
+            if query.status.terminal() {
+                continue;
+            }
+
+            for group in &mut query.operator_instances {
+                let group_compute = group.operator.compute.clone();
+                if compute
+                    .clone()
+                    .subtract_single_operator_compute(&group_compute)
+                    .any_depleated()
+                {
+                    continue;
+                }
+
+                for op_in in &mut group.instances {
+                    if op_in.status == Status::Running || op_in.status.terminal() {
+                        continue;
+                    } else if compute
+                        .clone()
+                        .subtract_single_operator_compute(&group_compute.clone())
+                        .any_depleated()
+                    {
+                        continue;
+                    }
+
+                    op_in.status = Status::Running;
+                    compute.subtract_single_operator_compute(&group_compute);
+                    result.push(op_in);
+                }
+            }
+        }
+
+        result
     }
 
     pub fn claim_operator_instance_if_queued(

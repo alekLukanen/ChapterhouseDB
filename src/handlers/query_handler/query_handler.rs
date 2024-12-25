@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
@@ -8,12 +9,18 @@ use tracing::info;
 use super::query_handler_state::{self, QueryHandlerState};
 use crate::handlers::message_handler::{
     Message, MessageName, MessageRegistry, OperatorInstanceAssignment, OperatorInstanceAvailable,
-    OperatorInstanceAvailableResponse, Pipe, RunQuery, RunQueryResp,
+    Pipe, RunQuery, RunQueryResp,
 };
 use crate::handlers::message_router_handler::{
     MessageConsumer, MessageReceiver, MessageRouterState, Subscriber,
 };
 use crate::planner::{LogicalPlanner, PhysicalPlanner};
+
+#[derive(Debug, Error)]
+pub enum QueryHandlerError {
+    #[error("incorrect message: {0}")]
+    IncorrectMessage(String),
+}
 
 #[derive(Debug)]
 pub struct QueryHandler {
@@ -46,6 +53,7 @@ impl QueryHandler {
     pub fn subscriber(&self) -> Box<dyn Subscriber> {
         Box::new(QueryHandlerSubscriber {
             sender: self.sender.clone(),
+            msg_reg: self.msg_reg.clone(),
         })
     }
 
@@ -78,7 +86,7 @@ impl QueryHandler {
                 .handle_run_query(&msg)
                 .await
                 .context("failed handling the run query message")?,
-            MessageName::OperatorInstanceAvailableResponse => self
+            MessageName::OperatorInstanceAvailable => self
                 .handle_operator_instance_response(&msg)
                 .await
                 .context("failed handling the operator instance available response message")?,
@@ -90,15 +98,21 @@ impl QueryHandler {
     }
 
     async fn handle_operator_instance_response(&mut self, msg: &Message) -> Result<()> {
-        let op_avail_resp: &OperatorInstanceAvailableResponse = self.msg_reg.try_cast_msg(msg)?;
+        let op_avail_resp: &OperatorInstanceAvailable = self.msg_reg.try_cast_msg(msg)?;
+        let can_accept_up_to = match op_avail_resp {
+            OperatorInstanceAvailable::NotificationResponse { can_accept_up_to } => {
+                can_accept_up_to
+            }
+            _ => {
+                return Err(
+                    QueryHandlerError::IncorrectMessage(format!("{:?}", op_avail_resp)).into(),
+                );
+            }
+        };
 
-        let claimed = self.state.claim_operator_instance_if_queued(
-            op_avail_resp.query_id,
-            op_avail_resp.op_instance_id,
-        )?;
-        if !claimed {
-            return Ok(());
-        }
+        let operator_instances = self
+            .state
+            .claim_operator_instances_up_to_compute_available(can_accept_up_to);
 
         let operator = self
             .state
@@ -144,28 +158,14 @@ impl QueryHandler {
         let run_query_resp = msg.reply(Box::new(RunQueryResp::Created {
             query_id: query.id.clone(),
         }));
-        let query_id = query.id;
 
         self.state.add_query(query);
         self.router_pipe.send(run_query_resp).await?;
 
         info!("added a new query");
 
-        // get all of the new operator instances and send out notifications for each
-        let operator_instances = self
-            .state
-            .get_available_operator_instance_ids(query_id.clone())?;
-
-        for op_in_id in operator_instances {
-            let compute = self
-                .state
-                .get_operator_instance_compute(query_id.clone(), op_in_id)?;
-            self.router_pipe
-                .send(Message::new(Box::new(OperatorInstanceAvailable::new(
-                    query_id, op_in_id, compute,
-                ))))
-                .await?;
-        }
+        let in_avail_msg = msg.reply(Box::new(OperatorInstanceAvailable::Notification));
+        self.router_pipe.send(in_avail_msg).await?;
 
         Ok(())
     }
@@ -176,6 +176,7 @@ impl QueryHandler {
 #[derive(Debug)]
 pub struct QueryHandlerSubscriber {
     sender: mpsc::Sender<Message>,
+    msg_reg: Arc<Box<MessageRegistry>>,
 }
 
 impl Subscriber for QueryHandlerSubscriber {}
@@ -184,7 +185,12 @@ impl MessageConsumer for QueryHandlerSubscriber {
     fn consumes_message(&self, msg: &Message) -> bool {
         match msg.msg.msg_name() {
             MessageName::RunQuery => true,
-            MessageName::OperatorInstanceAvailableResponse => true,
+            MessageName::OperatorInstanceAvailable => {
+                match self.msg_reg.try_cast_msg::<OperatorInstanceAvailable>(msg) {
+                    Ok(OperatorInstanceAvailable::NotificationResponse { .. }) => true,
+                    _ => false,
+                }
+            }
             _ => false,
         }
     }

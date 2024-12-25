@@ -1,19 +1,23 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use crate::handlers::{
-    message_handler::{
-        Message, MessageName, MessageRegistry, OperatorInstanceAvailable,
-        OperatorInstanceAvailableResponse, Pipe,
-    },
+    message_handler::{Message, MessageName, MessageRegistry, OperatorInstanceAvailable, Pipe},
     message_router_handler::{MessageConsumer, MessageReceiver, MessageRouterState, Subscriber},
 };
 
 use super::operator_handler_state::{OperatorHandlerState, TotalOperatorCompute};
+
+#[derive(Debug, Error)]
+pub enum OperatorHandlerError {
+    #[error("incorrect message: {0}")]
+    IncorrectMessage(String),
+}
 
 pub struct OperatorHandler {
     state: OperatorHandlerState,
@@ -46,6 +50,7 @@ impl OperatorHandler {
     pub fn subscriber(&self) -> Box<dyn Subscriber> {
         Box::new(OperatorHandlerSubscriber {
             sender: self.sender.clone(),
+            msg_reg: self.msg_reg.clone(),
         })
     }
 
@@ -91,27 +96,29 @@ impl OperatorHandler {
 
     async fn handle_operator_instance_available(&self, msg: Message) -> Result<()> {
         let op_in_avail: &OperatorInstanceAvailable = self.msg_reg.try_cast_msg(&msg)?;
+        match op_in_avail {
+            OperatorInstanceAvailable::Notification => (),
+            _ => {
+                return Err(
+                    OperatorHandlerError::IncorrectMessage(format!("{:?}", op_in_avail)).into(),
+                );
+            }
+        }
 
-        let is_at_capacity = self
-            .state
-            .total_operator_compute()
-            .add(&TotalOperatorCompute {
-                instances: 1,
-                memory_in_mib: op_in_avail.compute.memory_in_mib,
-                cpu_in_thousandths: op_in_avail.compute.cpu_in_thousandths,
-            })
-            .any_greater_than(&self.state.get_allowed_compute());
+        let ref mut allowed_compute = self.state.get_allowed_compute();
+        allowed_compute.subtract(&self.state.total_operator_compute());
 
-        info!("is_at_capacity: {:?}", is_at_capacity);
-        if is_at_capacity {
+        info!("allowed_compute: {:?}", allowed_compute);
+        if allowed_compute.instances <= 0
+            || allowed_compute.memory_in_mib <= 0
+            || allowed_compute.cpu_in_thousandths <= 0
+        {
             return Ok(());
         }
 
-        let resp = msg.reply(Box::new(OperatorInstanceAvailableResponse::new(
-            op_in_avail.query_id,
-            op_in_avail.op_instance_id,
-            true,
-        )));
+        let resp = msg.reply(Box::new(OperatorInstanceAvailable::NotificationResponse {
+            can_accept_up_to: allowed_compute.clone(),
+        }));
         self.router_pipe.send(resp).await?;
 
         Ok(())
@@ -123,6 +130,7 @@ impl OperatorHandler {
 #[derive(Debug)]
 pub struct OperatorHandlerSubscriber {
     sender: mpsc::Sender<Message>,
+    msg_reg: Arc<Box<MessageRegistry>>,
 }
 
 impl Subscriber for OperatorHandlerSubscriber {}
@@ -130,7 +138,12 @@ impl Subscriber for OperatorHandlerSubscriber {}
 impl MessageConsumer for OperatorHandlerSubscriber {
     fn consumes_message(&self, msg: &Message) -> bool {
         match msg.msg.msg_name() {
-            MessageName::OperatorInstanceAvailable => true,
+            MessageName::OperatorInstanceAvailable => {
+                match self.msg_reg.try_cast_msg::<OperatorInstanceAvailable>(msg) {
+                    Ok(OperatorInstanceAvailable::Notification { .. }) => true,
+                    _ => false,
+                }
+            }
             MessageName::OperatorInstanceAssignment => true,
             _ => false,
         }

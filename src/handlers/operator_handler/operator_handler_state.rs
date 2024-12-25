@@ -1,4 +1,6 @@
-use crate::planner;
+use serde::{Deserialize, Serialize};
+
+use crate::planner::{self, OperatorCompute};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Status {
@@ -25,7 +27,7 @@ impl OperatorInstance {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TotalOperatorCompute {
     pub instances: usize,
     pub memory_in_mib: usize,
@@ -49,6 +51,21 @@ impl TotalOperatorCompute {
         self.memory_in_mib += c.memory_in_mib;
         self.cpu_in_thousandths += c.cpu_in_thousandths;
         self
+    }
+    pub fn subtract(&mut self, c: &TotalOperatorCompute) -> &Self {
+        self.instances -= c.instances;
+        self.memory_in_mib -= c.memory_in_mib;
+        self.cpu_in_thousandths -= c.cpu_in_thousandths;
+        self
+    }
+    pub fn subtract_single_operator_compute(&mut self, c: &OperatorCompute) -> &Self {
+        self.instances -= 1;
+        self.memory_in_mib -= c.memory_in_mib;
+        self.cpu_in_thousandths -= c.cpu_in_thousandths;
+        self
+    }
+    pub fn any_depleated(&self) -> bool {
+        self.instances <= 0 || self.memory_in_mib <= 0 || self.cpu_in_thousandths <= 0
     }
 }
 

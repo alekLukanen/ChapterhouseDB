@@ -260,9 +260,6 @@ impl MessageRouterHandler {
             MessageName::Identify => self.identify_external_subscriber(msg).await,
             MessageName::RunQuery => self.route_to_internal_subscriber(msg).await,
             MessageName::OperatorInstanceAvailable => self.route_to_internal_subscriber(msg).await,
-            MessageName::OperatorInstanceAvailableResponse => {
-                self.route_to_internal_subscriber(msg).await
-            }
             _ => Ok(false),
         }
     }
