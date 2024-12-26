@@ -11,7 +11,7 @@ use crate::handlers::message_router_handler::{
 };
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstance;
 
-pub struct ProducerOperator {
+pub struct ProducerOperatorHandler {
     operator_instance: OperatorInstance,
     message_router_state: Arc<Mutex<MessageRouterState>>,
     router_pipe: Pipe<Message>,
@@ -19,16 +19,16 @@ pub struct ProducerOperator {
     msg_reg: Arc<Box<MessageRegistry>>,
 }
 
-impl ProducerOperator {
+impl ProducerOperatorHandler {
     pub async fn new(
         op_in: OperatorInstance,
         message_router_state: Arc<Mutex<MessageRouterState>>,
         msg_reg: Arc<Box<MessageRegistry>>,
-    ) -> ProducerOperator {
+    ) -> ProducerOperatorHandler {
         let router_sender = message_router_state.lock().await.sender();
         let (pipe, sender) = Pipe::new_with_existing_sender(router_sender, 1);
 
-        ProducerOperator {
+        ProducerOperatorHandler {
             operator_instance: op_in,
             message_router_state,
             router_pipe: pipe,

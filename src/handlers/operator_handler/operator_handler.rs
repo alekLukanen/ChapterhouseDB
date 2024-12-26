@@ -6,7 +6,6 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-use super::conversions;
 use super::operator_handler_state::{OperatorHandlerState, OperatorInstance, TotalOperatorCompute};
 use crate::handlers::{
     message_handler::{
