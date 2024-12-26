@@ -774,7 +774,7 @@ pub enum OperatorInstanceAssignment {
     Assign {
         query_id: u128,
         op_instance_id: u128,
-        compute: planner::OperatorCompute,
+        pipeline_id: String,
         operator: planner::Operator,
     },
     AssignAcceptedResponse,

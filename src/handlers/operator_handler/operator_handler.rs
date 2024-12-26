@@ -6,6 +6,8 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
+use super::conversions;
+use super::operator_handler_state::{OperatorHandlerState, OperatorInstance, TotalOperatorCompute};
 use crate::handlers::{
     message_handler::{
         Message, MessageName, MessageRegistry, OperatorInstanceAssignment,
@@ -13,8 +15,6 @@ use crate::handlers::{
     },
     message_router_handler::{MessageConsumer, MessageReceiver, MessageRouterState, Subscriber},
 };
-
-use super::operator_handler_state::{OperatorHandlerState, TotalOperatorCompute};
 
 #[derive(Debug, Error)]
 pub enum OperatorHandlerError {
@@ -84,7 +84,7 @@ impl OperatorHandler {
         Ok(())
     }
 
-    async fn handle_message(&self, msg: Message) -> Result<()> {
+    async fn handle_message(&mut self, msg: Message) -> Result<()> {
         match msg.msg.msg_name() {
             MessageName::OperatorInstanceAvailable => self
                 .handle_operator_instance_available(msg)
@@ -101,7 +101,12 @@ impl OperatorHandler {
         Ok(())
     }
 
-    async fn handle_operator_instance_assignment(&self, msg: Message) -> Result<()> {
+    async fn handle_operator_instance_assignment(&mut self, msg: Message) -> Result<()> {
+        let assignment: &OperatorInstanceAssignment = self.msg_reg.try_cast_msg(&msg)?;
+        let op_in: OperatorInstance = OperatorInstance::try_from(assignment)?;
+
+        self.state.add_operator_instance(op_in)?;
+
         Ok(())
     }
 

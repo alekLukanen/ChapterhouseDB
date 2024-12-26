@@ -118,9 +118,9 @@ impl QueryHandler {
             .iter()
             .map(|item| {
                 msg.reply(Box::new(OperatorInstanceAssignment::Assign {
-                    query_id: item.0,
                     op_instance_id: item.1.id,
-                    compute: item.2.compute.clone(),
+                    query_id: item.0,
+                    pipeline_id: item.1.pipeline_id.clone(),
                     operator: item.2.clone(),
                 }))
             })

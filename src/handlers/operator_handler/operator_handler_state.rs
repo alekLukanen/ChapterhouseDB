@@ -1,3 +1,4 @@
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::planner::{self, OperatorCompute};
@@ -12,19 +13,11 @@ pub enum Status {
 
 #[derive(Debug, Clone)]
 pub struct OperatorInstance {
-    id: u128,
-    status: Status,
-    operator: Option<planner::Operator>,
-}
-
-impl OperatorInstance {
-    fn operator_compute(&self) -> Option<planner::OperatorCompute> {
-        if let Some(op) = &self.operator {
-            Some(op.compute.clone())
-        } else {
-            None
-        }
-    }
+    pub id: u128,
+    pub status: Status,
+    pub query_id: u128,
+    pub pipeline_id: String,
+    pub operator: planner::Operator,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,6 +81,12 @@ impl TotalOperatorCompute {
         };
         self
     }
+    pub fn add_single_operator_compute(&mut self, c: &OperatorCompute) -> &Self {
+        self.instances = c.instances;
+        self.memory_in_mib = c.memory_in_mib;
+        self.cpu_in_thousandths += c.cpu_in_thousandths;
+        self
+    }
     pub fn any_depleated(&self) -> bool {
         self.instances <= 0 || self.memory_in_mib <= 0 || self.cpu_in_thousandths <= 0
     }
@@ -106,18 +105,21 @@ impl OperatorHandlerState {
         }
     }
 
+    pub fn add_operator_instance(&mut self, op_in: OperatorInstance) -> Result<()> {
+        self.operator_instances.push(op_in);
+        Ok(())
+    }
+
     pub fn total_operator_compute(&self) -> TotalOperatorCompute {
         let mut total_compute = TotalOperatorCompute {
             instances: 0,
             memory_in_mib: 0,
             cpu_in_thousandths: 0,
         };
-        for item in &self.operator_instances {
-            if let Some(op) = &item.operator {
-                total_compute.instances += 1;
-                total_compute.memory_in_mib += op.compute.memory_in_mib;
-                total_compute.cpu_in_thousandths += op.compute.cpu_in_thousandths;
-            }
+        for op in &self.operator_instances {
+            let mut op_com = op.operator.compute.clone();
+            op_com.instances = 1;
+            total_compute.add_single_operator_compute(&op_com);
         }
 
         total_compute
