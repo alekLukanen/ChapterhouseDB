@@ -53,15 +53,39 @@ impl TotalOperatorCompute {
         self
     }
     pub fn subtract(&mut self, c: &TotalOperatorCompute) -> &Self {
-        self.instances -= c.instances;
-        self.memory_in_mib -= c.memory_in_mib;
-        self.cpu_in_thousandths -= c.cpu_in_thousandths;
+        self.instances = if self.instances > c.instances {
+            self.instances - c.instances
+        } else {
+            0
+        };
+        self.memory_in_mib = if self.memory_in_mib > c.memory_in_mib {
+            self.memory_in_mib - c.memory_in_mib
+        } else {
+            0
+        };
+        self.cpu_in_thousandths = if self.cpu_in_thousandths > c.cpu_in_thousandths {
+            self.cpu_in_thousandths - c.cpu_in_thousandths
+        } else {
+            0
+        };
         self
     }
     pub fn subtract_single_operator_compute(&mut self, c: &OperatorCompute) -> &Self {
-        self.instances -= 1;
-        self.memory_in_mib -= c.memory_in_mib;
-        self.cpu_in_thousandths -= c.cpu_in_thousandths;
+        self.instances = if self.instances != 0 {
+            self.instances - 1
+        } else {
+            0
+        };
+        self.memory_in_mib = if self.memory_in_mib > c.memory_in_mib {
+            self.memory_in_mib - c.memory_in_mib
+        } else {
+            0
+        };
+        self.cpu_in_thousandths = if self.cpu_in_thousandths > c.cpu_in_thousandths {
+            self.cpu_in_thousandths - c.cpu_in_thousandths
+        } else {
+            0
+        };
         self
     }
     pub fn any_depleated(&self) -> bool {

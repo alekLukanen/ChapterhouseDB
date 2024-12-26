@@ -53,6 +53,13 @@ where
         Ok(())
     }
 
+    pub async fn send_all(&self, msgs: Vec<T>) -> Result<()> {
+        for msg in msgs {
+            self.sender.send(msg).await?;
+        }
+        Ok(())
+    }
+
     pub async fn recv(&mut self) -> Option<T> {
         self.receiver.recv().await
     }

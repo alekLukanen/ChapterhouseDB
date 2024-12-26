@@ -7,7 +7,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use crate::handlers::{
-    message_handler::{Message, MessageName, MessageRegistry, OperatorInstanceAvailable, Pipe},
+    message_handler::{
+        Message, MessageName, MessageRegistry, OperatorInstanceAssignment,
+        OperatorInstanceAvailable, Pipe,
+    },
     message_router_handler::{MessageConsumer, MessageReceiver, MessageRouterState, Subscriber},
 };
 
@@ -86,11 +89,19 @@ impl OperatorHandler {
             MessageName::OperatorInstanceAvailable => self
                 .handle_operator_instance_available(msg)
                 .await
-                .context("failed handling operator instance message")?,
+                .context("failed handling operator instance available message")?,
+            MessageName::OperatorInstanceAssignment => self
+                .handle_operator_instance_assignment(msg)
+                .await
+                .context("failed handling operator instance assignment message")?,
             _ => {
                 info!("unknown message received: {:?}", msg);
             }
         }
+        Ok(())
+    }
+
+    async fn handle_operator_instance_assignment(&self, msg: Message) -> Result<()> {
         Ok(())
     }
 
@@ -144,7 +155,12 @@ impl MessageConsumer for OperatorHandlerSubscriber {
                     _ => false,
                 }
             }
-            MessageName::OperatorInstanceAssignment => true,
+            MessageName::OperatorInstanceAssignment => {
+                match self.msg_reg.try_cast_msg::<OperatorInstanceAssignment>(msg) {
+                    Ok(OperatorInstanceAssignment::Assign { .. }) => true,
+                    _ => false,
+                }
+            }
             _ => false,
         }
     }

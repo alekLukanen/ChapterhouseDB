@@ -258,9 +258,7 @@ impl MessageRouterHandler {
     async fn route_msg(&mut self, msg: &Message) -> Result<bool> {
         match msg.msg.msg_name() {
             MessageName::Identify => self.identify_external_subscriber(msg).await,
-            MessageName::RunQuery => self.route_to_internal_subscriber(msg).await,
-            MessageName::OperatorInstanceAvailable => self.route_to_internal_subscriber(msg).await,
-            _ => Ok(false),
+            _ => self.route_to_internal_subscriber(msg).await,
         }
     }
 }

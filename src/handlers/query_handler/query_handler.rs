@@ -114,20 +114,20 @@ impl QueryHandler {
             .state
             .claim_operator_instances_up_to_compute_available(can_accept_up_to);
 
-        let operator = self
-            .state
-            .get_operator_instance_operator(op_avail_resp.query_id, op_avail_resp.op_instance_id)?;
-        let compute = self
-            .state
-            .get_operator_instance_compute(op_avail_resp.query_id, op_avail_resp.op_instance_id)?;
+        let msgs = operator_instances
+            .iter()
+            .map(|item| {
+                msg.reply(Box::new(OperatorInstanceAssignment::Assign {
+                    query_id: item.0,
+                    op_instance_id: item.1.id,
+                    compute: item.2.compute.clone(),
+                    operator: item.2.clone(),
+                }))
+            })
+            .collect();
+        self.router_pipe.send_all(msgs).await?;
 
-        let msg = msg.reply(Box::new(OperatorInstanceAssignment::new(
-            op_avail_resp.query_id,
-            op_avail_resp.op_instance_id,
-            compute,
-            operator,
-        )));
-        self.router_pipe.send(msg).await?;
+        info!("state: {:?}", self.state);
 
         Ok(())
     }
@@ -154,7 +154,7 @@ impl QueryHandler {
             }
         };
 
-        let ref mut query = query_handler_state::Query::new(run_query.query.clone(), physical_plan);
+        let mut query = query_handler_state::Query::new(run_query.query.clone(), physical_plan);
         query.init();
 
         let run_query_resp = msg.reply(Box::new(RunQueryResp::Created {
@@ -166,7 +166,7 @@ impl QueryHandler {
 
         info!("added a new query");
 
-        let in_avail_msg = msg.reply(Box::new(OperatorInstanceAvailable::Notification));
+        let in_avail_msg = Message::new(Box::new(OperatorInstanceAvailable::Notification));
         self.router_pipe.send(in_avail_msg).await?;
 
         Ok(())
@@ -190,6 +190,13 @@ impl MessageConsumer for QueryHandlerSubscriber {
             MessageName::OperatorInstanceAvailable => {
                 match self.msg_reg.try_cast_msg::<OperatorInstanceAvailable>(msg) {
                     Ok(OperatorInstanceAvailable::NotificationResponse { .. }) => true,
+                    _ => false,
+                }
+            }
+            MessageName::OperatorInstanceAssignment => {
+                match self.msg_reg.try_cast_msg::<OperatorInstanceAssignment>(msg) {
+                    Ok(OperatorInstanceAssignment::AssignAcceptedResponse) => true,
+                    Ok(OperatorInstanceAssignment::AssignRejectedResponse) => true,
                     _ => false,
                 }
             }

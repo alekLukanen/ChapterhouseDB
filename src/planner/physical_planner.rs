@@ -91,7 +91,7 @@ pub struct Operator {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pipeline {
-    id: String,
+    pub id: String,
     operators: Vec<Operator>,
 }
 
@@ -156,8 +156,22 @@ impl PhysicalPlan {
         self.pipelines.clone()
     }
 
-    pub fn get_pipelines_ref(&self) -> Vec<&Pipeline> {
-        self.pipelines.iter().collect()
+    pub fn get_pipelines_ref<'a>(&'a self) -> &'a Vec<Pipeline> {
+        &self.pipelines
+    }
+
+    pub fn get_operator(&self, pipeline_id: String, operator_id: String) -> Option<&Operator> {
+        for pipeline in self.get_pipelines_ref() {
+            if pipeline.id != pipeline_id {
+                continue;
+            }
+            for op in pipeline.get_operators_ref() {
+                if op.id == operator_id {
+                    return Some(op);
+                }
+            }
+        }
+        None
     }
 }
 
@@ -215,7 +229,6 @@ impl PhysicalPlanner {
 
                 if inbound_nodes_with_operators == 0 {
                     node_id_stack.push(plan_node_id);
-                    println!("inbound_nodes: {:?}", inbound_nodes);
                     for node_id in inbound_nodes {
                         node_id_stack.push(node_id.clone());
                     }
