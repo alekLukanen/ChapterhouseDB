@@ -135,4 +135,11 @@ impl OperatorHandlerState {
     pub fn get_allowed_compute(&self) -> TotalOperatorCompute {
         self.allowed_compute.clone()
     }
+
+    pub fn close(&self) -> Result<()> {
+        for op_in in &self.operator_instances {
+            op_in.ct.cancel();
+        }
+        Ok(())
+    }
 }

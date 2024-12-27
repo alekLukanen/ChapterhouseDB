@@ -1,17 +1,18 @@
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use sqlparser::ast::FunctionArg;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
+use super::operator_task_trackers::RestrictedOperatorTaskTracker;
+use super::traits::OperatorTaskBuilder;
 use crate::handlers::message_handler::{Message, MessageRegistry, Pipe};
-use crate::handlers::message_router_handler::{
-    MessageConsumer, MessageReceiver, MessageRouterState, Subscriber,
-};
+use crate::handlers::message_router_handler::{MessageConsumer, MessageReceiver, Subscriber};
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
 
+#[derive(Debug)]
 pub struct TableFuncConfig {
     pub alias: Option<String>,
     pub func_name: String,
@@ -22,37 +23,31 @@ pub struct TableFuncConfig {
     pub inbound_exchange_ids: Vec<String>,
 }
 
+#[derive(Debug)]
 pub struct TableFuncProducerOperator {
     operator_instance_config: OperatorInstanceConfig,
     table_func_config: TableFuncConfig,
 
-    message_router_state: Arc<Mutex<MessageRouterState>>,
     router_pipe: Pipe<Message>,
     sender: mpsc::Sender<Message>,
-    msg_reg: Arc<Box<MessageRegistry>>,
-
-    ct: CancellationToken,
+    msg_reg: Arc<MessageRegistry>,
 }
 
 impl TableFuncProducerOperator {
-    pub async fn new(
+    pub fn new(
         op_in_config: OperatorInstanceConfig,
         table_func_config: TableFuncConfig,
-        message_router_state: Arc<Mutex<MessageRouterState>>,
-        msg_reg: Arc<Box<MessageRegistry>>,
-        ct: CancellationToken,
+        message_router_sender: mpsc::Sender<Message>,
+        msg_reg: Arc<MessageRegistry>,
     ) -> TableFuncProducerOperator {
-        let router_sender = message_router_state.lock().await.sender();
-        let (pipe, sender) = Pipe::new_with_existing_sender(router_sender, 1);
+        let (pipe, sender) = Pipe::new_with_existing_sender(message_router_sender, 1);
 
         TableFuncProducerOperator {
             operator_instance_config: op_in_config,
             table_func_config,
-            message_router_state,
             router_pipe: pipe,
             sender,
             msg_reg,
-            ct,
         }
     }
 
@@ -63,19 +58,10 @@ impl TableFuncProducerOperator {
         })
     }
 
-    pub async fn async_main(&self, ct: CancellationToken) -> Result<()> {
-        self.message_router_state
-            .lock()
-            .await
-            .add_internal_subscriber(self.subscriber())
-            .context("failed subscribing")?;
-
+    pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
         loop {
             tokio::select! {
                 _ = ct.cancelled() => {
-                    break;
-                }
-                _ = self.ct.cancelled() => {
                     break;
                 }
             }
@@ -91,12 +77,47 @@ impl TableFuncProducerOperator {
 }
 
 //////////////////////////////////////////////////////
+// Table Func Producer Builder
+
+#[derive(Debug, Clone)]
+pub struct TableFuncProducerOperatorBuilder {}
+
+impl OperatorTaskBuilder for TableFuncProducerOperatorBuilder {
+    fn build(
+        &self,
+        op_in_config: OperatorInstanceConfig,
+        message_router_sender: mpsc::Sender<Message>,
+        msg_reg: Arc<MessageRegistry>,
+        tt: &RestrictedOperatorTaskTracker,
+        ct: CancellationToken,
+    ) -> Result<Box<dyn Subscriber>> {
+        let table_func_config = TableFuncConfig::try_from(&op_in_config)?;
+        let mut op = TableFuncProducerOperator::new(
+            op_in_config,
+            table_func_config,
+            message_router_sender,
+            msg_reg.clone(),
+        );
+
+        let subscriber = op.subscriber();
+
+        tt.spawn(async move {
+            if let Err(err) = op.async_main(ct).await {
+                info!("error: {:?}", err);
+            }
+        });
+
+        Ok(subscriber)
+    }
+}
+
+//////////////////////////////////////////////////////
 // Message Subscriber
 
 #[derive(Debug, Clone)]
 pub struct TableFuncProducerOperatorSubscriber {
     sender: mpsc::Sender<Message>,
-    msg_reg: Arc<Box<MessageRegistry>>,
+    msg_reg: Arc<MessageRegistry>,
 }
 
 impl Subscriber for TableFuncProducerOperatorSubscriber {}

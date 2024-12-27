@@ -59,7 +59,7 @@ impl QueryWorker {
 
         let tt = TaskTracker::new();
 
-        let msg_reg = Arc::new(Box::new(MessageRegistry::new()));
+        let msg_reg = Arc::new(MessageRegistry::new());
 
         // Connect Pool and Router ////////////////////////
         let (mut connection_pool_handler, connection_msg_pipe) = ConnectionPoolHandler::new(

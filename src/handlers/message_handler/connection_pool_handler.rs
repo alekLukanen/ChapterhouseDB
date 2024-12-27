@@ -27,7 +27,7 @@ pub struct ConnectionPoolHandler {
     address: String,
     connect_to_addresses: Vec<String>,
 
-    msg_reg: Arc<Box<MessageRegistry>>,
+    msg_reg: Arc<MessageRegistry>,
     pipe: Pipe<Message>,
 
     inbound_connections: Arc<Mutex<Vec<ConnectionComm>>>,
@@ -39,7 +39,7 @@ impl ConnectionPoolHandler {
         worker_id: u128,
         address: String,
         connect_to_addresses: Vec<String>,
-        msg_reg: Arc<Box<MessageRegistry>>,
+        msg_reg: Arc<MessageRegistry>,
     ) -> (ConnectionPoolHandler, Pipe<Message>) {
         let (p1, p2) = Pipe::new(1);
         let hndlr = ConnectionPoolHandler {

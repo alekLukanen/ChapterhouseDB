@@ -90,7 +90,7 @@ pub struct MessageRouterHandler {
     state: Arc<Mutex<MessageRouterState>>,
 
     worker_id: u128,
-    msg_reg: Arc<Box<MessageRegistry>>,
+    msg_reg: Arc<MessageRegistry>,
     task_tracker: TaskTracker,
 
     connection_pipe: Pipe<Message>,
@@ -101,7 +101,7 @@ impl MessageRouterHandler {
     pub fn new(
         worker_id: u128,
         connection_pipe: Pipe<Message>,
-        msg_reg: Arc<Box<MessageRegistry>>,
+        msg_reg: Arc<MessageRegistry>,
     ) -> (MessageRouterHandler, Arc<Mutex<MessageRouterState>>) {
         let (sender, receiver) = mpsc::channel(1);
         let state = Arc::new(Mutex::new(MessageRouterState::new(sender.clone())));

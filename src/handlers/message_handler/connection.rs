@@ -51,7 +51,7 @@ pub struct Connection {
     pub stream_id: u128,
     stream: TcpStream,
     pipe: Pipe<Message>,
-    msg_reg: Arc<Box<MessageRegistry>>,
+    msg_reg: Arc<MessageRegistry>,
     buf: BytesMut,
     pub connection_ct: CancellationToken,
     send_identification_msg: bool,
@@ -63,7 +63,7 @@ impl Connection {
         worker_id: u128,
         stream: TcpStream,
         sender: mpsc::Sender<Message>,
-        msg_reg: Arc<Box<MessageRegistry>>,
+        msg_reg: Arc<MessageRegistry>,
         is_inbound: bool,
     ) -> (Connection, ConnectionComm) {
         let (pipe, sender_to_conn) = Pipe::new_with_existing_sender(sender, 1);

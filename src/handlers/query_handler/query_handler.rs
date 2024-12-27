@@ -28,13 +28,13 @@ pub struct QueryHandler {
     message_router_state: Arc<Mutex<MessageRouterState>>,
     router_pipe: Pipe<Message>,
     sender: mpsc::Sender<Message>,
-    msg_reg: Arc<Box<MessageRegistry>>,
+    msg_reg: Arc<MessageRegistry>,
 }
 
 impl QueryHandler {
     pub async fn new(
         message_router_state: Arc<Mutex<MessageRouterState>>,
-        msg_reg: Arc<Box<MessageRegistry>>,
+        msg_reg: Arc<MessageRegistry>,
     ) -> QueryHandler {
         let router_sender = message_router_state.lock().await.sender();
         let (pipe, sender) = Pipe::new_with_existing_sender(router_sender, 1);
@@ -178,7 +178,7 @@ impl QueryHandler {
 #[derive(Debug)]
 pub struct QueryHandlerSubscriber {
     sender: mpsc::Sender<Message>,
-    msg_reg: Arc<Box<MessageRegistry>>,
+    msg_reg: Arc<MessageRegistry>,
 }
 
 impl Subscriber for QueryHandlerSubscriber {}
