@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use thiserror::Error;
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::info;
 
@@ -13,7 +14,8 @@ use crate::handlers::{
 };
 use crate::planner;
 
-use super::operator_task_trackers::RestrictedOperatorTaskTracker;
+use super::operator_task_registry::OperatorTaskRegistry;
+use super::producer_operator::ProducerOperator;
 use super::table_funcs::TableFuncConfig;
 use super::traits::TableFuncTaskBuilder;
 
@@ -23,36 +25,15 @@ pub enum OperatorBuilderError {
     NotImplemented(String),
 }
 
-pub struct OperatorRegistry {
-    table_func_task_builders: Vec<Box<dyn TableFuncTaskBuilder>>,
-}
-
-impl OperatorRegistry {
-    pub fn new() -> OperatorRegistry {
-        OperatorRegistry {
-            table_func_task_builders: Vec::new(),
-        }
-    }
-
-    pub fn add_table_func_task_builder(mut self, bldr: Box<dyn TableFuncTaskBuilder>) -> Self {
-        self.table_func_task_builders.push(bldr);
-        self
-    }
-
-    pub fn get_table_func_task_builders(&self) -> &Vec<Box<dyn TableFuncTaskBuilder>> {
-        &self.table_func_task_builders
-    }
-}
-
 pub struct OperatorBuilder {
-    op_reg: Arc<OperatorRegistry>,
+    op_reg: Arc<OperatorTaskRegistry>,
     msg_reg: Arc<MessageRegistry>,
     message_router_state: Arc<Mutex<MessageRouterState>>,
 }
 
 impl OperatorBuilder {
     pub fn new(
-        op_reg: Arc<OperatorRegistry>,
+        op_reg: Arc<OperatorTaskRegistry>,
         msg_reg: Arc<MessageRegistry>,
         message_router_state: Arc<Mutex<MessageRouterState>>,
     ) -> OperatorBuilder {
@@ -63,9 +44,12 @@ impl OperatorBuilder {
         }
     }
 
-    pub fn build_operator(&self, op_in: &OperatorInstance, tt: &TaskTracker) -> Result<()> {
-        let restricted_tt = RestrictedOperatorTaskTracker::new(tt, 1);
-
+    pub async fn build_operator(
+        &self,
+        ct: CancellationToken,
+        op_in: &OperatorInstance,
+        tt: &TaskTracker,
+    ) -> Result<()> {
         match &op_in.config.operator.operator_type {
             planner::OperatorType::Producer { task, .. } => match task {
                 planner::OperatorTask::TableFunc { func_name, .. } => {
@@ -87,15 +71,32 @@ impl OperatorBuilder {
                     let table_func_config = TableFuncConfig::try_from(&op_in.config)?;
 
                     let (pipe1, pipe2) = Pipe::new(1);
+                    let mut producer_operator = ProducerOperator::new(
+                        op_in.config.clone(),
+                        self.message_router_state.clone(),
+                        pipe1,
+                        self.msg_reg.clone(),
+                    )
+                    .await;
 
+                    let mut restricted_tt = producer_operator.restricted_tt();
+                    let task_ct = producer_operator.get_task_ct();
                     let msg_consumer = bldr.build(
                         op_in.config.clone(),
                         table_func_config,
                         pipe2,
                         self.msg_reg.clone(),
-                        &restricted_tt,
-                        op_in.ct.clone(),
+                        &mut restricted_tt,
+                        task_ct,
                     )?;
+
+                    producer_operator = producer_operator.set_task_msg_consumer(msg_consumer);
+                    let ct = ct.clone();
+                    tt.spawn(async move {
+                        if let Err(err) = producer_operator.async_main(ct).await {
+                            info!("error: {}", err);
+                        }
+                    });
                 }
                 planner::OperatorTask::Table { .. } => {
                     return Err(OperatorBuilderError::NotImplemented(

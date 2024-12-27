@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use tokio::sync::mpsc;
+use serde_json::de::Read;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use crate::handlers::message_handler::{Message, MessageRegistry, Pipe};
-use crate::handlers::message_router_handler::{MessageConsumer, MessageReceiver, Subscriber};
+use crate::handlers::message_router_handler::MessageConsumer;
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
 use crate::handlers::operator_handler::operators::operator_task_trackers::RestrictedOperatorTaskTracker;
 use crate::handlers::operator_handler::operators::traits::TableFuncTaskBuilder;
@@ -65,16 +65,22 @@ impl ReadFilesTask {
 // Table Func Producer Builder
 
 #[derive(Debug, Clone)]
-pub struct ReadFilesOperatorBuilder {}
+pub struct ReadFilesTaskBuilder {}
 
-impl TableFuncTaskBuilder for ReadFilesTask {
+impl ReadFilesTaskBuilder {
+    pub fn new() -> ReadFilesTaskBuilder {
+        ReadFilesTaskBuilder {}
+    }
+}
+
+impl TableFuncTaskBuilder for ReadFilesTaskBuilder {
     fn build(
         &self,
         op_in_config: OperatorInstanceConfig,
         table_func_config: TableFuncConfig,
         operator_pipe: Pipe<Message>,
         msg_reg: Arc<MessageRegistry>,
-        tt: &RestrictedOperatorTaskTracker,
+        tt: &mut RestrictedOperatorTaskTracker,
         ct: CancellationToken,
     ) -> Result<Box<dyn MessageConsumer>> {
         let mut op = ReadFilesTask::new(
@@ -90,7 +96,7 @@ impl TableFuncTaskBuilder for ReadFilesTask {
             if let Err(err) = op.async_main(ct).await {
                 info!("error: {:?}", err);
             }
-        });
+        })?;
 
         Ok(consumer)
     }

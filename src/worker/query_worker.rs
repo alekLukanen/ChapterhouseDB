@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::handlers::message_handler::{ConnectionPoolHandler, MessageRegistry};
 use crate::handlers::message_router_handler::{MessageRouterHandler, MessageRouterState};
+use crate::handlers::operator_handler::operators;
 use crate::handlers::operator_handler::{OperatorHandler, TotalOperatorCompute};
 use crate::handlers::query_handler::QueryHandler;
 
@@ -60,6 +61,7 @@ impl QueryWorker {
         let tt = TaskTracker::new();
 
         let msg_reg = Arc::new(MessageRegistry::new());
+        let op_reg = Arc::new(operators::build_default_operator_task_registry());
 
         // Connect Pool and Router ////////////////////////
         let (mut connection_pool_handler, connection_msg_pipe) = ConnectionPoolHandler::new(

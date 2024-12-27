@@ -19,7 +19,7 @@ pub trait TableFuncTaskBuilder: fmt::Debug + Send + Sync {
         table_func_config: TableFuncConfig,
         operator_pipe: Pipe<Message>,
         msg_reg: Arc<MessageRegistry>,
-        tt: &RestrictedOperatorTaskTracker,
+        tt: &mut RestrictedOperatorTaskTracker,
         ct: CancellationToken,
     ) -> Result<Box<dyn MessageConsumer>>;
     fn implements_func_name(&self) -> String;

@@ -111,14 +111,6 @@ impl OperatorHandler {
         let assignment: &OperatorInstanceAssignment = self.msg_reg.try_cast_msg(&msg)?;
         let op_in: OperatorInstance = OperatorInstance::try_from(assignment)?;
 
-        build_operator(
-            &op_in,
-            self.message_router_state.clone(),
-            self.msg_reg.clone(),
-            &self.tt,
-        )
-        .await?;
-
         self.state.add_operator_instance(op_in)?;
 
         Ok(())
