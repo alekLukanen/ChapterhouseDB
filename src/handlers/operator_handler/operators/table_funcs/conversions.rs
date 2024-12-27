@@ -3,7 +3,7 @@ use thiserror::Error;
 
 use crate::{
     handlers::operator_handler::operator_handler_state::OperatorInstanceConfig,
-    planner::{OperatorTask, TaskType},
+    planner::{OperatorTask, OperatorType},
 };
 
 use super::config::TableFuncConfig;
@@ -18,13 +18,13 @@ impl TryFrom<&OperatorInstanceConfig> for TableFuncConfig {
     type Error = TryFromTableFuncConfigError;
 
     fn try_from(op_in_config: &OperatorInstanceConfig) -> Result<TableFuncConfig, Self::Error> {
-        match &op_in_config.operator.operator_task {
-            OperatorTask::Producer {
-                typ,
+        match &op_in_config.operator.operator_type {
+            OperatorType::Producer {
+                task,
                 outbound_exchange_id,
                 inbound_exchange_ids,
-            } => match typ {
-                TaskType::TableFunc {
+            } => match task {
+                OperatorTask::TableFunc {
                     alias,
                     func_name,
                     args,
@@ -39,7 +39,7 @@ impl TryFrom<&OperatorInstanceConfig> for TableFuncConfig {
                 }),
                 _ => Err(TryFromTableFuncConfigError::UnableToConvert.into()),
             },
-            OperatorTask::Exchange { .. } => {
+            OperatorType::Exchange { .. } => {
                 Err(TryFromTableFuncConfigError::UnableToConvert.into())
             }
         }

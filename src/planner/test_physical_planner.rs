@@ -3,8 +3,8 @@ use sqlparser::ast::{Expr, SelectItem, Value, WildcardAdditionalOptions};
 
 use crate::planner::logical_planner::{LogicalPlan, LogicalPlanner};
 use crate::planner::physical_planner::{
-    DataFormat, Operator, OperatorCompute, OperatorTask, PhysicalPlan, PhysicalPlanner, Pipeline,
-    TaskType,
+    DataFormat, Operator, OperatorCompute, OperatorTask, OperatorType, PhysicalPlan,
+    PhysicalPlanner, Pipeline,
 };
 
 use super::logical_planner::LogicalPlanNodeType;
@@ -87,8 +87,8 @@ fn test_build_materialize_operators() -> Result<()> {
     let ref filter_exchange = Operator {
         id: format!("operator_p{}_exchange", filter_node.id),
         plan_id: filter_node.id,
-        operator_task: OperatorTask::Exchange {
-            typ: TaskType::Filter {
+        operator_type: OperatorType::Exchange {
+            task: OperatorTask::Filter {
                 expr: Expr::Value(Value::Boolean(true)),
             },
             outbound_producer_ids: vec![format!(
@@ -110,7 +110,7 @@ fn test_build_materialize_operators() -> Result<()> {
 
     assert_eq!(2, operations.len());
 
-    let ref expected_task_type = TaskType::Materialize {
+    let ref expected_task_type = OperatorTask::Materialize {
         data_format: DataFormat::Parquet,
         fields: vec![SelectItem::Wildcard(WildcardAdditionalOptions {
             opt_except: None,
@@ -123,8 +123,8 @@ fn test_build_materialize_operators() -> Result<()> {
     let expected_producer = Operator {
         id: format!("operator_p{}_producer", materialize_node.id),
         plan_id: materialize_node.id,
-        operator_task: OperatorTask::Producer {
-            typ: expected_task_type.clone(),
+        operator_type: OperatorType::Producer {
+            task: expected_task_type.clone(),
             outbound_exchange_id: format!("operator_p{}_exchange", materialize_node.id.clone()),
             inbound_exchange_ids: vec![format!("operator_p{}_exchange", filter_node.id.clone())],
         },
@@ -137,8 +137,8 @@ fn test_build_materialize_operators() -> Result<()> {
     let expected_exchange = Operator {
         id: format!("operator_p{}_exchange", materialize_node.id),
         plan_id: materialize_node.id,
-        operator_task: OperatorTask::Exchange {
-            typ: expected_task_type.clone(),
+        operator_type: OperatorType::Exchange {
+            task: expected_task_type.clone(),
             outbound_producer_ids: vec![],
             inbound_producer_ids: vec![expected_producer.id.clone()],
         },

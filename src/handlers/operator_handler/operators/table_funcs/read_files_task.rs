@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use sqlparser::ast::FunctionArg;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
@@ -15,36 +14,31 @@ use crate::handlers::operator_handler::operators::traits::TableFuncTaskBuilder;
 use super::config::TableFuncConfig;
 
 #[derive(Debug)]
-pub struct ReadFilesOperator {
+pub struct ReadFilesTask {
     operator_instance_config: OperatorInstanceConfig,
     table_func_config: TableFuncConfig,
 
-    router_pipe: Pipe<Message>,
-    sender: mpsc::Sender<Message>,
+    operator_pipe: Pipe<Message>,
     msg_reg: Arc<MessageRegistry>,
 }
 
-impl ReadFilesOperator {
+impl ReadFilesTask {
     pub fn new(
         op_in_config: OperatorInstanceConfig,
         table_func_config: TableFuncConfig,
-        message_router_sender: mpsc::Sender<Message>,
+        operator_pipe: Pipe<Message>,
         msg_reg: Arc<MessageRegistry>,
-    ) -> ReadFilesOperator {
-        let (pipe, sender) = Pipe::new_with_existing_sender(message_router_sender, 1);
-
-        ReadFilesOperator {
+    ) -> ReadFilesTask {
+        ReadFilesTask {
             operator_instance_config: op_in_config,
             table_func_config,
-            router_pipe: pipe,
-            sender,
+            operator_pipe,
             msg_reg,
         }
     }
 
-    fn subscriber(&self) -> Box<dyn Subscriber> {
-        Box::new(TableFuncProducerOperatorSubscriber {
-            sender: self.sender.clone(),
+    pub fn subscriber(&self) -> Box<dyn MessageConsumer> {
+        Box::new(ReadFilesConsumer {
             msg_reg: self.msg_reg.clone(),
         })
     }
@@ -73,24 +67,24 @@ impl ReadFilesOperator {
 #[derive(Debug, Clone)]
 pub struct ReadFilesOperatorBuilder {}
 
-impl TableFuncTaskBuilder for ReadFilesOperator {
+impl TableFuncTaskBuilder for ReadFilesTask {
     fn build(
         &self,
         op_in_config: OperatorInstanceConfig,
         table_func_config: TableFuncConfig,
-        message_router_sender: mpsc::Sender<Message>,
+        operator_pipe: Pipe<Message>,
         msg_reg: Arc<MessageRegistry>,
         tt: &RestrictedOperatorTaskTracker,
         ct: CancellationToken,
-    ) -> Result<Box<dyn Subscriber>> {
-        let mut op = ReadFilesOperator::new(
+    ) -> Result<Box<dyn MessageConsumer>> {
+        let mut op = ReadFilesTask::new(
             op_in_config,
             table_func_config,
-            message_router_sender,
+            operator_pipe,
             msg_reg.clone(),
         );
 
-        let subscriber = op.subscriber();
+        let consumer = op.subscriber();
 
         tt.spawn(async move {
             if let Err(err) = op.async_main(ct).await {
@@ -98,7 +92,7 @@ impl TableFuncTaskBuilder for ReadFilesOperator {
             }
         });
 
-        Ok(subscriber)
+        Ok(consumer)
     }
 
     fn implements_func_name(&self) -> String {
@@ -107,24 +101,15 @@ impl TableFuncTaskBuilder for ReadFilesOperator {
 }
 
 //////////////////////////////////////////////////////
-// Message Subscriber
+// Message Consumer
 
 #[derive(Debug, Clone)]
-pub struct TableFuncProducerOperatorSubscriber {
-    sender: mpsc::Sender<Message>,
+pub struct ReadFilesConsumer {
     msg_reg: Arc<MessageRegistry>,
 }
 
-impl Subscriber for TableFuncProducerOperatorSubscriber {}
-
-impl MessageConsumer for TableFuncProducerOperatorSubscriber {
+impl MessageConsumer for ReadFilesConsumer {
     fn consumes_message(&self, msg: &crate::handlers::message_handler::Message) -> bool {
-        false
-    }
-}
-
-impl MessageReceiver for TableFuncProducerOperatorSubscriber {
-    fn sender(&self) -> mpsc::Sender<Message> {
-        self.sender.clone()
+        true
     }
 }

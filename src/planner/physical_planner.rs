@@ -27,7 +27,7 @@ pub enum DataFormat {
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
-pub enum TaskType {
+pub enum OperatorTask {
     // table source stage
     TableFunc {
         alias: Option<String>,
@@ -52,9 +52,9 @@ pub enum TaskType {
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
-pub enum OperatorTask {
+pub enum OperatorType {
     Producer {
-        typ: TaskType,
+        task: OperatorTask,
         // push based: will mostly use outbound
         outbound_exchange_id: String,
         inbound_exchange_ids: Vec<String>,
@@ -66,7 +66,7 @@ pub enum OperatorTask {
     // to shutdown the producers, and itself, the exchange
     // exits when the operator exits.
     Exchange {
-        typ: TaskType,
+        task: OperatorTask,
         // pull based: a producer will request data from the exchange
         outbound_producer_ids: Vec<String>,
         inbound_producer_ids: Vec<String>,
@@ -84,7 +84,7 @@ pub struct OperatorCompute {
 pub struct Operator {
     pub id: String,
     pub plan_id: usize,
-    pub operator_task: OperatorTask,
+    pub operator_type: OperatorType,
     // compute requirements
     pub compute: OperatorCompute,
 }
@@ -118,7 +118,7 @@ impl Pipeline {
     pub fn get_exchange_operators_for_plan_id(&self, plan_id: usize) -> Vec<Operator> {
         let mut operators: Vec<Operator> = Vec::new();
         for op in &self.operators {
-            if op.plan_id == plan_id && matches!(op.operator_task, OperatorTask::Exchange { .. }) {
+            if op.plan_id == plan_id && matches!(op.operator_type, OperatorType::Exchange { .. }) {
                 operators.push(op.clone());
             }
         }
@@ -269,8 +269,8 @@ impl PhysicalPlanner {
         &mut self,
         lpn: &LogicalPlanNode,
     ) -> Result<Vec<Operator>> {
-        let task_type = match lpn.node.clone() {
-            LogicalPlanNodeType::TableFunc { alias, name, args } => TaskType::TableFunc {
+        let op_task = match lpn.node.clone() {
+            LogicalPlanNodeType::TableFunc { alias, name, args } => OperatorTask::TableFunc {
                 alias,
                 func_name: name,
                 args,
@@ -291,8 +291,8 @@ impl PhysicalPlanner {
         let producer = Operator {
             id: self.new_operator_id(lpn.id, "producer"),
             plan_id: lpn.id,
-            operator_task: OperatorTask::Producer {
-                typ: task_type.clone(),
+            operator_type: OperatorType::Producer {
+                task: op_task.clone(),
                 outbound_exchange_id: self.new_operator_id(lpn.id, "exchange"),
                 inbound_exchange_ids: Vec::new(),
             },
@@ -305,8 +305,8 @@ impl PhysicalPlanner {
         let exchange = Operator {
             id: self.new_operator_id(lpn.id, "exchange"),
             plan_id: lpn.id,
-            operator_task: OperatorTask::Exchange {
-                typ: task_type.clone(),
+            operator_type: OperatorType::Exchange {
+                task: op_task.clone(),
                 outbound_producer_ids: self.get_outbound_operators(lpn, "producer")?,
                 inbound_producer_ids: vec![producer.id.clone()],
             },
@@ -339,14 +339,14 @@ impl PhysicalPlanner {
             }
         };
 
-        let task_type = TaskType::Filter { expr: filter_expr };
+        let op_task = OperatorTask::Filter { expr: filter_expr };
         let mut operators: Vec<Operator> = Vec::new();
 
         let producer = Operator {
             id: self.new_operator_id(lpn.id, "producer"),
             plan_id: lpn.id,
-            operator_task: OperatorTask::Producer {
-                typ: task_type.clone(),
+            operator_type: OperatorType::Producer {
+                task: op_task.clone(),
                 outbound_exchange_id: self.new_operator_id(lpn.id, "exchange"),
                 inbound_exchange_ids: self.get_inbound_operators(&lpn, "exchange")?,
             },
@@ -359,8 +359,8 @@ impl PhysicalPlanner {
         let exchange = Operator {
             id: self.new_operator_id(lpn.id, "exchange"),
             plan_id: lpn.id,
-            operator_task: OperatorTask::Exchange {
-                typ: task_type.clone(),
+            operator_type: OperatorType::Exchange {
+                task: op_task.clone(),
                 outbound_producer_ids: self.get_outbound_operators(&lpn, "producer")?,
                 inbound_producer_ids: vec![producer.id.clone()],
             },
@@ -394,7 +394,7 @@ impl PhysicalPlanner {
             }
         };
 
-        let task_type = TaskType::Materialize {
+        let op_task = OperatorTask::Materialize {
             data_format: DataFormat::Parquet,
             fields,
         };
@@ -403,8 +403,8 @@ impl PhysicalPlanner {
         let producer = Operator {
             id: self.new_operator_id(lpn.id, "producer"),
             plan_id: lpn.id,
-            operator_task: OperatorTask::Producer {
-                typ: task_type.clone(),
+            operator_type: OperatorType::Producer {
+                task: op_task.clone(),
                 outbound_exchange_id: self.new_operator_id(lpn.id, "exchange"),
                 inbound_exchange_ids: self.get_inbound_operators(lpn, "exchange")?,
             },
@@ -417,8 +417,8 @@ impl PhysicalPlanner {
         let exchange = Operator {
             id: self.new_operator_id(lpn.id, "exchange"),
             plan_id: lpn.id,
-            operator_task: OperatorTask::Exchange {
-                typ: task_type.clone(),
+            operator_type: OperatorType::Exchange {
+                task: op_task.clone(),
                 outbound_producer_ids: self.get_outbound_operators(lpn, "producer")?,
                 inbound_producer_ids: vec![producer.id.clone()],
             },

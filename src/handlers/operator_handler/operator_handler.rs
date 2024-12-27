@@ -7,7 +7,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use super::operator_handler_state::{OperatorHandlerState, OperatorInstance, TotalOperatorCompute};
-use super::operators::build_operator;
 use crate::handlers::{
     message_handler::{
         Message, MessageName, MessageRegistry, OperatorInstanceAssignment,

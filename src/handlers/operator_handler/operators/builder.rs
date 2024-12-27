@@ -6,6 +6,7 @@ use tokio::sync::Mutex;
 use tokio_util::task::TaskTracker;
 use tracing::info;
 
+use crate::handlers::message_handler::Pipe;
 use crate::handlers::{
     message_handler::MessageRegistry, message_router_handler::MessageRouterState,
     operator_handler::operator_handler_state::OperatorInstance,
@@ -13,12 +14,13 @@ use crate::handlers::{
 use crate::planner;
 
 use super::operator_task_trackers::RestrictedOperatorTaskTracker;
+use super::table_funcs::TableFuncConfig;
 use super::traits::TableFuncTaskBuilder;
 
 #[derive(Debug, Error)]
-pub enum BuildOperatorError {
+pub enum OperatorBuilderError {
     #[error("not implemented: {0}")]
-    NotImplemented(&'static str),
+    NotImplemented(String),
 }
 
 pub struct OperatorRegistry {
@@ -62,60 +64,66 @@ impl OperatorBuilder {
     }
 
     pub fn build_operator(&self, op_in: &OperatorInstance, tt: &TaskTracker) -> Result<()> {
-        let regstricted_tt = RestrictedOperatorTaskTracker::new(tt, 1);
+        let restricted_tt = RestrictedOperatorTaskTracker::new(tt, 1);
+
+        match &op_in.config.operator.operator_type {
+            planner::OperatorType::Producer { task, .. } => match task {
+                planner::OperatorTask::TableFunc { func_name, .. } => {
+                    let bldr = if let Some(bldr) = self
+                        .op_reg
+                        .get_table_func_task_builders()
+                        .iter()
+                        .find(|item| item.implements_func_name() == *func_name)
+                    {
+                        bldr
+                    } else {
+                        return Err(OperatorBuilderError::NotImplemented(format!(
+                            "table func: {}",
+                            func_name
+                        ))
+                        .into());
+                    };
+
+                    let table_func_config = TableFuncConfig::try_from(&op_in.config)?;
+
+                    let (pipe1, pipe2) = Pipe::new(1);
+
+                    let msg_consumer = bldr.build(
+                        op_in.config.clone(),
+                        table_func_config,
+                        pipe2,
+                        self.msg_reg.clone(),
+                        &restricted_tt,
+                        op_in.ct.clone(),
+                    )?;
+                }
+                planner::OperatorTask::Table { .. } => {
+                    return Err(OperatorBuilderError::NotImplemented(
+                        "table operator task".to_string(),
+                    )
+                    .into())
+                }
+                planner::OperatorTask::Filter { .. } => {
+                    return Err(OperatorBuilderError::NotImplemented(
+                        "filter operator task".to_string(),
+                    )
+                    .into())
+                }
+                planner::OperatorTask::Materialize { .. } => {
+                    return Err(OperatorBuilderError::NotImplemented(
+                        "materialize operator task".to_string(),
+                    )
+                    .into())
+                }
+            },
+            planner::OperatorType::Exchange { .. } => {
+                return Err(OperatorBuilderError::NotImplemented(
+                    "exhange operator type".to_string(),
+                )
+                .into())
+            }
+        }
 
         Ok(())
     }
-}
-
-pub async fn build_operator(
-    op_in: &OperatorInstance,
-    message_router_state: Arc<Mutex<MessageRouterState>>,
-    msg_reg: Arc<MessageRegistry>,
-    tt: &TaskTracker,
-) -> Result<()> {
-    match &op_in.config.operator.operator_task {
-        planner::OperatorTask::Producer { typ, .. } => match typ {
-            planner::TaskType::TableFunc { .. } => {
-                let mut operator = TableFuncProducerOperator::new(
-                    op_in.config.clone(),
-                    TableFuncConfig::try_from(&op_in.config)?,
-                    message_router_state,
-                    msg_reg,
-                )
-                .await;
-                let ct = op_in.ct.clone();
-                tt.spawn(async move {
-                    if let Err(err) = operator.async_main(ct).await {
-                        info!("error: {:?}", err);
-                    }
-                });
-            }
-            planner::TaskType::Table { .. } => {
-                return Err(BuildOperatorError::NotImplemented(
-                    "table producer operator not implemented",
-                )
-                .into())
-            }
-            planner::TaskType::Filter { .. } => {
-                return Err(BuildOperatorError::NotImplemented(
-                    "filter producer operator not implemented",
-                )
-                .into())
-            }
-            planner::TaskType::Materialize { .. } => {
-                return Err(BuildOperatorError::NotImplemented(
-                    "materialize producer operator not implemented",
-                )
-                .into())
-            }
-        },
-        planner::OperatorTask::Exchange { .. } => {
-            return Err(
-                BuildOperatorError::NotImplemented("exchange operator not implemented").into(),
-            )
-        }
-    }
-
-    Ok(())
 }
