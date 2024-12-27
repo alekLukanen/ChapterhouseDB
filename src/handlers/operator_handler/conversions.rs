@@ -1,6 +1,7 @@
 use thiserror::Error;
+use tokio_util::sync::CancellationToken;
 
-use super::operator_handler_state::{OperatorInstance, Status};
+use super::operator_handler_state::{OperatorInstance, OperatorInstanceConfig, Status};
 use crate::handlers::message_handler::OperatorInstanceAssignment;
 
 #[derive(Debug, Error)]
@@ -22,11 +23,14 @@ impl TryFrom<&OperatorInstanceAssignment> for OperatorInstance {
                 pipeline_id,
                 operator,
             } => Ok(OperatorInstance {
-                id: op_instance_id.clone(),
                 status: Status::Queued,
-                query_id: query_id.clone(),
-                pipeline_id: pipeline_id.clone(),
-                operator: operator.clone(),
+                ct: CancellationToken::new(),
+                config: OperatorInstanceConfig {
+                    id: op_instance_id.clone(),
+                    query_id: query_id.clone(),
+                    pipeline_id: pipeline_id.clone(),
+                    operator: operator.clone(),
+                },
             }),
             _ => Err(TryFromOperatorInstanceError::UnableToConvertMessageToOperatorInstance),
         }

@@ -7,6 +7,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use super::operator_handler_state::{OperatorHandlerState, OperatorInstance, TotalOperatorCompute};
+use super::operators::build_operator;
 use crate::handlers::{
     message_handler::{
         Message, MessageName, MessageRegistry, OperatorInstanceAssignment,
@@ -19,6 +20,8 @@ use crate::handlers::{
 pub enum OperatorHandlerError {
     #[error("incorrect message: {0}")]
     IncorrectMessage(String),
+    #[error("not implemented: {0}")]
+    NotImplemented(&'static str),
 }
 
 pub struct OperatorHandler {
@@ -27,6 +30,8 @@ pub struct OperatorHandler {
     router_pipe: Pipe<Message>,
     sender: mpsc::Sender<Message>,
     msg_reg: Arc<Box<MessageRegistry>>,
+
+    tt: tokio_util::task::TaskTracker,
 }
 
 impl OperatorHandler {
@@ -44,6 +49,7 @@ impl OperatorHandler {
             router_pipe: pipe,
             sender,
             msg_reg,
+            tt: tokio_util::task::TaskTracker::new(),
         };
 
         handler
@@ -67,7 +73,7 @@ impl OperatorHandler {
             tokio::select! {
                 Some(msg) = self.router_pipe.recv() => {
                     info!("operator handler received message");
-                    if let Err(err) = self.handle_message(msg).await {
+                    if let Err(err) = self.handle_message(ct.clone(), msg).await {
                         info!("error: {:?}", err);
                     }
                 }
@@ -83,14 +89,14 @@ impl OperatorHandler {
         Ok(())
     }
 
-    async fn handle_message(&mut self, msg: Message) -> Result<()> {
+    async fn handle_message(&mut self, ct: CancellationToken, msg: Message) -> Result<()> {
         match msg.msg.msg_name() {
             MessageName::OperatorInstanceAvailable => self
                 .handle_operator_instance_available(msg)
                 .await
                 .context("failed handling operator instance available message")?,
             MessageName::OperatorInstanceAssignment => self
-                .handle_operator_instance_assignment(msg)
+                .handle_operator_instance_assignment(ct, msg)
                 .await
                 .context("failed handling operator instance assignment message")?,
             _ => {
@@ -100,9 +106,22 @@ impl OperatorHandler {
         Ok(())
     }
 
-    async fn handle_operator_instance_assignment(&mut self, msg: Message) -> Result<()> {
+    async fn handle_operator_instance_assignment(
+        &mut self,
+        ct: CancellationToken,
+        msg: Message,
+    ) -> Result<()> {
         let assignment: &OperatorInstanceAssignment = self.msg_reg.try_cast_msg(&msg)?;
         let op_in: OperatorInstance = OperatorInstance::try_from(assignment)?;
+
+        build_operator(
+            ct,
+            &op_in,
+            self.message_router_state.clone(),
+            self.msg_reg.clone(),
+            &self.tt,
+        )
+        .await?;
 
         self.state.add_operator_instance(op_in)?;
 

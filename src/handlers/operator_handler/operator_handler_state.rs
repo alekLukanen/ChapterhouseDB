@@ -1,5 +1,6 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use tokio_util::sync::CancellationToken;
 
 use crate::planner::{self, OperatorCompute};
 
@@ -13,8 +14,14 @@ pub enum Status {
 
 #[derive(Debug, Clone)]
 pub struct OperatorInstance {
-    pub id: u128,
     pub status: Status,
+    pub ct: CancellationToken,
+    pub config: OperatorInstanceConfig,
+}
+
+#[derive(Debug, Clone)]
+pub struct OperatorInstanceConfig {
+    pub id: u128,
     pub query_id: u128,
     pub pipeline_id: String,
     pub operator: planner::Operator,
@@ -117,7 +124,7 @@ impl OperatorHandlerState {
             cpu_in_thousandths: 0,
         };
         for op in &self.operator_instances {
-            let mut op_com = op.operator.compute.clone();
+            let mut op_com = op.config.operator.compute.clone();
             op_com.instances = 1;
             total_compute.add_single_operator_compute(&op_com);
         }
