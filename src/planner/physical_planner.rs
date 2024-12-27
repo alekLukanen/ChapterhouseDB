@@ -67,7 +67,7 @@ pub enum OperatorTask {
     // exits when the operator exits.
     Exchange {
         typ: TaskType,
-        // push based: will mostly use outbound
+        // pull based: a producer will request data from the exchange
         outbound_producer_ids: Vec<String>,
         inbound_producer_ids: Vec<String>,
     },
