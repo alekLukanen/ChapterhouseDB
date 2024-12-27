@@ -12,8 +12,8 @@ use crate::handlers::{
 };
 use crate::planner;
 
-use super::traits::OperatorTaskBuilder;
-use super::{table_func_producer_operator::TableFuncConfig, TableFuncProducerOperator};
+use super::operator_task_trackers::RestrictedOperatorTaskTracker;
+use super::traits::TableFuncTaskBuilder;
 
 #[derive(Debug, Error)]
 pub enum BuildOperatorError {
@@ -22,18 +22,49 @@ pub enum BuildOperatorError {
 }
 
 pub struct OperatorRegistry {
-    tt: TaskTracker,
-    message_router_state: Arc<Mutex<MessageRouterState>>,
-    table_func_operator_task_builders: Vec<Box<dyn OperatorTaskBuilder>>,
+    table_func_task_builders: Vec<Box<dyn TableFuncTaskBuilder>>,
 }
 
 impl OperatorRegistry {
-    pub fn new(message_router_state: Arc<Mutex<MessageRouterState>>) -> OperatorRegistry {
+    pub fn new() -> OperatorRegistry {
         OperatorRegistry {
-            tt: TaskTracker::new(),
-            message_router_state,
-            table_func_operator_task_builders: Vec::new(),
+            table_func_task_builders: Vec::new(),
         }
+    }
+
+    pub fn add_table_func_task_builder(mut self, bldr: Box<dyn TableFuncTaskBuilder>) -> Self {
+        self.table_func_task_builders.push(bldr);
+        self
+    }
+
+    pub fn get_table_func_task_builders(&self) -> &Vec<Box<dyn TableFuncTaskBuilder>> {
+        &self.table_func_task_builders
+    }
+}
+
+pub struct OperatorBuilder {
+    op_reg: Arc<OperatorRegistry>,
+    msg_reg: Arc<MessageRegistry>,
+    message_router_state: Arc<Mutex<MessageRouterState>>,
+}
+
+impl OperatorBuilder {
+    pub fn new(
+        op_reg: Arc<OperatorRegistry>,
+        msg_reg: Arc<MessageRegistry>,
+        message_router_state: Arc<Mutex<MessageRouterState>>,
+    ) -> OperatorBuilder {
+        OperatorBuilder {
+            op_reg,
+            msg_reg,
+            message_router_state,
+        }
+    }
+
+    pub fn build_operator(&self, op_in: &OperatorInstance, tt: &TaskTracker) -> Result<()> {
+        let regstricted_tt = RestrictedOperatorTaskTracker::new(tt, 1);
+
+        Ok(())
     }
 }
 

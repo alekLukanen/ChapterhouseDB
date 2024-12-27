@@ -6,7 +6,7 @@ use crate::{
     planner::{OperatorTask, TaskType},
 };
 
-use super::table_func_producer_operator::TableFuncConfig;
+use super::config::TableFuncConfig;
 
 #[derive(Debug, Error)]
 pub enum TryFromTableFuncConfigError {

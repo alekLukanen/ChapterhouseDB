@@ -11,15 +11,17 @@ use crate::handlers::{
     operator_handler::operator_handler_state::OperatorInstanceConfig,
 };
 
-use super::operator_task_trackers::RestrictedOperatorTaskTracker;
+use super::{operator_task_trackers::RestrictedOperatorTaskTracker, table_funcs::TableFuncConfig};
 
-pub trait OperatorTaskBuilder: fmt::Debug + Send + Sync {
+pub trait TableFuncTaskBuilder: fmt::Debug + Send + Sync {
     fn build(
         &self,
         op_in_config: OperatorInstanceConfig,
+        table_func_config: TableFuncConfig,
         message_router_sender: mpsc::Sender<Message>,
         msg_reg: Arc<MessageRegistry>,
         tt: &RestrictedOperatorTaskTracker,
         ct: CancellationToken,
     ) -> Result<Box<dyn Subscriber>>;
+    fn implements_func_name(&self) -> String;
 }

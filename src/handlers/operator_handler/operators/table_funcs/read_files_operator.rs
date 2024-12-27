@@ -6,25 +6,16 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-use super::operator_task_trackers::RestrictedOperatorTaskTracker;
-use super::traits::OperatorTaskBuilder;
 use crate::handlers::message_handler::{Message, MessageRegistry, Pipe};
 use crate::handlers::message_router_handler::{MessageConsumer, MessageReceiver, Subscriber};
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
+use crate::handlers::operator_handler::operators::operator_task_trackers::RestrictedOperatorTaskTracker;
+use crate::handlers::operator_handler::operators::traits::TableFuncTaskBuilder;
+
+use super::config::TableFuncConfig;
 
 #[derive(Debug)]
-pub struct TableFuncConfig {
-    pub alias: Option<String>,
-    pub func_name: String,
-    pub args: Vec<FunctionArg>,
-    pub max_rows_per_batch: usize,
-
-    pub outbound_exchange_id: String,
-    pub inbound_exchange_ids: Vec<String>,
-}
-
-#[derive(Debug)]
-pub struct TableFuncProducerOperator {
+pub struct ReadFilesOperator {
     operator_instance_config: OperatorInstanceConfig,
     table_func_config: TableFuncConfig,
 
@@ -33,16 +24,16 @@ pub struct TableFuncProducerOperator {
     msg_reg: Arc<MessageRegistry>,
 }
 
-impl TableFuncProducerOperator {
+impl ReadFilesOperator {
     pub fn new(
         op_in_config: OperatorInstanceConfig,
         table_func_config: TableFuncConfig,
         message_router_sender: mpsc::Sender<Message>,
         msg_reg: Arc<MessageRegistry>,
-    ) -> TableFuncProducerOperator {
+    ) -> ReadFilesOperator {
         let (pipe, sender) = Pipe::new_with_existing_sender(message_router_sender, 1);
 
-        TableFuncProducerOperator {
+        ReadFilesOperator {
             operator_instance_config: op_in_config,
             table_func_config,
             router_pipe: pipe,
@@ -80,19 +71,19 @@ impl TableFuncProducerOperator {
 // Table Func Producer Builder
 
 #[derive(Debug, Clone)]
-pub struct TableFuncProducerOperatorBuilder {}
+pub struct ReadFilesOperatorBuilder {}
 
-impl OperatorTaskBuilder for TableFuncProducerOperatorBuilder {
+impl TableFuncTaskBuilder for ReadFilesOperator {
     fn build(
         &self,
         op_in_config: OperatorInstanceConfig,
+        table_func_config: TableFuncConfig,
         message_router_sender: mpsc::Sender<Message>,
         msg_reg: Arc<MessageRegistry>,
         tt: &RestrictedOperatorTaskTracker,
         ct: CancellationToken,
     ) -> Result<Box<dyn Subscriber>> {
-        let table_func_config = TableFuncConfig::try_from(&op_in_config)?;
-        let mut op = TableFuncProducerOperator::new(
+        let mut op = ReadFilesOperator::new(
             op_in_config,
             table_func_config,
             message_router_sender,
@@ -108,6 +99,10 @@ impl OperatorTaskBuilder for TableFuncProducerOperatorBuilder {
         });
 
         Ok(subscriber)
+    }
+
+    fn implements_func_name(&self) -> String {
+        "read_files".to_string()
     }
 }
 
