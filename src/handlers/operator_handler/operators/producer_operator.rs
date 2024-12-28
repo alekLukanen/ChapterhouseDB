@@ -85,6 +85,11 @@ impl ProducerOperator {
             .add_internal_subscriber(self.subscriber())
             .context("failed subscribing")?;
 
+        info!(
+            "started the producer operator for instance {}",
+            self.operator_instance_config.id
+        );
+
         loop {
             tokio::select! {
                 _ = ct.cancelled() => {
@@ -102,7 +107,7 @@ impl ProducerOperator {
         }
 
         info!(
-            "closing operator producer for instance {}",
+            "closed producer operator for instance {}",
             self.operator_instance_config.id
         );
 

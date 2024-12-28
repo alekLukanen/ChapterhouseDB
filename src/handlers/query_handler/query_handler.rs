@@ -6,7 +6,7 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-use super::query_handler_state::{self, QueryHandlerState};
+use super::query_handler_state::{self, QueryHandlerState, Status};
 use crate::handlers::message_handler::{
     Message, MessageName, MessageRegistry, OperatorInstanceAssignment, OperatorInstanceAvailable,
     Pipe, RunQuery, RunQueryResp,
@@ -90,10 +90,64 @@ impl QueryHandler {
                 .handle_operator_instance_response(&msg)
                 .await
                 .context("failed handling the operator instance available response message")?,
+            MessageName::OperatorInstanceAssignment => self
+                .handle_operator_instance_assignment_responses(&msg)
+                .await
+                .context("failed handling the operator instance assignment response messages")?,
             _ => {
                 info!("unknown message received: {:?}", msg);
             }
         }
+        Ok(())
+    }
+
+    async fn handle_operator_instance_assignment_responses(&mut self, msg: &Message) -> Result<()> {
+        let op_in_assign: &OperatorInstanceAssignment = self.msg_reg.try_cast_msg(msg)?;
+        match op_in_assign {
+            OperatorInstanceAssignment::AssignAcceptedResponse {
+                query_id,
+                op_instance_id,
+                ..
+            } => {
+                info!(
+                    "assign accepted response: query_id={}, op_in_id={}",
+                    query_id, op_instance_id
+                );
+                if self.state.find_query(query_id.clone())?.status == Status::Queued {
+                    self.state
+                        .update_query_status(query_id.clone(), Status::Running)?;
+                }
+                self.state.update_operator_instance_status(
+                    query_id.clone(),
+                    op_instance_id.clone(),
+                    Status::Running,
+                )?;
+            }
+            OperatorInstanceAssignment::AssignRejectedResponse {
+                query_id,
+                op_instance_id,
+                error,
+                ..
+            } => {
+                info!(
+                    "assign rejected response: query_id={}, op_in_id={}",
+                    query_id, op_instance_id
+                );
+                self.state
+                    .update_query_status(query_id.clone(), Status::Error(error.clone()))?;
+                self.state.update_operator_instance_status(
+                    query_id.clone(),
+                    op_instance_id.clone(),
+                    Status::Error(error.clone()),
+                )?;
+            }
+            OperatorInstanceAssignment::Assign { .. } => {
+                return Err(
+                    QueryHandlerError::IncorrectMessage(format!("{:?}", op_in_assign)).into(),
+                );
+            }
+        }
+
         Ok(())
     }
 
@@ -195,8 +249,8 @@ impl MessageConsumer for QueryHandlerSubscriber {
             }
             MessageName::OperatorInstanceAssignment => {
                 match self.msg_reg.try_cast_msg::<OperatorInstanceAssignment>(msg) {
-                    Ok(OperatorInstanceAssignment::AssignAcceptedResponse) => true,
-                    Ok(OperatorInstanceAssignment::AssignRejectedResponse) => true,
+                    Ok(OperatorInstanceAssignment::AssignAcceptedResponse { .. }) => true,
+                    Ok(OperatorInstanceAssignment::AssignRejectedResponse { .. }) => true,
                     _ => false,
                 }
             }

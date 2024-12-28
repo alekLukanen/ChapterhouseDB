@@ -7,6 +7,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use super::operator_handler_state::{OperatorHandlerState, OperatorInstance, TotalOperatorCompute};
+use super::operators;
 use crate::handlers::{
     message_handler::{
         Message, MessageName, MessageRegistry, OperatorInstanceAssignment,
@@ -28,7 +29,10 @@ pub struct OperatorHandler {
     message_router_state: Arc<Mutex<MessageRouterState>>,
     router_pipe: Pipe<Message>,
     sender: mpsc::Sender<Message>,
+
     msg_reg: Arc<MessageRegistry>,
+    op_reg: Arc<operators::OperatorTaskRegistry>,
+    op_builder: operators::OperatorBuilder,
 
     tt: tokio_util::task::TaskTracker,
 }
@@ -37,10 +41,16 @@ impl OperatorHandler {
     pub async fn new(
         message_router_state: Arc<Mutex<MessageRouterState>>,
         msg_reg: Arc<MessageRegistry>,
+        op_reg: Arc<operators::OperatorTaskRegistry>,
         allowed_compute: TotalOperatorCompute,
     ) -> OperatorHandler {
         let router_sender = message_router_state.lock().await.sender();
         let (pipe, sender) = Pipe::new_with_existing_sender(router_sender, 1);
+        let op_builder = operators::OperatorBuilder::new(
+            op_reg.clone(),
+            msg_reg.clone(),
+            message_router_state.clone(),
+        );
 
         let handler = OperatorHandler {
             state: OperatorHandlerState::new(allowed_compute),
@@ -48,6 +58,8 @@ impl OperatorHandler {
             router_pipe: pipe,
             sender,
             msg_reg,
+            op_reg,
+            op_builder,
             tt: tokio_util::task::TaskTracker::new(),
         };
 
@@ -111,7 +123,33 @@ impl OperatorHandler {
         let assignment: &OperatorInstanceAssignment = self.msg_reg.try_cast_msg(&msg)?;
         let op_in: OperatorInstance = OperatorInstance::try_from(assignment)?;
 
-        self.state.add_operator_instance(op_in)?;
+        match self.op_builder.build_operator(&op_in, &self.tt).await {
+            Ok(_) => {
+                self.state.add_operator_instance(op_in)?;
+
+                let resp_msg = msg.reply(Box::new(
+                    OperatorInstanceAssignment::AssignAcceptedResponse {
+                        query_id: assignment.get_query_id(),
+                        op_instance_id: assignment.get_op_instance_id(),
+                        pipeline_id: assignment.get_pipeline_id(),
+                    },
+                ));
+                self.router_pipe.send(resp_msg).await?;
+            }
+            Err(err) => {
+                info!("error: {}", err);
+
+                let resp_msg = msg.reply(Box::new(
+                    OperatorInstanceAssignment::AssignRejectedResponse {
+                        query_id: assignment.get_query_id(),
+                        op_instance_id: assignment.get_op_instance_id(),
+                        pipeline_id: assignment.get_pipeline_id(),
+                        error: err.to_string(),
+                    },
+                ));
+                self.router_pipe.send(resp_msg).await?;
+            }
+        }
 
         Ok(())
     }

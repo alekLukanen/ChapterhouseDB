@@ -81,6 +81,7 @@ impl QueryWorker {
         let mut operator_handler = OperatorHandler::new(
             message_router_state.clone(),
             msg_reg.clone(),
+            op_reg.clone(),
             self.config.allowed_compute.clone(),
         )
         .await;

@@ -777,8 +777,41 @@ pub enum OperatorInstanceAssignment {
         pipeline_id: String,
         operator: planner::Operator,
     },
-    AssignAcceptedResponse,
-    AssignRejectedResponse,
+    AssignAcceptedResponse {
+        query_id: u128,
+        op_instance_id: u128,
+        pipeline_id: String,
+    },
+    AssignRejectedResponse {
+        query_id: u128,
+        op_instance_id: u128,
+        pipeline_id: String,
+        error: String,
+    },
+}
+
+impl OperatorInstanceAssignment {
+    pub fn get_query_id(&self) -> u128 {
+        match self {
+            Self::Assign { query_id, .. } => query_id.clone(),
+            Self::AssignAcceptedResponse { query_id, .. } => query_id.clone(),
+            Self::AssignRejectedResponse { query_id, .. } => query_id.clone(),
+        }
+    }
+    pub fn get_op_instance_id(&self) -> u128 {
+        match self {
+            Self::Assign { op_instance_id, .. } => op_instance_id.clone(),
+            Self::AssignAcceptedResponse { op_instance_id, .. } => op_instance_id.clone(),
+            Self::AssignRejectedResponse { op_instance_id, .. } => op_instance_id.clone(),
+        }
+    }
+    pub fn get_pipeline_id(&self) -> String {
+        match self {
+            Self::Assign { pipeline_id, .. } => pipeline_id.clone(),
+            Self::AssignAcceptedResponse { pipeline_id, .. } => pipeline_id.clone(),
+            Self::AssignRejectedResponse { pipeline_id, .. } => pipeline_id.clone(),
+        }
+    }
 }
 
 impl SendableMessage for OperatorInstanceAssignment {

@@ -22,6 +22,7 @@ pub enum QueryHandlerStateError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Status {
     Queued,
+    SendingToWorker,
     Running,
     Complete,
     Error(String),
@@ -109,21 +110,21 @@ impl QueryHandlerState {
         self.queries.push(query.clone());
     }
 
-    fn find_query(&self, query_id: u128) -> Result<&Query> {
+    pub fn find_query(&self, query_id: u128) -> Result<&Query> {
         self.queries
             .iter()
             .find(|item| item.id == query_id)
             .ok_or(QueryHandlerStateError::QueryNotFound(query_id).into())
     }
 
-    fn find_query_mut(&mut self, query_id: u128) -> Result<&mut Query> {
+    pub fn find_query_mut(&mut self, query_id: u128) -> Result<&mut Query> {
         self.queries
             .iter_mut()
             .find(|item| item.id == query_id)
             .ok_or(QueryHandlerStateError::QueryNotFound(query_id).into())
     }
 
-    fn find_operator_instance<'a>(
+    pub fn find_operator_instance<'a>(
         &'a self,
         query: &'a Query,
         op_instance_id: u128,
@@ -131,6 +132,18 @@ impl QueryHandlerState {
         query
             .operator_instances
             .iter()
+            .find(|item| item.id == op_instance_id.clone())
+            .ok_or(QueryHandlerStateError::OperatorInstanceNotFound(op_instance_id).into())
+    }
+
+    pub fn find_operator_instance_mut<'a>(
+        &'a mut self,
+        query: &'a mut Query,
+        op_instance_id: u128,
+    ) -> Result<&'a mut OperatorInstance> {
+        query
+            .operator_instances
+            .iter_mut()
             .find(|item| item.id == op_instance_id.clone())
             .ok_or(QueryHandlerStateError::OperatorInstanceNotFound(op_instance_id).into())
     }
@@ -143,6 +156,38 @@ impl QueryHandlerState {
         let query = self.find_query(query_id)?;
         let op_in = self.find_operator_instance(query, op_instance_id)?;
         Ok(op_in.clone())
+    }
+
+    pub fn update_operator_instance_status(
+        &mut self,
+        query_id: u128,
+        op_instance_id: u128,
+        status: Status,
+    ) -> Result<()> {
+        for query in &mut self.queries {
+            if query.id != query_id {
+                continue;
+            }
+            for op_in in &mut query.operator_instances {
+                if op_in.id != op_instance_id {
+                    continue;
+                }
+                op_in.status = status;
+                return Ok(());
+            }
+        }
+        Err(QueryHandlerStateError::OperatorInstanceNotFound(op_instance_id).into())
+    }
+
+    pub fn update_query_status(&mut self, query_id: u128, status: Status) -> Result<()> {
+        for query in &mut self.queries {
+            if query.id != query_id {
+                continue;
+            }
+            query.status = status;
+            return Ok(());
+        }
+        Err(QueryHandlerStateError::QueryNotFound(query_id).into())
     }
 
     pub fn claim_operator_instances_up_to_compute_available(
@@ -180,8 +225,10 @@ impl QueryHandlerState {
                     continue;
                 }
 
-                query.status = Status::Running;
-                op_in.status = Status::Running;
+                if query.status == Status::Queued {
+                    query.status = Status::Running;
+                }
+                op_in.status = Status::SendingToWorker;
                 compute.subtract_single_operator_compute(&op_in_compute);
                 result.push((query.id.clone(), op_in, operator));
             }

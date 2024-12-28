@@ -44,12 +44,7 @@ impl OperatorBuilder {
         }
     }
 
-    pub async fn build_operator(
-        &self,
-        ct: CancellationToken,
-        op_in: &OperatorInstance,
-        tt: &TaskTracker,
-    ) -> Result<()> {
+    pub async fn build_operator(&self, op_in: &OperatorInstance, tt: &TaskTracker) -> Result<()> {
         match &op_in.config.operator.operator_type {
             planner::OperatorType::Producer { task, .. } => match task {
                 planner::OperatorTask::TableFunc { func_name, .. } => {
@@ -91,7 +86,7 @@ impl OperatorBuilder {
                     )?;
 
                     producer_operator = producer_operator.set_task_msg_consumer(msg_consumer);
-                    let ct = ct.clone();
+                    let ct = op_in.ct.clone();
                     tt.spawn(async move {
                         if let Err(err) = producer_operator.async_main(ct).await {
                             info!("error: {}", err);
