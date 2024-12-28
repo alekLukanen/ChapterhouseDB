@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use serde_json::de::Read;
+use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
@@ -9,9 +10,49 @@ use crate::handlers::message_handler::{Message, MessageRegistry, Pipe};
 use crate::handlers::message_router_handler::MessageConsumer;
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
 use crate::handlers::operator_handler::operators::operator_task_trackers::RestrictedOperatorTaskTracker;
-use crate::handlers::operator_handler::operators::traits::TableFuncTaskBuilder;
+use crate::handlers::operator_handler::operators::traits::{
+    TableFuncSyntaxValidator, TableFuncTaskBuilder,
+};
 
 use super::config::TableFuncConfig;
+
+#[derive(Debug, Error)]
+pub enum ReadFilesConfigError {
+    #[error("invalid argument")]
+    InvalidArgument(usize, &'static str),
+}
+
+#[derive(Debug, Clone)]
+pub struct ReadFilesConfig {
+    path: String,
+    connection: Option<String>,
+}
+
+impl TableFuncSyntaxValidator for ReadFilesConfig {
+    fn valid(&self, args: &Vec<sqlparser::ast::FunctionArg>) -> bool {
+        match Self::parse_config(args) {
+            Ok(_) => true,
+            Err(_) => false,
+        }
+    }
+}
+
+impl ReadFilesConfig {
+    fn parse_config(args: &Vec<sqlparser::ast::FunctionArg>) -> Result<ReadFilesConfig> {
+        let path = match args.get(0) {
+            Some(sqlparser::ast::FunctionArg::Unnamed(sqlparser::ast::FunctionArgExpr::Expr(
+                sqlparser::ast::Expr::Value(sqlparser::ast::Value::SingleQuotedString(val)),
+            ))) => val,
+            _ => {
+                return Err(ReadFilesConfigError::InvalidArgument(0, "pathTemplate").into());
+            }
+        }
+        .clone();
+        let connection = None;
+
+        Ok(ReadFilesConfig { path, connection })
+    }
+}
 
 #[derive(Debug)]
 pub struct ReadFilesTask {
