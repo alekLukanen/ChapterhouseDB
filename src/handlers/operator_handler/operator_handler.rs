@@ -31,7 +31,7 @@ pub struct OperatorHandler {
     sender: mpsc::Sender<Message>,
 
     msg_reg: Arc<MessageRegistry>,
-    op_reg: Arc<operators::OperatorTaskRegistry>,
+    conn_reg: Arc<operators::ConnectionRegistry>,
     op_builder: operators::OperatorBuilder,
 
     tt: tokio_util::task::TaskTracker,
@@ -42,6 +42,7 @@ impl OperatorHandler {
         message_router_state: Arc<Mutex<MessageRouterState>>,
         msg_reg: Arc<MessageRegistry>,
         op_reg: Arc<operators::OperatorTaskRegistry>,
+        conn_reg: Arc<operators::ConnectionRegistry>,
         allowed_compute: TotalOperatorCompute,
     ) -> OperatorHandler {
         let router_sender = message_router_state.lock().await.sender();
@@ -49,6 +50,7 @@ impl OperatorHandler {
         let op_builder = operators::OperatorBuilder::new(
             op_reg.clone(),
             msg_reg.clone(),
+            conn_reg.clone(),
             message_router_state.clone(),
         );
 
@@ -58,7 +60,7 @@ impl OperatorHandler {
             router_pipe: pipe,
             sender,
             msg_reg,
-            op_reg,
+            conn_reg,
             op_builder,
             tt: tokio_util::task::TaskTracker::new(),
         };

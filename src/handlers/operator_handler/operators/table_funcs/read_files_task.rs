@@ -13,6 +13,7 @@ use crate::handlers::operator_handler::operators::operator_task_trackers::Restri
 use crate::handlers::operator_handler::operators::traits::{
     TableFuncSyntaxValidator, TableFuncTaskBuilder,
 };
+use crate::handlers::operator_handler::operators::ConnectionRegistry;
 
 use super::config::TableFuncConfig;
 
@@ -97,6 +98,7 @@ pub struct ReadFilesTask {
 
     operator_pipe: Pipe<Message>,
     msg_reg: Arc<MessageRegistry>,
+    conn_reg: Arc<ConnectionRegistry>,
 }
 
 impl ReadFilesTask {
@@ -105,12 +107,14 @@ impl ReadFilesTask {
         read_files_config: ReadFilesConfig,
         operator_pipe: Pipe<Message>,
         msg_reg: Arc<MessageRegistry>,
+        conn_reg: Arc<ConnectionRegistry>,
     ) -> ReadFilesTask {
         ReadFilesTask {
             operator_instance_config: op_in_config,
             read_files_config,
             operator_pipe,
             msg_reg,
+            conn_reg,
         }
     }
 
@@ -157,6 +161,7 @@ impl TableFuncTaskBuilder for ReadFilesTaskBuilder {
         table_func_config: TableFuncConfig,
         operator_pipe: Pipe<Message>,
         msg_reg: Arc<MessageRegistry>,
+        conn_reg: Arc<ConnectionRegistry>,
         tt: &mut RestrictedOperatorTaskTracker,
         ct: CancellationToken,
     ) -> Result<Box<dyn MessageConsumer>> {
@@ -166,6 +171,7 @@ impl TableFuncTaskBuilder for ReadFilesTaskBuilder {
             read_files_config,
             operator_pipe,
             msg_reg.clone(),
+            conn_reg.clone(),
         );
 
         let consumer = op.subscriber();

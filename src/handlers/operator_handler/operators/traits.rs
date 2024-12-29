@@ -10,7 +10,10 @@ use crate::handlers::{
     operator_handler::operator_handler_state::OperatorInstanceConfig,
 };
 
-use super::{operator_task_trackers::RestrictedOperatorTaskTracker, table_funcs::TableFuncConfig};
+use super::{
+    operator_task_trackers::RestrictedOperatorTaskTracker, table_funcs::TableFuncConfig,
+    ConnectionRegistry,
+};
 
 pub trait TableFuncTaskBuilder: fmt::Debug + Send + Sync {
     fn build(
@@ -19,6 +22,7 @@ pub trait TableFuncTaskBuilder: fmt::Debug + Send + Sync {
         table_func_config: TableFuncConfig,
         operator_pipe: Pipe<Message>,
         msg_reg: Arc<MessageRegistry>,
+        conn_reg: Arc<ConnectionRegistry>,
         tt: &mut RestrictedOperatorTaskTracker,
         ct: CancellationToken,
     ) -> Result<Box<dyn MessageConsumer>>;

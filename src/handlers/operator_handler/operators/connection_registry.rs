@@ -17,12 +17,14 @@ pub enum ConnectionRegistryError {
     NotImplemented(String),
 }
 
+#[derive(Debug)]
 pub struct Connection {
     name: String,
     scheme: Scheme,
     config: HashMap<String, String>,
 }
 
+#[derive(Debug)]
 pub struct ConnectionRegistry {
     connections: Vec<Connection>,
 }

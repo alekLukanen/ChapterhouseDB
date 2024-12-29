@@ -1,8 +1,10 @@
+use std::collections::HashMap;
+
 use clap;
 use tracing_subscriber;
 
 use chapterhouseqe::{
-    handlers::operator_handler::TotalOperatorCompute,
+    handlers::operator_handler::{operators, TotalOperatorCompute},
     worker::{QueryWorker, QueryWorkerConfig},
 };
 
@@ -26,6 +28,15 @@ fn main() {
 
     tracing_subscriber::fmt::init();
 
+    let mut conn_reg = operators::ConnectionRegistry::new();
+    conn_reg.add_connection(
+        "default".to_string(),
+        opendal::Scheme::Fs,
+        vec![("root".to_string(), "./".to_string())]
+            .into_iter()
+            .collect::<HashMap<String, String>>(),
+    );
+
     let mut worker = QueryWorker::new(QueryWorkerConfig::new(
         format!("127.0.0.1:{}", args.port),
         args.connect_to_addresses,
@@ -34,6 +45,7 @@ fn main() {
             memory_in_mib: 1 << 11, // 2048 mebibytes
             cpu_in_thousandths: 2_000,
         },
+        conn_reg,
     ));
 
     match worker.start() {

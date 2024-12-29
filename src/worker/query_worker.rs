@@ -7,7 +7,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::handlers::message_handler::{ConnectionPoolHandler, MessageRegistry};
-use crate::handlers::message_router_handler::{MessageRouterHandler, MessageRouterState};
+use crate::handlers::message_router_handler::MessageRouterHandler;
 use crate::handlers::operator_handler::operators;
 use crate::handlers::operator_handler::{OperatorHandler, TotalOperatorCompute};
 use crate::handlers::query_handler::QueryHandler;
@@ -16,6 +16,7 @@ pub struct QueryWorkerConfig {
     address: String,
     connect_to_addresses: Vec<String>,
     allowed_compute: TotalOperatorCompute,
+    conn_reg: Arc<operators::ConnectionRegistry>,
 }
 
 impl QueryWorkerConfig {
@@ -23,11 +24,13 @@ impl QueryWorkerConfig {
         address: String,
         connect_to_addresses: Vec<String>,
         allowed_compute: TotalOperatorCompute,
+        conn_reg: operators::ConnectionRegistry,
     ) -> QueryWorkerConfig {
         QueryWorkerConfig {
             address,
             connect_to_addresses,
             allowed_compute,
+            conn_reg: Arc::new(conn_reg),
         }
     }
 }
@@ -62,6 +65,7 @@ impl QueryWorker {
 
         let msg_reg = Arc::new(MessageRegistry::new());
         let op_reg = Arc::new(operators::build_default_operator_task_registry());
+        let conn_reg = self.config.conn_reg.clone();
 
         // Connect Pool and Router ////////////////////////
         let (mut connection_pool_handler, connection_msg_pipe) = ConnectionPoolHandler::new(
@@ -82,6 +86,7 @@ impl QueryWorker {
             message_router_state.clone(),
             msg_reg.clone(),
             op_reg.clone(),
+            conn_reg.clone(),
             self.config.allowed_compute.clone(),
         )
         .await;

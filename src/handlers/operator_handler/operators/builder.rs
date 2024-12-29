@@ -18,6 +18,7 @@ use super::operator_task_registry::OperatorTaskRegistry;
 use super::producer_operator::ProducerOperator;
 use super::table_funcs::TableFuncConfig;
 use super::traits::TableFuncTaskBuilder;
+use super::ConnectionRegistry;
 
 #[derive(Debug, Error)]
 pub enum OperatorBuilderError {
@@ -28,6 +29,7 @@ pub enum OperatorBuilderError {
 pub struct OperatorBuilder {
     op_reg: Arc<OperatorTaskRegistry>,
     msg_reg: Arc<MessageRegistry>,
+    conn_reg: Arc<ConnectionRegistry>,
     message_router_state: Arc<Mutex<MessageRouterState>>,
 }
 
@@ -35,11 +37,13 @@ impl OperatorBuilder {
     pub fn new(
         op_reg: Arc<OperatorTaskRegistry>,
         msg_reg: Arc<MessageRegistry>,
+        conn_reg: Arc<ConnectionRegistry>,
         message_router_state: Arc<Mutex<MessageRouterState>>,
     ) -> OperatorBuilder {
         OperatorBuilder {
             op_reg,
             msg_reg,
+            conn_reg,
             message_router_state,
         }
     }
@@ -77,6 +81,7 @@ impl OperatorBuilder {
                         table_func_config,
                         pipe2,
                         self.msg_reg.clone(),
+                        self.conn_reg.clone(),
                         &mut restricted_tt,
                         task_ct,
                     )?;
