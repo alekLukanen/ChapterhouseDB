@@ -1,7 +1,9 @@
 use anyhow::Result;
+use opendal::{services, Operator};
 use serde_json;
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
+use tracing::info;
 use tracing_subscriber;
 
 use chapterhouseqe::client::QueryClient;
@@ -22,17 +24,36 @@ impl MyTrait for MyStruct {
     }
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     // sql_parser_examples()
 
     // client_examples()?;
 
+    /*
     let start = std::time::Instant::now();
     downcast_example();
     let duration = start.elapsed();
     println!("Time taken: {:?}", duration);
+    */
+
+    opendal_testing().await?;
+
+    Ok(())
+}
+
+async fn opendal_testing() -> Result<()> {
+    let mut builder = services::Fs::default().root("./");
+    let op: Operator = Operator::new(builder)?.finish();
+
+    let files = op.list("./").await?;
+    for item in files {
+        info!("item: {}", item.path());
+        let stats = op.stat(item.path()).await?;
+        info!("- metadata: {:?}", stats);
+    }
 
     Ok(())
 }

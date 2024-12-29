@@ -48,20 +48,16 @@ impl OperatorBuilder {
         match &op_in.config.operator.operator_type {
             planner::OperatorType::Producer { task, .. } => match task {
                 planner::OperatorTask::TableFunc { func_name, .. } => {
-                    let bldr = if let Some(bldr) = self
-                        .op_reg
-                        .get_table_func_task_builders()
-                        .iter()
-                        .find(|item| item.implements_func_name() == *func_name)
-                    {
-                        bldr
-                    } else {
-                        return Err(OperatorBuilderError::NotImplemented(format!(
-                            "table func: {}",
-                            func_name
-                        ))
-                        .into());
-                    };
+                    let bldr =
+                        if let Some(bldr) = self.op_reg.find_table_func_task_builder(func_name) {
+                            bldr
+                        } else {
+                            return Err(OperatorBuilderError::NotImplemented(format!(
+                                "table func: {}",
+                                func_name
+                            ))
+                            .into());
+                        };
 
                     let table_func_config = TableFuncConfig::try_from(&op_in.config)?;
 

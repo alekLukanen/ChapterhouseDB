@@ -1,4 +1,5 @@
 mod builder;
+mod connection_registry;
 mod operator_task_registry;
 mod operator_task_trackers;
 mod producer_operator;

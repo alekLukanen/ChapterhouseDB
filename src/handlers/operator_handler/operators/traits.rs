@@ -22,9 +22,9 @@ pub trait TableFuncTaskBuilder: fmt::Debug + Send + Sync {
         tt: &mut RestrictedOperatorTaskTracker,
         ct: CancellationToken,
     ) -> Result<Box<dyn MessageConsumer>>;
-    fn implements_func_name(&self) -> String;
 }
 
 pub trait TableFuncSyntaxValidator: fmt::Debug + Send + Sync {
     fn valid(&self, args: &Vec<sqlparser::ast::FunctionArg>) -> bool;
+    fn implements_func_name(&self) -> String;
 }
