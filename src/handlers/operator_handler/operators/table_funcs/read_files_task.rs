@@ -2,9 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use futures::StreamExt;
-use tempdir::TempDir;
 use thiserror::Error;
-use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
@@ -154,15 +152,20 @@ impl ReadFilesTask {
             .lister_with(self.read_files_config.parse_path_prefix())
             .recursive(true)
             .await?;
-        let tmp_dir = TempDir::new("read_files")?;
+        let path_matcher =
+            globset::Glob::new(self.read_files_config.path.as_str())?.compile_matcher();
 
         loop {
             tokio::select! {
-                mut entry = lister.next() => {
+                entry = lister.next() => {
                     match entry {
                         Some(Ok(val)) => {
                             let path = val.path();
-                            let local_path = self.download_file(ct.clone(), &tmp_dir, path, &conn).await?;
+                            if !path_matcher.is_match(path) {
+                                continue;
+                            }
+                            self.read_records(ct.clone(), path, &conn).await?;
+
 
                         },
                         Some(Err(err)) => return Err(err.into()),
@@ -185,41 +188,26 @@ impl ReadFilesTask {
         Ok(())
     }
 
-    async fn download_file(
+    async fn read_records(
         &mut self,
         ct: CancellationToken,
-        tmp_dir: &TempDir,
         path: &str,
         conn: &opendal::Operator,
-    ) -> Result<std::path::PathBuf> {
-        let local_file_path = tmp_dir.path().join(format!("file_{}", self.file_idx));
-        self.file_idx += 1;
-
-        let mut local_file = tokio::fs::File::create(&local_file_path).await?;
+    ) -> Result<()> {
         let mut reader = conn
             .reader_with(path)
-            .concurrent(1)
-            .chunk(1 << 14) // 16,384 Bytes
-            .await?
-            .into_bytes_stream(0..)
+            .gap(512 * 1024)
+            .chunk(16 * 1024 * 1024)
+            .concurrent(8)
             .await?;
+        let content_len = conn.stat(path).await?.content_length();
+        let parquet_reader = parquet_opendal::AsyncReader::new(reader, content_len)
+            .with_prefetch_footer_size(512 * 1024);
+        let bldr = parquet::arrow::ParquetRecordBatchStreamBuilder::new(parquet_reader)
+            .await?
+            .with_batch_size(1024);
 
-        while let Some(chunk) = reader.next().await {
-            match chunk {
-                Ok(bytes) => {
-                    local_file.write_all(&bytes).await?;
-                }
-                Err(err) => {
-                    eprintln!("Error reading from S3: {}", err);
-                    return Err(err.into());
-                }
-            }
-            if ct.cancelled().await == () {
-                return Err(ReadFilesError::Cancelled.into());
-            }
-        }
-
-        Ok(local_file_path)
+        Ok(())
     }
 }
 
