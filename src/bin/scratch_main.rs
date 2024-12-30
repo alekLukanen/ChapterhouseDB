@@ -9,6 +9,7 @@ use tracing_subscriber;
 use chapterhouseqe::client::QueryClient;
 
 use std::any::Any;
+use tempdir::TempDir;
 
 trait MyTrait: Any {
     fn as_any(&self) -> &dyn Any;
@@ -39,7 +40,16 @@ async fn main() -> Result<()> {
     println!("Time taken: {:?}", duration);
     */
 
-    opendal_testing().await?;
+    // opendal_testing().await?;
+
+    temp_dir()?;
+
+    Ok(())
+}
+
+fn temp_dir() -> Result<()> {
+    let path2 = TempDir::new("read_files")?;
+    info!("path2: {:?}", path2);
 
     Ok(())
 }

@@ -49,15 +49,15 @@ impl ConnectionRegistry {
         });
     }
 
-    pub fn find_connection(&self, name: String) -> Option<&Connection> {
+    pub fn find_connection(&self, name: &str) -> Option<&Connection> {
         self.connections.iter().find(|item| item.name == name)
     }
 
-    pub fn get_operator(&self, name: String) -> Result<Operator> {
-        let conn = if let Some(conn) = self.find_connection(name.clone()) {
+    pub fn get_operator(&self, name: &str) -> Result<Operator> {
+        let conn = if let Some(conn) = self.find_connection(name) {
             conn
         } else {
-            return Err(ConnectionRegistryError::ConnectionNameNotFound(name.clone()).into());
+            return Err(ConnectionRegistryError::ConnectionNameNotFound(name.to_string()).into());
         };
 
         match conn.scheme {

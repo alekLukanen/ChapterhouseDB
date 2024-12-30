@@ -61,4 +61,5 @@ RUST_BACKTRACE=1 cargo run
 3. Parsing example: http://craftinginterpreters.com/parsing-expressions.html
 4. Rayon and Tokio methods for blocking code: https://ryhl.io/blog/async-what-is-blocking/
 5. Globset crate: https://docs.rs/globset/latest/globset/
+6. Arrow IPC format: https://arrow.apache.org/docs/format/Columnar.html#serialization-and-interprocess-communication-ipc
 
