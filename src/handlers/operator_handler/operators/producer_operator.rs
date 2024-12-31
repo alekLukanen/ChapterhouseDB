@@ -78,7 +78,11 @@ impl ProducerOperator {
         RestrictedOperatorTaskTracker::new(&self.tt, 1)
     }
 
-    pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
+    pub async fn async_main(
+        &mut self,
+        ct: CancellationToken,
+        task_fut: tokio::task::JoinHandle<()>,
+    ) -> Result<()> {
         self.message_router_state
             .lock()
             .await
@@ -92,6 +96,10 @@ impl ProducerOperator {
 
         loop {
             tokio::select! {
+                _ = task_fut => {
+                    info!("task future terminated");
+                    break;
+                }
                 _ = ct.cancelled() => {
                     break;
                 }

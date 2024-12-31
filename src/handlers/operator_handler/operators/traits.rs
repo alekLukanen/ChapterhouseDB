@@ -25,10 +25,10 @@ pub trait TableFuncTaskBuilder: fmt::Debug + Send + Sync {
         conn_reg: Arc<ConnectionRegistry>,
         tt: &mut RestrictedOperatorTaskTracker,
         ct: CancellationToken,
-    ) -> Result<Box<dyn MessageConsumer>>;
+    ) -> Result<(tokio::task::JoinHandle<()>, Box<dyn MessageConsumer>)>;
 }
 
 pub trait TableFuncSyntaxValidator: fmt::Debug + Send + Sync {
-    fn valid(&self, args: &Vec<sqlparser::ast::FunctionArg>) -> bool;
+    fn valid(&self, config: &TableFuncConfig) -> bool;
     fn implements_func_name(&self) -> String;
 }

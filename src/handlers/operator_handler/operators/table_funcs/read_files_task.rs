@@ -41,8 +41,8 @@ impl ReadFilesSyntaxValidator {
 }
 
 impl TableFuncSyntaxValidator for ReadFilesSyntaxValidator {
-    fn valid(&self, args: &Vec<sqlparser::ast::FunctionArg>) -> bool {
-        match ReadFilesConfig::parse_config(args) {
+    fn valid(&self, config: &TableFuncConfig) -> bool {
+        match ReadFilesConfig::parse_config(config) {
             Ok(_) => true,
             Err(_) => false,
         }
@@ -56,16 +56,18 @@ impl TableFuncSyntaxValidator for ReadFilesSyntaxValidator {
 pub struct ReadFilesConfig {
     path: String,
     connection: Option<String>,
+    max_rows_per_batch: usize,
 }
 
 impl ReadFilesConfig {
-    fn parse_config(args: &Vec<sqlparser::ast::FunctionArg>) -> Result<ReadFilesConfig> {
-        if args.len() > 2 {
-            return Err(
-                ReadFilesConfigError::NumberOfArgumentsGreaterThanExpected(args.len()).into(),
-            );
+    fn parse_config(config: &TableFuncConfig) -> Result<ReadFilesConfig> {
+        if config.args.len() > 2 {
+            return Err(ReadFilesConfigError::NumberOfArgumentsGreaterThanExpected(
+                config.args.len(),
+            )
+            .into());
         }
-        let path = match args.get(0) {
+        let path = match config.args.get(0) {
             Some(sqlparser::ast::FunctionArg::Unnamed(sqlparser::ast::FunctionArgExpr::Expr(
                 sqlparser::ast::Expr::Value(sqlparser::ast::Value::SingleQuotedString(val)),
             ))) => val,
@@ -74,7 +76,7 @@ impl ReadFilesConfig {
             }
         }
         .clone();
-        let connection = match args.get(1) {
+        let connection = match config.args.get(1) {
             Some(sqlparser::ast::FunctionArg::Named {
                 name:
                     sqlparser::ast::Ident {
@@ -93,7 +95,11 @@ impl ReadFilesConfig {
             }
         };
 
-        Ok(ReadFilesConfig { path, connection })
+        Ok(ReadFilesConfig {
+            path,
+            connection,
+            max_rows_per_batch: config.max_rows_per_batch,
+        })
     }
 
     fn parse_path_prefix(&self) -> &str {
@@ -164,9 +170,8 @@ impl ReadFilesTask {
                             if !path_matcher.is_match(path) {
                                 continue;
                             }
+
                             self.read_records(ct.clone(), path, &conn).await?;
-
-
                         },
                         Some(Err(err)) => return Err(err.into()),
                         None => {
@@ -194,18 +199,31 @@ impl ReadFilesTask {
         path: &str,
         conn: &opendal::Operator,
     ) -> Result<()> {
-        let mut reader = conn
+        let reader = conn
             .reader_with(path)
             .gap(512 * 1024)
             .chunk(16 * 1024 * 1024)
-            .concurrent(8)
+            .concurrent(4)
             .await?;
         let content_len = conn.stat(path).await?.content_length();
         let parquet_reader = parquet_opendal::AsyncReader::new(reader, content_len)
             .with_prefetch_footer_size(512 * 1024);
-        let bldr = parquet::arrow::ParquetRecordBatchStreamBuilder::new(parquet_reader)
+        let mut bldr = parquet::arrow::ParquetRecordBatchStreamBuilder::new(parquet_reader)
             .await?
-            .with_batch_size(1024);
+            .with_batch_size(5_000)
+            .build()?;
+
+        while let Some(record_res) = bldr.next().await {
+            if ct.cancelled().await == () {
+                return Err(ReadFilesError::Cancelled.into());
+            }
+            match record_res {
+                Ok(record) => info!("record: {:?}", record),
+                Err(err) => {
+                    return Err(err.into());
+                }
+            }
+        }
 
         Ok(())
     }
@@ -233,8 +251,8 @@ impl TableFuncTaskBuilder for ReadFilesTaskBuilder {
         conn_reg: Arc<ConnectionRegistry>,
         tt: &mut RestrictedOperatorTaskTracker,
         ct: CancellationToken,
-    ) -> Result<Box<dyn MessageConsumer>> {
-        let read_files_config = ReadFilesConfig::parse_config(&table_func_config.args)?;
+    ) -> Result<(tokio::task::JoinHandle<()>, Box<dyn MessageConsumer>)> {
+        let read_files_config = ReadFilesConfig::parse_config(&table_func_config)?;
         let mut op = ReadFilesTask::new(
             op_in_config,
             read_files_config,
@@ -245,13 +263,13 @@ impl TableFuncTaskBuilder for ReadFilesTaskBuilder {
 
         let consumer = op.subscriber();
 
-        tt.spawn(async move {
+        let task_fut = tt.spawn(async move {
             if let Err(err) = op.async_main(ct).await {
                 info!("error: {:?}", err);
             }
         })?;
 
-        Ok(consumer)
+        Ok((task_fut, consumer))
     }
 }
 
