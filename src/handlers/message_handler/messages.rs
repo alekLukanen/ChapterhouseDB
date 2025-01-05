@@ -466,6 +466,7 @@ pub enum MessageName {
     RunQueryResp,
     OperatorInstanceAvailable,
     OperatorInstanceAssignment,
+    StoreRecordBatch,
 }
 
 impl MessageName {
@@ -477,6 +478,7 @@ impl MessageName {
             Self::RunQueryResp => "run_query_resp",
             Self::OperatorInstanceAvailable => "operator_instance_available",
             Self::OperatorInstanceAssignment => "operator_instance_assignment",
+            Self::StoreRecordBatch => "store_record_batch",
         }
     }
     pub fn as_u16(&self) -> u16 {
@@ -487,6 +489,7 @@ impl MessageName {
             Self::RunQueryResp => 3,
             Self::OperatorInstanceAvailable => 4,
             Self::OperatorInstanceAssignment => 5,
+            Self::StoreRecordBatch => 6,
         }
     }
 }
@@ -554,19 +557,9 @@ impl MessageParser for IdentifyParser {
 //
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Ping {
-    msg: String,
-}
-
-impl Ping {
-    pub fn new(msg: String) -> Ping {
-        Ping { msg }
-    }
-
-    pub fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
-        let ping_msg: Ping = serde_json::from_slice(data)?;
-        Ok(Box::new(ping_msg))
-    }
+pub enum Ping {
+    Ping,
+    Pong,
 }
 
 impl SendableMessage for Ping {
@@ -598,8 +591,11 @@ impl PingParser {
 
 impl MessageParser for PingParser {
     fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
-        let msg = Ping::build_msg(&ser_msg.msg_data)?;
-        Ok(Message::build_from_serialized_message(ser_msg, msg))
+        let msg: Ping = serde_json::from_slice(&ser_msg.msg_data)?;
+        Ok(Message::build_from_serialized_message(
+            ser_msg,
+            Box::new(msg),
+        ))
     }
     fn msg_name(&self) -> MessageName {
         MessageName::Ping
@@ -851,5 +847,60 @@ impl MessageParser for OperatorInstanceAssignmentParser {
     }
     fn msg_name(&self) -> MessageName {
         MessageName::OperatorInstanceAssignment
+    }
+}
+
+////////////////////////////////////////////////////////////
+//
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum StoreRecordBatch {
+    RequestSendRecord {
+        record_id: u64,
+        record_data: Vec<u8>,
+        table_aliases: Vec<Vec<String>>, // [["tableName", "tableAlias"], ...]
+    },
+    ResponseReceivedRecord {
+        record_id: u64,
+    },
+}
+
+impl SendableMessage for StoreRecordBatch {
+    fn to_bytes(&self) -> Result<Vec<u8>> {
+        Ok(serde_json::to_vec(self)?)
+    }
+    fn msg_name(&self) -> MessageName {
+        MessageName::StoreRecordBatch
+    }
+    fn clone_box(&self) -> Box<dyn SendableMessage> {
+        Box::new(self.clone())
+    }
+    fn as_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StoreRecordBatchParser {}
+
+impl StoreRecordBatchParser {
+    pub fn new() -> StoreRecordBatchParser {
+        StoreRecordBatchParser {}
+    }
+}
+
+impl MessageParser for StoreRecordBatchParser {
+    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
+        let msg: StoreRecordBatch = serde_json::from_slice(&ser_msg.msg_data)?;
+        Ok(Message::build_from_serialized_message(
+            ser_msg,
+            Box::new(msg),
+        ))
+    }
+    fn msg_name(&self) -> MessageName {
+        MessageName::StoreRecordBatch
     }
 }

@@ -32,7 +32,7 @@ impl QueryClient {
 
         for _ in 0..count {
             info!("sending a message...");
-            let ping = self.new_msg(Box::new(Ping::new("Hello".to_string())));
+            let ping = self.new_msg(Box::new(Ping::Ping));
             let ping_data = ping.to_bytes()?;
 
             info!("ping_data.len(): {}", ping_data.len());

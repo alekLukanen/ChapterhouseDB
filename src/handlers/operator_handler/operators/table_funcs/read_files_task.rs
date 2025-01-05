@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use futures::StreamExt;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-use crate::handlers::message_handler::{Message, MessageRegistry, Pipe};
+use crate::handlers::message_handler::{Message, MessageRegistry, Ping, Pipe, StoreRecordBatch};
 use crate::handlers::message_router_handler::MessageConsumer;
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
 use crate::handlers::operator_handler::operators::operator_task_trackers::RestrictedOperatorTaskTracker;
@@ -21,6 +21,12 @@ use super::config::TableFuncConfig;
 pub enum ReadFilesError {
     #[error("cancelled")]
     Cancelled,
+    #[error("worker id not provided on Ping::Pong message")]
+    WorkerIdNotProvidedOnPingPongMessage,
+    #[error("received the wrong record id: {0}")]
+    ReceivedTheWrongRecordId(u64),
+    #[error("received the wrong message type")]
+    ReceivedTheWrongMessageType,
 }
 
 #[derive(Debug, Error)]
@@ -121,7 +127,8 @@ pub struct ReadFilesTask {
     msg_reg: Arc<MessageRegistry>,
     conn_reg: Arc<ConnectionRegistry>,
 
-    file_idx: usize,
+    exchange_worker_id: Option<u128>,
+    record_id: u64,
 }
 
 impl ReadFilesTask {
@@ -138,7 +145,8 @@ impl ReadFilesTask {
             operator_pipe,
             msg_reg,
             conn_reg,
-            file_idx: 0,
+            exchange_worker_id: None,
+            record_id: 0,
         }
     }
 
@@ -210,7 +218,7 @@ impl ReadFilesTask {
             .with_prefetch_footer_size(512 * 1024);
         let mut bldr = parquet::arrow::ParquetRecordBatchStreamBuilder::new(parquet_reader)
             .await?
-            .with_batch_size(5_000)
+            .with_batch_size(self.read_files_config.max_rows_per_batch)
             .build()?;
 
         while let Some(record_res) = bldr.next().await {
@@ -218,7 +226,12 @@ impl ReadFilesTask {
                 return Err(ReadFilesError::Cancelled.into());
             }
             match record_res {
-                Ok(record) => info!("record: {:?}", record),
+                Ok(record) => {
+                    info!("read record");
+                    self.send_record(record)
+                        .await
+                        .context("unable to send record to the exchange")?;
+                }
                 Err(err) => {
                     return Err(err.into());
                 }
@@ -226,6 +239,61 @@ impl ReadFilesTask {
         }
 
         Ok(())
+    }
+
+    async fn send_record(&mut self, record: arrow::array::RecordBatch) -> Result<()> {
+        if self.exchange_worker_id == None {
+            // find the work with the exchange
+            let ping_msg = Message::new(Box::new(Ping::Ping));
+            self.operator_pipe.send(ping_msg).await?;
+
+            let resp_msg = self.operator_pipe.recv().await;
+            if let Some(resp_msg) = resp_msg {
+                match resp_msg.sent_from_worker_id {
+                    Some(sent_from_worker_id) => {
+                        self.exchange_worker_id = Some(sent_from_worker_id);
+                    }
+                    None => return Err(ReadFilesError::WorkerIdNotProvidedOnPingPongMessage.into()),
+                }
+            }
+        }
+
+        assert!(self.exchange_worker_id.is_some());
+
+        let msg_record_id = self.next_record_id();
+        let record_msg = Message::new(Box::new(StoreRecordBatch::RequestSendRecord {
+            record_id: msg_record_id,
+            record_data: Vec::new(),
+            table_aliases: Vec::new(),
+        }))
+        .set_route_to_worker_id(self.exchange_worker_id.unwrap());
+
+        self.operator_pipe.send(record_msg).await?;
+
+        let resp_msg = self.operator_pipe.recv().await;
+        if let Some(resp_msg) = resp_msg {
+            let resp_msg: &StoreRecordBatch = self.msg_reg.try_cast_msg(&resp_msg)?;
+            match resp_msg {
+                StoreRecordBatch::ResponseReceivedRecord { record_id } => {
+                    if *record_id != msg_record_id {
+                        return Err(
+                            ReadFilesError::ReceivedTheWrongRecordId(record_id.clone()).into()
+                        );
+                    }
+                }
+                _ => {
+                    return Err(ReadFilesError::ReceivedTheWrongMessageType.into());
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn next_record_id(&mut self) -> u64 {
+        let record_id = self.record_id;
+        self.record_id += 1;
+        record_id
     }
 }
 

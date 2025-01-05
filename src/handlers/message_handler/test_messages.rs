@@ -7,7 +7,7 @@ use super::messages::{Message, Ping, SerializedMessage};
 fn test_serialize_and_parse() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let msg = Message::new(Box::new(Ping::new("Hello!".to_string())));
+    let msg = Message::new(Box::new(Ping::Ping));
 
     let ser_msg = SerializedMessage::new(&msg)?;
     let msg_data = msg.to_bytes()?;
