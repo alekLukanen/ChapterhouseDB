@@ -81,7 +81,7 @@ impl ProducerOperator {
     pub async fn async_main(
         &mut self,
         ct: CancellationToken,
-        task_fut: tokio::task::JoinHandle<()>,
+        mut task_res: tokio::sync::oneshot::Receiver<()>,
     ) -> Result<()> {
         self.message_router_state
             .lock()
@@ -96,7 +96,16 @@ impl ProducerOperator {
 
         loop {
             tokio::select! {
-                _ = task_fut => {
+                Some(msg) = self.task_pipe.recv() => {
+                    if let Some(task_msg_consumer) = &self.task_msg_consumer {
+                        if task_msg_consumer.consumes_message(&msg) {
+                            self.task_pipe.send(msg).await?;
+                        }
+                    } else {
+                        self.task_pipe.send(msg).await?;
+                    }
+                }
+                _ = &mut task_res => {
                     info!("task future terminated");
                     break;
                 }

@@ -6,7 +6,9 @@ use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-use crate::handlers::message_handler::{Message, MessageRegistry, Ping, Pipe, StoreRecordBatch};
+use crate::handlers::message_handler::{
+    Message, MessageName, MessageRegistry, Ping, Pipe, StoreRecordBatch,
+};
 use crate::handlers::message_router_handler::MessageConsumer;
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
 use crate::handlers::operator_handler::operators::operator_task_trackers::RestrictedOperatorTaskTracker;
@@ -319,7 +321,7 @@ impl TableFuncTaskBuilder for ReadFilesTaskBuilder {
         conn_reg: Arc<ConnectionRegistry>,
         tt: &mut RestrictedOperatorTaskTracker,
         ct: CancellationToken,
-    ) -> Result<(tokio::task::JoinHandle<()>, Box<dyn MessageConsumer>)> {
+    ) -> Result<(tokio::sync::oneshot::Receiver<()>, Box<dyn MessageConsumer>)> {
         let read_files_config = ReadFilesConfig::parse_config(&table_func_config)?;
         let mut op = ReadFilesTask::new(
             op_in_config,
@@ -331,13 +333,15 @@ impl TableFuncTaskBuilder for ReadFilesTaskBuilder {
 
         let consumer = op.subscriber();
 
-        let task_fut = tt.spawn(async move {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tt.spawn(async move {
             if let Err(err) = op.async_main(ct).await {
                 info!("error: {:?}", err);
             }
+            tx.send(());
         })?;
 
-        Ok((task_fut, consumer))
+        Ok((rx, consumer))
     }
 }
 
@@ -351,6 +355,14 @@ pub struct ReadFilesConsumer {
 
 impl MessageConsumer for ReadFilesConsumer {
     fn consumes_message(&self, msg: &crate::handlers::message_handler::Message) -> bool {
-        true
+        match msg.msg.msg_name() {
+            MessageName::OperatorInstanceAvailable => {
+                match self.msg_reg.try_cast_msg::<StoreRecordBatch>(msg) {
+                    Ok(StoreRecordBatch::ResponseReceivedRecord { .. }) => true,
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
     }
 }

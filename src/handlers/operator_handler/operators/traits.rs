@@ -25,7 +25,7 @@ pub trait TableFuncTaskBuilder: fmt::Debug + Send + Sync {
         conn_reg: Arc<ConnectionRegistry>,
         tt: &mut RestrictedOperatorTaskTracker,
         ct: CancellationToken,
-    ) -> Result<(tokio::task::JoinHandle<()>, Box<dyn MessageConsumer>)>;
+    ) -> Result<(tokio::sync::oneshot::Receiver<()>, Box<dyn MessageConsumer>)>;
 }
 
 pub trait TableFuncSyntaxValidator: fmt::Debug + Send + Sync {

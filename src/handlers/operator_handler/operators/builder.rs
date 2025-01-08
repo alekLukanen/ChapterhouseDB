@@ -76,7 +76,7 @@ impl OperatorBuilder {
 
                     let mut restricted_tt = producer_operator.restricted_tt();
                     let task_ct = producer_operator.get_task_ct();
-                    let (task_fut, msg_consumer) = bldr.build(
+                    let (oneshot_res, msg_consumer) = bldr.build(
                         op_in.config.clone(),
                         table_func_config,
                         pipe2,
@@ -89,7 +89,7 @@ impl OperatorBuilder {
                     producer_operator = producer_operator.set_task_msg_consumer(msg_consumer);
                     let ct = op_in.ct.clone();
                     tt.spawn(async move {
-                        if let Err(err) = producer_operator.async_main(ct, task_fut).await {
+                        if let Err(err) = producer_operator.async_main(ct, oneshot_res).await {
                             info!("error: {}", err);
                         }
                     });
