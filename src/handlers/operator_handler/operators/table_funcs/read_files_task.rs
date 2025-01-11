@@ -265,7 +265,7 @@ impl ReadFilesTask {
         let msg_record_id = self.next_record_id();
         let record_msg = Message::new(Box::new(StoreRecordBatch::RequestSendRecord {
             record_id: msg_record_id,
-            record_data: Vec::new(),
+            record,
             table_aliases: Vec::new(),
         }))
         .set_route_to_worker_id(self.exchange_worker_id.unwrap());
@@ -338,7 +338,9 @@ impl TableFuncTaskBuilder for ReadFilesTaskBuilder {
             if let Err(err) = op.async_main(ct).await {
                 info!("error: {:?}", err);
             }
-            tx.send(());
+            if let Err(err) = tx.send(()) {
+                info!("error: {:?}", err);
+            }
         })?;
 
         Ok((rx, consumer))
