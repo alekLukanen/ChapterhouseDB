@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use crate::handlers::message_handler::{
-    Message, MessageName, MessageRegistry, Ping, Pipe, StoreRecordBatch,
+    Message, MessageName, MessageRegistry, Pipe, QueryHandlerRequests, StoreRecordBatch,
 };
 use crate::handlers::message_router_handler::MessageConsumer;
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
@@ -23,12 +23,18 @@ use super::config::TableFuncConfig;
 pub enum ReadFilesError {
     #[error("cancelled")]
     Cancelled,
-    #[error("worker id not provided on Ping::Pong message")]
-    WorkerIdNotProvidedOnPingPongMessage,
+    #[error("operator type not implemented: {0}")]
+    OperatorTypeNotImplemented(String),
     #[error("received the wrong record id: {0}")]
     ReceivedTheWrongRecordId(u64),
     #[error("received the wrong message type")]
     ReceivedTheWrongMessageType,
+    #[error("received none message")]
+    ReceivedNoneMessage,
+    #[error("received no operator instances for the exchange")]
+    ReceivedNoOperatorInstancesForTheExchange,
+    #[error("received multiple operator instances for the exchange")]
+    ReceivedMultipleOperatorInstancesForTheExchange,
 }
 
 #[derive(Debug, Error)]
@@ -245,17 +251,56 @@ impl ReadFilesTask {
 
     async fn send_record(&mut self, record: arrow::array::RecordBatch) -> Result<()> {
         if self.exchange_worker_id == None {
-            // find the work with the exchange
-            let ping_msg = Message::new(Box::new(Ping::Ping));
+            // find the worker with the exchange
+            let exchange_id = match &self.operator_instance_config.operator.operator_type {
+                crate::planner::OperatorType::Producer {
+                    outbound_exchange_id,
+                    ..
+                } => outbound_exchange_id.clone(),
+                crate::planner::OperatorType::Exchange { .. } => {
+                    return Err(ReadFilesError::OperatorTypeNotImplemented(format!(
+                        "{:?}",
+                        self.operator_instance_config.operator.operator_type
+                    ))
+                    .into());
+                }
+            };
+            let ping_msg = Message::new(Box::new(
+                QueryHandlerRequests::ListOperatorInstancesRequest {
+                    query_id: self.operator_instance_config.query_id,
+                    operator_id: exchange_id,
+                },
+            ));
             self.operator_pipe.send(ping_msg).await?;
 
             let resp_msg = self.operator_pipe.recv().await;
-            if let Some(resp_msg) = resp_msg {
-                match resp_msg.sent_from_worker_id {
-                    Some(sent_from_worker_id) => {
-                        self.exchange_worker_id = Some(sent_from_worker_id);
+            match resp_msg {
+                Some(resp_msg) => {
+                    let resp_msg: &QueryHandlerRequests = self.msg_reg.try_cast_msg(&resp_msg)?;
+                    match resp_msg {
+                        QueryHandlerRequests::ListOperatorInstancesResponse { op_instance_ids } => {
+                            if op_instance_ids.len() == 1 {
+                                self.exchange_worker_id =
+                                    Some(op_instance_ids.get(0).unwrap().clone());
+                            } else if op_instance_ids.len() == 0 {
+                                return Err(
+                                    ReadFilesError::ReceivedNoOperatorInstancesForTheExchange
+                                        .into(),
+                                );
+                            } else {
+                                return Err(
+                                    ReadFilesError::ReceivedMultipleOperatorInstancesForTheExchange
+                                        .into(),
+                                );
+                            }
+                        }
+                        _ => {
+                            return Err(ReadFilesError::ReceivedTheWrongMessageType.into());
+                        }
                     }
-                    None => return Err(ReadFilesError::WorkerIdNotProvidedOnPingPongMessage.into()),
+                }
+                None => {
+                    return Err(ReadFilesError::ReceivedNoneMessage.into());
                 }
             }
         }
