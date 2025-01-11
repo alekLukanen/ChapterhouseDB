@@ -158,6 +158,21 @@ impl QueryHandlerState {
         Ok(op_in.clone())
     }
 
+    pub fn get_operator_instances(
+        &self,
+        query_id: u128,
+        op_id: String,
+    ) -> Result<Vec<OperatorInstance>> {
+        let query = self.find_query(query_id)?;
+        let op_instances: Vec<OperatorInstance> = query
+            .operator_instances
+            .iter()
+            .filter(|item| item.operator_id == op_id)
+            .map(|item| item.clone())
+            .collect();
+        Ok(op_instances)
+    }
+
     pub fn update_operator_instance_status(
         &mut self,
         query_id: u128,

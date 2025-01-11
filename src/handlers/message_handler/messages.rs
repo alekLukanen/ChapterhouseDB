@@ -467,6 +467,7 @@ pub enum MessageName {
     OperatorInstanceAvailable,
     OperatorInstanceAssignment,
     StoreRecordBatch,
+    QueryHandlerRequests,
 }
 
 impl MessageName {
@@ -479,6 +480,7 @@ impl MessageName {
             Self::OperatorInstanceAvailable => "operator_instance_available",
             Self::OperatorInstanceAssignment => "operator_instance_assignment",
             Self::StoreRecordBatch => "store_record_batch",
+            Self::QueryHandlerRequests => "query_handler_requests",
         }
     }
     pub fn as_u16(&self) -> u16 {
@@ -490,6 +492,7 @@ impl MessageName {
             Self::OperatorInstanceAvailable => 4,
             Self::OperatorInstanceAssignment => 5,
             Self::StoreRecordBatch => 6,
+            Self::QueryHandlerRequests => 7,
         }
     }
 }
@@ -847,6 +850,54 @@ impl MessageParser for OperatorInstanceAssignmentParser {
     }
     fn msg_name(&self) -> MessageName {
         MessageName::OperatorInstanceAssignment
+    }
+}
+////////////////////////////////////////////////////////////
+//
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum QueryHandlerRequests {
+    ListOperatorInstancesRequest { query_id: u128, operator_id: String },
+    ListOperatorInstancesResponse { op_instance_ids: Vec<u128> },
+}
+
+impl SendableMessage for QueryHandlerRequests {
+    fn to_bytes(&self) -> Result<Vec<u8>> {
+        Ok(serde_json::to_vec(self)?)
+    }
+    fn msg_name(&self) -> MessageName {
+        MessageName::QueryHandlerRequests
+    }
+    fn clone_box(&self) -> Box<dyn SendableMessage> {
+        Box::new(self.clone())
+    }
+    fn as_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct QueryHandlerRequestsParser {}
+
+impl QueryHandlerRequestsParser {
+    pub fn new() -> QueryHandlerRequestsParser {
+        QueryHandlerRequestsParser {}
+    }
+}
+
+impl MessageParser for QueryHandlerRequestsParser {
+    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
+        let msg: QueryHandlerRequests = serde_json::from_slice(&ser_msg.msg_data)?;
+        Ok(Message::build_from_serialized_message(
+            ser_msg,
+            Box::new(msg),
+        ))
+    }
+    fn msg_name(&self) -> MessageName {
+        MessageName::QueryHandlerRequests
     }
 }
 

@@ -1,5 +1,12 @@
 use anyhow::Result;
+use thiserror::Error;
 use tokio::sync::mpsc;
+
+#[derive(Debug, Error)]
+pub enum PipeError {
+    #[error("timed out waiting for message to send")]
+    TimedOutWaitingForMessageToSend,
+}
 
 #[derive(Debug)]
 pub struct Pipe<T> {
@@ -49,7 +56,12 @@ where
     }
 
     pub async fn send(&self, msg: T) -> Result<()> {
-        self.sender.send(msg).await?;
+        tokio::select! {
+            _ = self.sender.send(msg) => {},
+            _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
+                return Err(PipeError::TimedOutWaitingForMessageToSend.into());
+            }
+        }
         Ok(())
     }
 

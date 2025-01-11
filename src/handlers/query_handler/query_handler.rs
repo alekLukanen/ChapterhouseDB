@@ -9,7 +9,7 @@ use tracing::info;
 use super::query_handler_state::{self, QueryHandlerState, Status};
 use crate::handlers::message_handler::{
     Message, MessageName, MessageRegistry, OperatorInstanceAssignment, OperatorInstanceAvailable,
-    Pipe, RunQuery, RunQueryResp,
+    Pipe, QueryHandlerRequests, RunQuery, RunQueryResp,
 };
 use crate::handlers::message_router_handler::{
     MessageConsumer, MessageReceiver, MessageRouterState, Subscriber,
@@ -94,11 +94,46 @@ impl QueryHandler {
                 .handle_operator_instance_assignment_responses(&msg)
                 .await
                 .context("failed handling the operator instance assignment response messages")?,
+            MessageName::QueryHandlerRequests => self
+                .handle_query_handler_request_list_operator_instances(&msg)
+                .await
+                .context("failed handling the query handler request")?,
             _ => {
                 info!("unknown message received: {:?}", msg);
             }
         }
         Ok(())
+    }
+
+    async fn handle_query_handler_request_list_operator_instances(
+        &mut self,
+        msg: &Message,
+    ) -> Result<()> {
+        let list_operator_instances_request: &QueryHandlerRequests =
+            self.msg_reg.try_cast_msg(msg)?;
+        match list_operator_instances_request {
+            QueryHandlerRequests::ListOperatorInstancesRequest {
+                query_id,
+                operator_id,
+            } => {
+                let op_instances = self
+                    .state
+                    .get_operator_instances(query_id.clone(), operator_id.clone())?;
+                let resp_msg = msg.reply(Box::new(
+                    QueryHandlerRequests::ListOperatorInstancesResponse {
+                        op_instance_ids: op_instances.iter().map(|item| item.id).collect(),
+                    },
+                ));
+                self.router_pipe.send(resp_msg).await?;
+
+                Ok(())
+            }
+            _ => Err(QueryHandlerError::IncorrectMessage(format!(
+                "{:?}",
+                list_operator_instances_request
+            ))
+            .into()),
+        }
     }
 
     async fn handle_operator_instance_assignment_responses(&mut self, msg: &Message) -> Result<()> {
@@ -252,6 +287,13 @@ impl MessageConsumer for QueryHandlerSubscriber {
                     Ok(OperatorInstanceAssignment::AssignAcceptedResponse { .. }) => true,
                     Ok(OperatorInstanceAssignment::AssignRejectedResponse { .. }) => true,
                     _ => false,
+                }
+            }
+            MessageName::QueryHandlerRequests => {
+                match self.msg_reg.try_cast_msg::<QueryHandlerRequests>(msg) {
+                    Ok(QueryHandlerRequests::ListOperatorInstancesRequest { .. }) => true,
+                    Ok(QueryHandlerRequests::ListOperatorInstancesResponse { .. }) => false,
+                    Err(_) => false,
                 }
             }
             _ => false,
