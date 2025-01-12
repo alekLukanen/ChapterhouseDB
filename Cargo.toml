@@ -38,4 +38,5 @@ globset = { version = "0.4" }
 parquet = { version = "53.0", features = ["async"] }
 arrow = { version = "53.0" }
 parquet_opendal = { version = "0.2" }
+rand = { version = "0.8" }
 
