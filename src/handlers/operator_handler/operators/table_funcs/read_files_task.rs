@@ -35,6 +35,8 @@ pub enum ReadFilesError {
     ReceivedNoOperatorInstancesForTheExchange,
     #[error("received multiple operator instances for the exchange")]
     ReceivedMultipleOperatorInstancesForTheExchange,
+    #[error("not implemented: {0}")]
+    NotImplemented(String),
 }
 
 #[derive(Debug, Error)]
@@ -136,6 +138,7 @@ pub struct ReadFilesTask {
     conn_reg: Arc<ConnectionRegistry>,
 
     exchange_worker_id: Option<u128>,
+    exchange_operator_instance_id: Option<u128>,
     record_id: u64,
 }
 
@@ -154,6 +157,7 @@ impl ReadFilesTask {
             msg_reg,
             conn_reg,
             exchange_worker_id: None,
+            exchange_operator_instance_id: None,
             record_id: 0,
         }
     }
@@ -251,58 +255,7 @@ impl ReadFilesTask {
 
     async fn send_record(&mut self, record: arrow::array::RecordBatch) -> Result<()> {
         if self.exchange_worker_id == None {
-            // find the worker with the exchange
-            let exchange_id = match &self.operator_instance_config.operator.operator_type {
-                crate::planner::OperatorType::Producer {
-                    outbound_exchange_id,
-                    ..
-                } => outbound_exchange_id.clone(),
-                crate::planner::OperatorType::Exchange { .. } => {
-                    return Err(ReadFilesError::OperatorTypeNotImplemented(format!(
-                        "{:?}",
-                        self.operator_instance_config.operator.operator_type
-                    ))
-                    .into());
-                }
-            };
-            let ping_msg = Message::new(Box::new(
-                QueryHandlerRequests::ListOperatorInstancesRequest {
-                    query_id: self.operator_instance_config.query_id,
-                    operator_id: exchange_id,
-                },
-            ));
-            self.operator_pipe.send(ping_msg).await?;
-
-            let resp_msg = self.operator_pipe.recv().await;
-            match resp_msg {
-                Some(resp_msg) => {
-                    let resp_msg: &QueryHandlerRequests = self.msg_reg.try_cast_msg(&resp_msg)?;
-                    match resp_msg {
-                        QueryHandlerRequests::ListOperatorInstancesResponse { op_instance_ids } => {
-                            if op_instance_ids.len() == 1 {
-                                self.exchange_worker_id =
-                                    Some(op_instance_ids.get(0).unwrap().clone());
-                            } else if op_instance_ids.len() == 0 {
-                                return Err(
-                                    ReadFilesError::ReceivedNoOperatorInstancesForTheExchange
-                                        .into(),
-                                );
-                            } else {
-                                return Err(
-                                    ReadFilesError::ReceivedMultipleOperatorInstancesForTheExchange
-                                        .into(),
-                                );
-                            }
-                        }
-                        _ => {
-                            return Err(ReadFilesError::ReceivedTheWrongMessageType.into());
-                        }
-                    }
-                }
-                None => {
-                    return Err(ReadFilesError::ReceivedNoneMessage.into());
-                }
-            }
+            self.identify_exchange().await?;
         }
 
         assert!(self.exchange_worker_id.is_some());
@@ -335,6 +288,99 @@ impl ReadFilesTask {
         }
 
         Ok(())
+    }
+
+    async fn identify_exchange(&mut self) -> Result<()> {
+        self.exchange_operator_instance_id =
+            Some(self.get_exchange_operator_instance_id_with_retry(2).await?);
+        self.exchange_worker_id = Some(self.get_exchange_worker_id_with_retry(2).await?);
+        Ok(())
+    }
+
+    async fn get_exchange_worker_id_with_retry(&mut self, num_retries: u8) -> Result<u128> {
+        Ok(0)
+    }
+
+    async fn get_exchange_worker_id(&mut self) -> Result<u128> {
+        Ok(0)
+    }
+
+    async fn get_exchange_operator_instance_id_with_retry(
+        &mut self,
+        num_retries: u8,
+    ) -> Result<u128> {
+        for retry_idx in 0..(num_retries + 1) {
+            let res = self.get_exchange_operator_instance_id().await;
+            match res {
+                Ok(val) => {
+                    return Ok(val);
+                }
+                Err(err) => {
+                    if retry_idx == num_retries {
+                        return Err(err.context("failed to get the exchange operator instance id"));
+                    } else {
+                        continue;
+                    }
+                }
+            }
+        }
+        Err(ReadFilesError::NotImplemented(
+            "unable to get the operator instance id but failed to provide error".to_string(),
+        )
+        .into())
+    }
+
+    async fn get_exchange_operator_instance_id(&mut self) -> Result<u128> {
+        // find the worker with the exchange
+        let exchange_id = match &self.operator_instance_config.operator.operator_type {
+            crate::planner::OperatorType::Producer {
+                outbound_exchange_id,
+                ..
+            } => outbound_exchange_id.clone(),
+            crate::planner::OperatorType::Exchange { .. } => {
+                return Err(ReadFilesError::OperatorTypeNotImplemented(format!(
+                    "{:?}",
+                    self.operator_instance_config.operator.operator_type
+                ))
+                .into());
+            }
+        };
+        let ping_msg = Message::new(Box::new(
+            QueryHandlerRequests::ListOperatorInstancesRequest {
+                query_id: self.operator_instance_config.query_id,
+                operator_id: exchange_id,
+            },
+        ));
+        self.operator_pipe.send(ping_msg).await?;
+
+        let resp_msg = self.operator_pipe.recv().await;
+        match resp_msg {
+            Some(resp_msg) => {
+                let resp_msg: &QueryHandlerRequests = self.msg_reg.try_cast_msg(&resp_msg)?;
+                match resp_msg {
+                    QueryHandlerRequests::ListOperatorInstancesResponse { op_instance_ids } => {
+                        if op_instance_ids.len() == 1 {
+                            Ok(op_instance_ids.get(0).unwrap().clone())
+                        } else if op_instance_ids.len() == 0 {
+                            return Err(
+                                ReadFilesError::ReceivedNoOperatorInstancesForTheExchange.into()
+                            );
+                        } else {
+                            return Err(
+                                ReadFilesError::ReceivedMultipleOperatorInstancesForTheExchange
+                                    .into(),
+                            );
+                        }
+                    }
+                    _ => {
+                        return Err(ReadFilesError::ReceivedTheWrongMessageType.into());
+                    }
+                }
+            }
+            None => {
+                return Err(ReadFilesError::ReceivedNoneMessage.into());
+            }
+        }
     }
 
     fn next_record_id(&mut self) -> u64 {
