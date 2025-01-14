@@ -6,20 +6,24 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-use crate::handlers::message_handler::{Message, MessageRegistry, Pipe};
+use crate::handlers::message_handler::{Message, MessageName, MessageRegistry, Ping, Pipe};
 use crate::handlers::message_router_handler::{
     MessageConsumer, MessageReceiver, MessageRouterState, Subscriber,
 };
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
+use crate::handlers::operator_handler::operators::common_message_handlers::handle_ping_Message;
 
 #[derive(Debug, Error)]
-pub enum ExchangeOperatorError {}
+pub enum ExchangeOperatorError {
+    #[error("received an unhandled message: {0}")]
+    ReceivedAnUnhandledMessage(String),
+}
 
 #[derive(Debug)]
 pub struct ExchangeOperator {
     operator_instance_config: OperatorInstanceConfig,
     message_router_state: Arc<Mutex<MessageRouterState>>,
-    router_pipe: Pipe<Message>,
+    router_pipe: Pipe,
     sender: mpsc::Sender<Message>,
     msg_reg: Arc<MessageRegistry>,
 }
@@ -50,7 +54,7 @@ impl ExchangeOperator {
         })
     }
 
-    async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
+    pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
         self.message_router_state
             .lock()
             .await
@@ -64,6 +68,19 @@ impl ExchangeOperator {
 
         loop {
             tokio::select! {
+                Some(msg) = self.router_pipe.recv() => {
+                    match msg.msg.msg_name() {
+                        MessageName::Ping => {
+                            let ping_msg: &Ping = self.msg_reg.try_cast_msg(&msg)?;
+                            handle_ping_Message(&msg, ping_msg)?;
+                        },
+                        _ => {
+                            return Err(ExchangeOperatorError::ReceivedAnUnhandledMessage(
+                                msg.msg.msg_name().to_string()
+                            ).into());
+                        }
+                    }
+                }
                 _ = ct.cancelled() => {
                     break;
                 }

@@ -133,7 +133,7 @@ pub struct ReadFilesTask {
     operator_instance_config: OperatorInstanceConfig,
     read_files_config: ReadFilesConfig,
 
-    operator_pipe: Pipe<Message>,
+    operator_pipe: Pipe,
     msg_reg: Arc<MessageRegistry>,
     conn_reg: Arc<ConnectionRegistry>,
 
@@ -146,7 +146,7 @@ impl ReadFilesTask {
     pub fn new(
         op_in_config: OperatorInstanceConfig,
         read_files_config: ReadFilesConfig,
-        operator_pipe: Pipe<Message>,
+        operator_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
         conn_reg: Arc<ConnectionRegistry>,
     ) -> ReadFilesTask {
@@ -407,7 +407,7 @@ impl TableFuncTaskBuilder for ReadFilesTaskBuilder {
         &self,
         op_in_config: OperatorInstanceConfig,
         table_func_config: TableFuncConfig,
-        operator_pipe: Pipe<Message>,
+        operator_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
         conn_reg: Arc<ConnectionRegistry>,
         tt: &mut RestrictedOperatorTaskTracker,

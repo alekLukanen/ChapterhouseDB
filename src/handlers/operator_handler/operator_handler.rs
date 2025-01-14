@@ -27,7 +27,7 @@ pub enum OperatorHandlerError {
 pub struct OperatorHandler {
     state: OperatorHandlerState,
     message_router_state: Arc<Mutex<MessageRouterState>>,
-    router_pipe: Pipe<Message>,
+    router_pipe: Pipe,
     sender: mpsc::Sender<Message>,
 
     msg_reg: Arc<MessageRegistry>,

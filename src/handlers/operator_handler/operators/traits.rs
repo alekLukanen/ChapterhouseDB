@@ -5,7 +5,7 @@ use anyhow::Result;
 use tokio_util::sync::CancellationToken;
 
 use crate::handlers::{
-    message_handler::{Message, MessageRegistry, Pipe},
+    message_handler::{MessageRegistry, Pipe},
     message_router_handler::MessageConsumer,
     operator_handler::operator_handler_state::OperatorInstanceConfig,
 };
@@ -20,7 +20,7 @@ pub trait TableFuncTaskBuilder: fmt::Debug + Send + Sync {
         &self,
         op_in_config: OperatorInstanceConfig,
         table_func_config: TableFuncConfig,
-        operator_pipe: Pipe<Message>,
+        operator_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
         conn_reg: Arc<ConnectionRegistry>,
         tt: &mut RestrictedOperatorTaskTracker,

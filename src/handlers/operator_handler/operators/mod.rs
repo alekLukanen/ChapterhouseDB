@@ -1,4 +1,5 @@
 mod builder;
+mod common_message_handlers;
 mod connection_registry;
 mod exchange_operator;
 mod operator_task_registry;

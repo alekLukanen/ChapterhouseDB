@@ -52,7 +52,7 @@ pub struct SerializedMessage {
     // 8 - connection_id set (bit 3)
     sent_from_flags: u8,
     sent_from_worker_id: u128,
-    sent_from_pipeline_id: u128,
+    sent_from_query_id: u128,
     sent_from_operation_id: u128,
     sent_from_connection_id: u128,
 
@@ -104,9 +104,9 @@ impl SerializedMessage {
             sent_from_flags = sent_from_flags | 1;
         }
 
-        let mut sent_from_pipeline_id: u128 = 0;
-        if let Some(_id) = msg.sent_from_pipeline_id {
-            sent_from_pipeline_id = _id;
+        let mut sent_from_query_id: u128 = 0;
+        if let Some(_id) = msg.sent_from_query_id {
+            sent_from_query_id = _id;
             sent_from_flags = sent_from_flags | (1 << 1);
         }
 
@@ -130,7 +130,7 @@ impl SerializedMessage {
             msg_id,
             sent_from_flags,
             sent_from_worker_id,
-            sent_from_pipeline_id,
+            sent_from_query_id,
             sent_from_operation_id,
             sent_from_connection_id,
             routing_flags,
@@ -172,7 +172,7 @@ impl SerializedMessage {
 
                 let sent_from_flags = buf.get_u8();
                 let sent_from_worker_id = buf.get_u128();
-                let sent_from_pipeline_id = buf.get_u128();
+                let sent_from_query_id = buf.get_u128();
                 let sent_from_operation_id = buf.get_u128();
                 let sent_from_connection_id = buf.get_u128();
 
@@ -196,7 +196,7 @@ impl SerializedMessage {
                     msg_id,
                     sent_from_flags,
                     sent_from_worker_id,
-                    sent_from_pipeline_id,
+                    sent_from_query_id,
                     sent_from_operation_id,
                     sent_from_connection_id,
                     routing_flags,
@@ -244,7 +244,7 @@ impl SerializedMessage {
         buf.put_u128(self.msg_id);
         buf.put_u8(self.sent_from_flags);
         buf.put_u128(self.sent_from_worker_id);
-        buf.put_u128(self.sent_from_pipeline_id);
+        buf.put_u128(self.sent_from_query_id);
         buf.put_u128(self.sent_from_operation_id);
         buf.put_u128(self.sent_from_connection_id);
         buf.put_u8(self.routing_flags);
@@ -265,7 +265,7 @@ pub struct Message {
 
     // sent from
     pub sent_from_worker_id: Option<u128>,
-    pub sent_from_pipeline_id: Option<u128>,
+    pub sent_from_query_id: Option<u128>,
     pub sent_from_operation_id: Option<u128>,
     pub sent_from_connection_id: Option<u128>,
 
@@ -287,7 +287,7 @@ impl Clone for Message {
             msg_id: self.msg_id,
             msg: self.msg.clone_box(),
             sent_from_worker_id: self.sent_from_worker_id,
-            sent_from_pipeline_id: self.sent_from_pipeline_id,
+            sent_from_query_id: self.sent_from_query_id,
             sent_from_operation_id: self.sent_from_operation_id,
             sent_from_connection_id: self.sent_from_connection_id,
             route_to_worker_id: self.route_to_worker_id,
@@ -307,7 +307,7 @@ impl Message {
             msg_id: Uuid::new_v4().as_u128(),
             msg,
             sent_from_worker_id: None,
-            sent_from_pipeline_id: None,
+            sent_from_query_id: None,
             sent_from_operation_id: None,
             sent_from_connection_id: None,
             route_to_worker_id: None,
@@ -348,8 +348,8 @@ impl Message {
         self
     }
 
-    pub fn set_sent_from_pipeline_id(mut self, _id: u128) -> Message {
-        self.sent_from_pipeline_id = Some(_id);
+    pub fn set_sent_from_query_id(mut self, _id: u128) -> Message {
+        self.sent_from_query_id = Some(_id);
         self
     }
 
@@ -389,8 +389,8 @@ impl Message {
             None
         };
 
-        let sent_from_pipeline_id = if ser_msg.sent_from_flags & 2 == 2 {
-            Some(ser_msg.sent_from_pipeline_id)
+        let sent_from_query_id = if ser_msg.sent_from_flags & 2 == 2 {
+            Some(ser_msg.sent_from_query_id)
         } else {
             None
         };
@@ -431,7 +431,7 @@ impl Message {
             msg_id: ser_msg.msg_id,
             msg,
             sent_from_worker_id,
-            sent_from_pipeline_id,
+            sent_from_query_id,
             sent_from_operation_id,
             sent_from_connection_id,
             route_to_worker_id,

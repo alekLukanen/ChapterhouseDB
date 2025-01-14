@@ -50,7 +50,7 @@ pub struct Connection {
     pub worker_id: u128,
     pub stream_id: u128,
     stream: TcpStream,
-    pipe: Pipe<Message>,
+    pipe: Pipe,
     msg_reg: Arc<MessageRegistry>,
     buf: BytesMut,
     pub connection_ct: CancellationToken,

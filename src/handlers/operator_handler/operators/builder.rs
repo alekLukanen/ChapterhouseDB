@@ -14,6 +14,7 @@ use crate::handlers::{
 };
 use crate::planner;
 
+use super::exchange_operator::ExchangeOperator;
 use super::operator_task_registry::OperatorTaskRegistry;
 use super::producer_operator::ProducerOperator;
 use super::table_funcs::TableFuncConfig;
@@ -65,7 +66,12 @@ impl OperatorBuilder {
 
                     let table_func_config = TableFuncConfig::try_from(&op_in.config)?;
 
-                    let (pipe1, pipe2) = Pipe::new(1);
+                    let (mut pipe1, mut pipe2) = Pipe::new(1);
+                    pipe1.set_sent_from_query_id(op_in.config.query_id.clone());
+                    pipe1.set_sent_from_operation_id(op_in.config.id.clone());
+                    pipe2.set_sent_from_query_id(op_in.config.query_id.clone());
+                    pipe2.set_sent_from_operation_id(op_in.config.id.clone());
+
                     let mut producer_operator = ProducerOperator::new(
                         op_in.config.clone(),
                         self.message_router_state.clone(),
@@ -114,10 +120,18 @@ impl OperatorBuilder {
                 }
             },
             planner::OperatorType::Exchange { .. } => {
-                return Err(OperatorBuilderError::NotImplemented(
-                    "exhange operator type".to_string(),
+                let mut ex_op = ExchangeOperator::new(
+                    op_in.config.clone(),
+                    self.message_router_state.clone(),
+                    self.msg_reg.clone(),
                 )
-                .into())
+                .await;
+                let ct = op_in.ct.clone();
+                tt.spawn(async move {
+                    if let Err(err) = ex_op.async_main(ct).await {
+                        info!("error: {}", err);
+                    }
+                });
             }
         }
 

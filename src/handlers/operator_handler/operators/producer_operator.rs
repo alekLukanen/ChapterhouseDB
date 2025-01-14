@@ -7,11 +7,12 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::info;
 
-use crate::handlers::message_handler::{Message, MessageRegistry, Pipe};
+use crate::handlers::message_handler::{Message, MessageName, MessageRegistry, Ping, Pipe};
 use crate::handlers::message_router_handler::{
     MessageConsumer, MessageReceiver, MessageRouterState, Subscriber,
 };
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
+use crate::handlers::operator_handler::operators::common_message_handlers::handle_ping_Message;
 
 use super::operator_task_trackers::RestrictedOperatorTaskTracker;
 
@@ -25,8 +26,8 @@ pub enum ProducerOperatorError {
 pub struct ProducerOperator {
     operator_instance_config: OperatorInstanceConfig,
     message_router_state: Arc<Mutex<MessageRouterState>>,
-    router_pipe: Pipe<Message>,
-    task_pipe: Pipe<Message>,
+    router_pipe: Pipe,
+    task_pipe: Pipe,
     task_msg_consumer: Option<Box<dyn MessageConsumer>>,
     sender: mpsc::Sender<Message>,
     msg_reg: Arc<MessageRegistry>,
@@ -38,7 +39,7 @@ impl ProducerOperator {
     pub async fn new(
         op_in_config: OperatorInstanceConfig,
         message_router_state: Arc<Mutex<MessageRouterState>>,
-        task_pipe: Pipe<Message>,
+        task_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> ProducerOperator {
         let router_sender = message_router_state.lock().await.sender();
@@ -96,14 +97,25 @@ impl ProducerOperator {
 
         loop {
             tokio::select! {
-                Some(msg) = self.task_pipe.recv() => {
-                    if let Some(task_msg_consumer) = &self.task_msg_consumer {
-                        if task_msg_consumer.consumes_message(&msg) {
-                            self.task_pipe.send(msg).await?;
+                Some(msg) = self.router_pipe.recv() => {
+                    match msg.msg.msg_name() {
+                        MessageName::Ping => {
+                            let ping_msg: &Ping = self.msg_reg.try_cast_msg(&msg)?;
+                            handle_ping_Message(&msg, ping_msg)?;
+                        },
+                        _ => {
+                            if let Some(task_msg_consumer) = &self.task_msg_consumer {
+                                if task_msg_consumer.consumes_message(&msg) {
+                                    self.task_pipe.send(msg).await?;
+                                }
+                            } else {
+                                self.task_pipe.send(msg).await?;
+                            }
                         }
-                    } else {
-                        self.task_pipe.send(msg).await?;
                     }
+                }
+                Some(msg) = self.task_pipe.recv() => {
+                    self.router_pipe.send(msg).await?;
                 }
                 _ = &mut task_res => {
                     info!("task future terminated");

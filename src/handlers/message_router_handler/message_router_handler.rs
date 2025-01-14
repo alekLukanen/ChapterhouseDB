@@ -93,14 +93,14 @@ pub struct MessageRouterHandler {
     msg_reg: Arc<MessageRegistry>,
     task_tracker: TaskTracker,
 
-    connection_pipe: Pipe<Message>,
+    connection_pipe: Pipe,
     internal_sub_receiver: Receiver<Message>,
 }
 
 impl MessageRouterHandler {
     pub fn new(
         worker_id: u128,
-        connection_pipe: Pipe<Message>,
+        connection_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> (MessageRouterHandler, Arc<Mutex<MessageRouterState>>) {
         let (sender, receiver) = mpsc::channel(1);
