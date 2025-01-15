@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use crate::handlers::message_handler::{
-    Message, MessageName, MessageRegistry, Pipe, QueryHandlerRequests, StoreRecordBatch,
+    Message, MessageName, MessageRegistry, Ping, Pipe, QueryHandlerRequests, StoreRecordBatch,
 };
 use crate::handlers::message_router_handler::MessageConsumer;
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
@@ -35,6 +35,10 @@ pub enum ReadFilesError {
     ReceivedNoOperatorInstancesForTheExchange,
     #[error("received multiple operator instances for the exchange")]
     ReceivedMultipleOperatorInstancesForTheExchange,
+    #[error("exchange operator instance id not set")]
+    ExchangeOperatorInstanceIdNotSet,
+    #[error("received message without a worker id")]
+    ReceivedMessageWithoutAWorkerId,
     #[error("not implemented: {0}")]
     NotImplemented(String),
 }
@@ -298,11 +302,56 @@ impl ReadFilesTask {
     }
 
     async fn get_exchange_worker_id_with_retry(&mut self, num_retries: u8) -> Result<u128> {
-        Ok(0)
+        for retry_idx in 0..(num_retries + 1) {
+            let res = self.get_exchange_worker_id().await;
+            match res {
+                Ok(val) => {
+                    return Ok(val);
+                }
+                Err(err) => {
+                    if retry_idx == num_retries {
+                        return Err(err.context("failed to get the exchange operator worker id"));
+                    } else {
+                        continue;
+                    }
+                }
+            }
+        }
+        Err(ReadFilesError::NotImplemented(
+            "unable to get the operator worker id but failed to provide error".to_string(),
+        )
+        .into())
     }
 
     async fn get_exchange_worker_id(&mut self) -> Result<u128> {
-        Ok(0)
+        if let Some(exchange_operator_instance_id) = self.exchange_operator_instance_id {
+            let msg = Message::new(Box::new(Ping::Ping))
+                .set_route_to_operation_id(exchange_operator_instance_id);
+            self.operator_pipe.send(msg).await?;
+        } else {
+            return Err(ReadFilesError::ExchangeOperatorInstanceIdNotSet.into());
+        }
+
+        let resp_msg = self.operator_pipe.recv().await;
+        match resp_msg {
+            Some(resp_msg) => {
+                let ping_msg: &Ping = self.msg_reg.try_cast_msg(&resp_msg)?;
+                match ping_msg {
+                    Ping::Pong => {
+                        let worker_id = if let Some(id) = resp_msg.sent_from_worker_id {
+                            id
+                        } else {
+                            return Err(ReadFilesError::ReceivedMessageWithoutAWorkerId.into());
+                        };
+                        Ok(worker_id)
+                    }
+                    Ping::Ping => Err(ReadFilesError::ReceivedTheWrongMessageType.into()),
+                }
+            }
+            None => {
+                return Err(ReadFilesError::ReceivedNoneMessage.into());
+            }
+        }
     }
 
     async fn get_exchange_operator_instance_id_with_retry(
