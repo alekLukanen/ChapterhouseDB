@@ -62,7 +62,12 @@ impl ConnectionRegistry {
 
         match conn.scheme {
             Scheme::S3 => Ok(init_service::<services::S3>(conn.config.clone())?),
-            val => Err(ConnectionRegistryError::NotImplemented(val.to_string()).into()),
+            Scheme::Fs => Ok(init_service::<services::Fs>(conn.config.clone())?),
+            val => Err(ConnectionRegistryError::NotImplemented(format!(
+                "opendal schema type {} ",
+                val.to_string()
+            ))
+            .into()),
         }
     }
 }

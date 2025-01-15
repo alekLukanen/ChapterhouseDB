@@ -1,3 +1,4 @@
+use core::time;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -173,21 +174,27 @@ impl ReadFilesTask {
     }
 
     pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
+        info!("read_files_task.async_main()");
         let conn = match &self.read_files_config.connection {
             Some(conn_name) => self.conn_reg.get_operator(conn_name.as_str())?,
             None => self.conn_reg.get_operator("default")?,
         };
+        info!("got the connection");
 
         let mut lister = conn
             .lister_with(self.read_files_config.parse_path_prefix())
             .recursive(true)
             .await?;
+
+        info!("created the listener");
+
         let path_matcher =
             globset::Glob::new(self.read_files_config.path.as_str())?.compile_matcher();
 
         loop {
             tokio::select! {
                 entry = lister.next() => {
+                    info!("found an entry");
                     match entry {
                         Some(Ok(val)) => {
                             let path = val.path();
@@ -312,6 +319,11 @@ impl ReadFilesTask {
                     if retry_idx == num_retries {
                         return Err(err.context("failed to get the exchange operator worker id"));
                     } else {
+                        tokio::time::sleep(time::Duration::from_secs(std::cmp::min(
+                            retry_idx as u64 + 1,
+                            5,
+                        )))
+                        .await;
                         continue;
                     }
                 }
@@ -368,6 +380,11 @@ impl ReadFilesTask {
                     if retry_idx == num_retries {
                         return Err(err.context("failed to get the exchange operator instance id"));
                     } else {
+                        tokio::time::sleep(time::Duration::from_secs(std::cmp::min(
+                            retry_idx as u64 + 1,
+                            5,
+                        )))
+                        .await;
                         continue;
                     }
                 }

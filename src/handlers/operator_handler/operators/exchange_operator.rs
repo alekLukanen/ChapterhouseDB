@@ -74,6 +74,7 @@ impl ExchangeOperator {
         loop {
             tokio::select! {
                 Some(msg) = self.router_pipe.recv() => {
+                    info!("received message: {}", msg.msg.msg_name());
                     match msg.msg.msg_name() {
                         MessageName::Ping => {
                             let ping_msg: &Ping = self.msg_reg.try_cast_msg(&msg)?;
