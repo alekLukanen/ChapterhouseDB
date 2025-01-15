@@ -6,12 +6,14 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-use crate::handlers::message_handler::{Message, MessageName, MessageRegistry, Ping, Pipe};
+use crate::handlers::message_handler::{
+    Message, MessageName, MessageRegistry, Ping, Pipe, StoreRecordBatch,
+};
 use crate::handlers::message_router_handler::{
     MessageConsumer, MessageReceiver, MessageRouterState, Subscriber,
 };
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
-use crate::handlers::operator_handler::operators::common_message_handlers::handle_ping_Message;
+use crate::handlers::operator_handler::operators::common_message_handlers::handle_ping_message;
 
 #[derive(Debug, Error)]
 pub enum ExchangeOperatorError {
@@ -35,7 +37,9 @@ impl ExchangeOperator {
         msg_reg: Arc<MessageRegistry>,
     ) -> ExchangeOperator {
         let router_sender = message_router_state.lock().await.sender();
-        let (pipe, sender) = Pipe::new_with_existing_sender(router_sender, 1);
+        let (mut pipe, sender) = Pipe::new_with_existing_sender(router_sender, 1);
+        pipe.set_sent_from_query_id(op_in_config.query_id.clone());
+        pipe.set_sent_from_operation_id(op_in_config.id.clone());
 
         ExchangeOperator {
             operator_instance_config: op_in_config,
@@ -51,6 +55,7 @@ impl ExchangeOperator {
             sender: self.sender.clone(),
             msg_reg: self.msg_reg.clone(),
             operator_instance_id: self.operator_instance_config.id.clone(),
+            query_id: self.operator_instance_config.query_id.clone(),
         })
     }
 
@@ -72,7 +77,7 @@ impl ExchangeOperator {
                     match msg.msg.msg_name() {
                         MessageName::Ping => {
                             let ping_msg: &Ping = self.msg_reg.try_cast_msg(&msg)?;
-                            handle_ping_Message(&msg, ping_msg)?;
+                            handle_ping_message(&msg, ping_msg)?;
                         },
                         _ => {
                             return Err(ExchangeOperatorError::ReceivedAnUnhandledMessage(
@@ -104,20 +109,33 @@ pub struct ExchangeOperatorSubscriber {
     sender: mpsc::Sender<Message>,
     msg_reg: Arc<MessageRegistry>,
     operator_instance_id: u128,
+    query_id: u128,
 }
 
 impl Subscriber for ExchangeOperatorSubscriber {}
 
 impl MessageConsumer for ExchangeOperatorSubscriber {
     fn consumes_message(&self, msg: &crate::handlers::message_handler::Message) -> bool {
-        if let Some(route_to_operation_id) = msg.route_to_operation_id {
-            if route_to_operation_id == self.operator_instance_id {
-                return true;
-            }
-        } else {
+        if (msg.route_to_operation_id.is_some()
+            && msg.route_to_operation_id != Some(self.operator_instance_id))
+            || (msg.sent_from_query_id.is_some() && msg.sent_from_query_id != Some(self.query_id))
+        {
             return false;
         }
-        false
+
+        match msg.msg.msg_name() {
+            MessageName::StoreRecordBatch => {
+                match self.msg_reg.try_cast_msg::<StoreRecordBatch>(msg) {
+                    Ok(StoreRecordBatch::RequestSendRecord { .. }) => true,
+                    Ok(StoreRecordBatch::ResponseReceivedRecord { .. }) => false,
+                    Err(err) => {
+                        info!("error: {}", err);
+                        false
+                    }
+                }
+            }
+            _ => false,
+        }
     }
 }
 

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use anyhow::Result;
 use thiserror::Error;
 use tokio::sync::Mutex;
-use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::info;
 
@@ -18,7 +17,6 @@ use super::exchange_operator::ExchangeOperator;
 use super::operator_task_registry::OperatorTaskRegistry;
 use super::producer_operator::ProducerOperator;
 use super::table_funcs::TableFuncConfig;
-use super::traits::TableFuncTaskBuilder;
 use super::ConnectionRegistry;
 
 #[derive(Debug, Error)]
@@ -66,12 +64,7 @@ impl OperatorBuilder {
 
                     let table_func_config = TableFuncConfig::try_from(&op_in.config)?;
 
-                    let (mut pipe1, mut pipe2) = Pipe::new(1);
-                    pipe1.set_sent_from_query_id(op_in.config.query_id.clone());
-                    pipe1.set_sent_from_operation_id(op_in.config.id.clone());
-                    pipe2.set_sent_from_query_id(op_in.config.query_id.clone());
-                    pipe2.set_sent_from_operation_id(op_in.config.id.clone());
-
+                    let (pipe1, pipe2) = Pipe::new(1);
                     let mut producer_operator = ProducerOperator::new(
                         op_in.config.clone(),
                         self.message_router_state.clone(),

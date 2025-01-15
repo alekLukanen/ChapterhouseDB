@@ -452,7 +452,11 @@ impl MessageConsumer for ReadFilesConsumer {
             MessageName::OperatorInstanceAvailable => {
                 match self.msg_reg.try_cast_msg::<StoreRecordBatch>(msg) {
                     Ok(StoreRecordBatch::ResponseReceivedRecord { .. }) => true,
-                    _ => false,
+                    Ok(StoreRecordBatch::RequestSendRecord { .. }) => false,
+                    Err(err) => {
+                        info!("error: {}", err);
+                        false
+                    }
                 }
             }
             _ => false,

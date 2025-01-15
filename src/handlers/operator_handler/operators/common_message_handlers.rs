@@ -9,7 +9,7 @@ pub enum HandlePingMessage {
     CanNotResponseToAPongResponse,
 }
 
-pub fn handle_ping_Message(msg: &Message, ping_msg: &Ping) -> Result<Message> {
+pub fn handle_ping_message(msg: &Message, ping_msg: &Ping) -> Result<Message> {
     match ping_msg {
         Ping::Ping => Ok(msg.reply(Box::new(Ping::Pong))),
         Ping::Pong => Err(HandlePingMessage::CanNotResponseToAPongResponse.into()),
