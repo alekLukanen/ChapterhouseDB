@@ -4,7 +4,7 @@ use anyhow::Result;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use tokio_util::task::TaskTracker;
-use tracing::info;
+use tracing::error;
 
 use crate::handlers::message_handler::Pipe;
 use crate::handlers::{
@@ -89,7 +89,7 @@ impl OperatorBuilder {
                     let ct = op_in.ct.clone();
                     tt.spawn(async move {
                         if let Err(err) = producer_operator.async_main(ct, oneshot_res).await {
-                            info!("error: {}", err);
+                            error!("{:?}", err);
                         }
                     });
                 }
@@ -122,7 +122,7 @@ impl OperatorBuilder {
                 let ct = op_in.ct.clone();
                 tt.spawn(async move {
                     if let Err(err) = ex_op.async_main(ct).await {
-                        info!("error: {}", err);
+                        error!("{:?}", err);
                     }
                 });
             }

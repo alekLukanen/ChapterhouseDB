@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use futures::StreamExt;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{debug, error, info};
 
 use crate::handlers::message_handler::{
     Message, MessageName, MessageRegistry, Ping, Pipe, QueryHandlerRequests, StoreRecordBatch,
@@ -174,19 +174,16 @@ impl ReadFilesTask {
     }
 
     pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
-        info!("read_files_task.async_main()");
+        debug!("read_files_task.async_main()");
         let conn = match &self.read_files_config.connection {
             Some(conn_name) => self.conn_reg.get_operator(conn_name.as_str())?,
             None => self.conn_reg.get_operator("default")?,
         };
-        info!("got the connection");
 
         let mut lister = conn
             .lister_with(self.read_files_config.parse_path_prefix())
             .recursive(true)
             .await?;
-
-        info!("created the listener");
 
         let path_matcher =
             globset::Glob::new(self.read_files_config.path.as_str())?.compile_matcher();
@@ -194,7 +191,6 @@ impl ReadFilesTask {
         loop {
             tokio::select! {
                 entry = lister.next() => {
-                    info!("found an entry");
                     match entry {
                         Some(Ok(val)) => {
                             let path = val.path();
@@ -216,7 +212,7 @@ impl ReadFilesTask {
             }
         }
 
-        info!(
+        debug!(
             "closing operator producer for instance {}",
             self.operator_instance_config.id
         );
@@ -230,6 +226,8 @@ impl ReadFilesTask {
         path: &str,
         conn: &opendal::Operator,
     ) -> Result<()> {
+        debug!("read_records(path={})", path);
+
         let reader = conn
             .reader_with(path)
             .gap(512 * 1024)
@@ -239,13 +237,14 @@ impl ReadFilesTask {
         let content_len = conn.stat(path).await?.content_length();
         let parquet_reader = parquet_opendal::AsyncReader::new(reader, content_len)
             .with_prefetch_footer_size(512 * 1024);
-        let mut bldr = parquet::arrow::ParquetRecordBatchStreamBuilder::new(parquet_reader)
+        let mut rec_stream = parquet::arrow::ParquetRecordBatchStreamBuilder::new(parquet_reader)
             .await?
             .with_batch_size(self.read_files_config.max_rows_per_batch)
             .build()?;
 
-        while let Some(record_res) = bldr.next().await {
-            if ct.cancelled().await == () {
+        debug!("reading records from file");
+        while let Some(record_res) = rec_stream.next().await {
+            if ct.is_cancelled() {
                 return Err(ReadFilesError::Cancelled.into());
             }
             match record_res {
@@ -419,7 +418,11 @@ impl ReadFilesTask {
         ));
         self.operator_pipe.send(ping_msg).await?;
 
+        debug!("sent list request");
+
         let resp_msg = self.operator_pipe.recv().await;
+        debug!("received list response");
+
         match resp_msg {
             Some(resp_msg) => {
                 let resp_msg: &QueryHandlerRequests = self.msg_reg.try_cast_msg(&resp_msg)?;
@@ -493,10 +496,10 @@ impl TableFuncTaskBuilder for ReadFilesTaskBuilder {
         let (tx, rx) = tokio::sync::oneshot::channel();
         tt.spawn(async move {
             if let Err(err) = op.async_main(ct).await {
-                info!("error: {:?}", err);
+                error!("{:?}", err);
             }
             if let Err(err) = tx.send(()) {
-                info!("error: {:?}", err);
+                error!("{:?}", err);
             }
         })?;
 
@@ -515,12 +518,30 @@ pub struct ReadFilesConsumer {
 impl MessageConsumer for ReadFilesConsumer {
     fn consumes_message(&self, msg: &crate::handlers::message_handler::Message) -> bool {
         match msg.msg.msg_name() {
-            MessageName::OperatorInstanceAvailable => {
+            MessageName::Ping => match self.msg_reg.try_cast_msg::<Ping>(msg) {
+                Ok(Ping::Ping) => false,
+                Ok(Ping::Pong) => true,
+                Err(err) => {
+                    error!("{:?}", err);
+                    false
+                }
+            },
+            MessageName::StoreRecordBatch => {
                 match self.msg_reg.try_cast_msg::<StoreRecordBatch>(msg) {
                     Ok(StoreRecordBatch::ResponseReceivedRecord { .. }) => true,
                     Ok(StoreRecordBatch::RequestSendRecord { .. }) => false,
                     Err(err) => {
-                        info!("error: {}", err);
+                        error!("{:?}", err);
+                        false
+                    }
+                }
+            }
+            MessageName::QueryHandlerRequests => {
+                match self.msg_reg.try_cast_msg::<QueryHandlerRequests>(msg) {
+                    Ok(QueryHandlerRequests::ListOperatorInstancesResponse { .. }) => true,
+                    Ok(QueryHandlerRequests::ListOperatorInstancesRequest { .. }) => false,
+                    Err(err) => {
+                        error!("{:?}", err);
                         false
                     }
                 }

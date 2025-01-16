@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use clap;
-use tracing_subscriber;
+use tracing_subscriber::{self, util::SubscriberInitExt};
 
 use chapterhouseqe::{
     handlers::operator_handler::{operators, TotalOperatorCompute},
@@ -26,7 +26,10 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_line_number(true)
+        .with_max_level(tracing::Level::DEBUG)
+        .init();
 
     let mut conn_reg = operators::ConnectionRegistry::new();
     conn_reg.add_connection(

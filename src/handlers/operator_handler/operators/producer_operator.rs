@@ -5,7 +5,7 @@ use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
-use tracing::info;
+use tracing::debug;
 
 use crate::handlers::message_handler::{Message, MessageName, MessageRegistry, Ping, Pipe};
 use crate::handlers::message_router_handler::{
@@ -93,7 +93,7 @@ impl ProducerOperator {
             .add_internal_subscriber(self.subscriber())
             .context("failed subscribing")?;
 
-        info!(
+        debug!(
             "started the producer operator for instance {}",
             self.operator_instance_config.id
         );
@@ -101,27 +101,29 @@ impl ProducerOperator {
         loop {
             tokio::select! {
                 Some(msg) = self.router_pipe.recv() => {
-                    match msg.msg.msg_name() {
-                        MessageName::Ping => {
-                            let ping_msg: &Ping = self.msg_reg.try_cast_msg(&msg)?;
-                            handle_ping_message(&msg, ping_msg)?;
-                        },
-                        _ => {
-                            if let Some(task_msg_consumer) = &self.task_msg_consumer {
-                                if task_msg_consumer.consumes_message(&msg) {
-                                    self.task_pipe.send(msg).await?;
-                                }
-                            } else {
-                                self.task_pipe.send(msg).await?;
-                            }
+                    debug!("received message: {}", msg);
+                    if msg.msg.msg_name() == MessageName::Ping {
+                        let ping_msg: &Ping = self.msg_reg.try_cast_msg(&msg)?;
+                        if matches!(ping_msg, Ping::Ping) {
+                            let pong_msg = handle_ping_message(&msg, ping_msg)?;
+                            self.router_pipe.send(pong_msg).await?;
                         }
+                    }
+                    if let Some(task_msg_consumer) = &self.task_msg_consumer {
+                        if task_msg_consumer.consumes_message(&msg) {
+                            self.task_pipe.send(msg).await?;
+                        } else {
+                            debug!("message not consumed by producer operator: {}", msg);
+                        }
+                    } else {
+                        self.task_pipe.send(msg).await?;
                     }
                 }
                 Some(msg) = self.task_pipe.recv() => {
                     self.router_pipe.send(msg).await?;
                 }
                 _ = &mut task_res => {
-                    info!("task future terminated");
+                    debug!("task future terminated");
                     break;
                 }
                 _ = ct.cancelled() => {
@@ -138,7 +140,7 @@ impl ProducerOperator {
             }
         }
 
-        info!(
+        debug!(
             "closed producer operator for instance {}",
             self.operator_instance_config.id
         );

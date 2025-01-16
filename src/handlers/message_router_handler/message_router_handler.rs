@@ -8,7 +8,7 @@ use tokio::sync::{
 };
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::handlers::message_handler::{Identify, Message, MessageName, MessageRegistry, Pipe};
 
@@ -122,43 +122,81 @@ impl MessageRouterHandler {
                 Some(msg) = self.connection_pipe.recv() => {
                     let routed = self.route_msg(&msg).await?;
                     if !routed {
-                        info!("message ignored: {:?}", msg);
+                        info!("message ignored: {}", msg);
                     }
                 }
                 Some(mut msg) = self.internal_sub_receiver.recv() => {
+                    debug!("route message: {}", msg);
                     msg = msg.set_sent_from_worker_id(self.worker_id.clone());
 
                     if msg.inbound_stream_id.is_some() || msg.outbound_stream_id.is_some() {
                         // route to known stream
                         self.connection_pipe.send(msg).await?;
 
+                    } else if msg.route_to_operation_id.is_some() {
+                        // route to internal operation subscriber
+                        debug!("route message to operation: {}", msg.msg.msg_name());
+                        if let Some(route_to_worker_id) = msg.route_to_worker_id {
+                            if route_to_worker_id != self.worker_id {
+                                let outbound_stream_id = self.state.lock().await.get_worker_outbound_stream(route_to_worker_id);
+                                if let Some(outbound_stream_id) = outbound_stream_id {
+                                    msg = msg.set_outbound_stream(outbound_stream_id);
+                                    self.connection_pipe.send(msg).await?;
+                                }
+                            } else {
+                                let routed = self.route_msg(&msg).await?;
+                                if !routed {
+                                    debug!("message not routed");
+                                }
+                            }
+                        } else {
+                            let routed = self.route_msg(&msg).await?;
+                            if !routed {
+                                debug!("message not routed internally; sending to outbound streams/workers");
+                                let outbound_stream_ids = self.state.lock().await.get_all_outbound_streams();
+                                for out_id in outbound_stream_ids {
+                                    let msg = msg.clone().set_outbound_stream(out_id);
+                                    self.connection_pipe.send(msg).await?;
+                                }
+                            }
+                        }
+
                     } else if let Some(route_to_worker_id) = msg.route_to_worker_id {
                         // route to specific outbound worker
-                        let outbound_stream_id = self.state.lock().await.get_worker_outbound_stream(route_to_worker_id);
-                        if let Some(outbound_stream_id) = outbound_stream_id {
-                            msg = msg.set_outbound_stream(outbound_stream_id);
-                            self.connection_pipe.send(msg).await?;
+                        debug!("route message to specific worker: {}", msg);
+                        if route_to_worker_id != self.worker_id {
+                            let outbound_stream_id = self.state.lock().await.get_worker_outbound_stream(route_to_worker_id);
+                            if let Some(outbound_stream_id) = outbound_stream_id {
+                                msg = msg.set_outbound_stream(outbound_stream_id);
+                                self.connection_pipe.send(msg).await?;
+                            }
+                        } else {
+                            let routed = self.route_msg(&msg).await?;
+                            if !routed {
+                                debug!("message not routed");
+                            }
                         }
 
                     } else if let Some(_) = msg.route_to_connection_id {
                         // route to inbound connection
-                        info!("route to connection not implemented: {:?}", msg);
-
-                    } else if msg.route_to_worker_id.is_none() && msg.route_to_operation_id.is_some() {
-                        // route to internal operation subscriber
-                        info!("route to operation not implemented: {:?}", msg);
+                        info!("route to connection not implemented: {}", msg);
+                        panic!("route to connection not implemented");
 
                     } else if msg.route_to_worker_id.is_none() && msg.route_to_operation_id.is_none() && msg.route_to_connection_id.is_none() {
-                        // broadcast to all outbound workers
-                        info!("broadcasting message");
-                        let outbound_stream_ids = self.state.lock().await.get_all_outbound_streams();
-                        for out_id in outbound_stream_ids {
-                            let msg = msg.clone().set_outbound_stream(out_id);
-                            self.connection_pipe.send(msg).await?;
+                        // broadcast to any subscriber
+                        debug!("broadcasting message: {}", msg);
+                        let routed = self.route_msg(&msg).await?;
+                        if !routed {
+                            debug!("message not routed internally; sending to outbound streams/workers");
+                            let outbound_stream_ids = self.state.lock().await.get_all_outbound_streams();
+                            for out_id in outbound_stream_ids {
+                                let msg = msg.clone().set_outbound_stream(out_id);
+                                self.connection_pipe.send(msg).await?;
+                            }
                         }
 
                     } else {
-                        info!("unable to route message from internal sub: {:?}", msg);
+                        info!("unable to route message from internal sub: {}", msg.msg.msg_name());
                     }
                 }
                 _ = ct.cancelled() => {

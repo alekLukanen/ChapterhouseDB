@@ -300,6 +300,12 @@ impl Clone for Message {
     }
 }
 
+impl fmt::Display for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.msg.msg_name())
+    }
+}
+
 impl Message {
     pub fn new(msg: Box<dyn SendableMessage>) -> Message {
         Message {

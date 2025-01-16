@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{debug, error};
 
 use crate::handlers::message_handler::{
     Message, MessageName, MessageRegistry, Ping, Pipe, StoreRecordBatch,
@@ -66,7 +66,7 @@ impl ExchangeOperator {
             .add_internal_subscriber(self.subscriber())
             .context("failed subscribing")?;
 
-        info!(
+        debug!(
             "started the exchange operator for instance {}",
             self.operator_instance_config.id
         );
@@ -74,12 +74,17 @@ impl ExchangeOperator {
         loop {
             tokio::select! {
                 Some(msg) = self.router_pipe.recv() => {
-                    info!("received message: {}", msg.msg.msg_name());
+                    debug!("received message: {}", msg);
+                    if msg.msg.msg_name() == MessageName::Ping {
+                        let ping_msg: &Ping = self.msg_reg.try_cast_msg(&msg)?;
+                        if matches!(ping_msg, Ping::Ping) {
+                            let pong_msg = handle_ping_message(&msg, ping_msg)?;
+                            self.router_pipe.send(pong_msg).await?;
+                            continue;
+                        }
+                    }
+
                     match msg.msg.msg_name() {
-                        MessageName::Ping => {
-                            let ping_msg: &Ping = self.msg_reg.try_cast_msg(&msg)?;
-                            handle_ping_message(&msg, ping_msg)?;
-                        },
                         _ => {
                             return Err(ExchangeOperatorError::ReceivedAnUnhandledMessage(
                                 msg.msg.msg_name().to_string()
@@ -93,7 +98,7 @@ impl ExchangeOperator {
             }
         }
 
-        info!(
+        debug!(
             "closed exchange operator for instance {}",
             self.operator_instance_config.id
         );
@@ -125,12 +130,20 @@ impl MessageConsumer for ExchangeOperatorSubscriber {
         }
 
         match msg.msg.msg_name() {
+            MessageName::Ping => match self.msg_reg.try_cast_msg::<Ping>(msg) {
+                Ok(Ping::Ping) => true,
+                Ok(Ping::Pong) => false,
+                Err(err) => {
+                    error!("{}", err);
+                    false
+                }
+            },
             MessageName::StoreRecordBatch => {
                 match self.msg_reg.try_cast_msg::<StoreRecordBatch>(msg) {
                     Ok(StoreRecordBatch::RequestSendRecord { .. }) => true,
                     Ok(StoreRecordBatch::ResponseReceivedRecord { .. }) => false,
                     Err(err) => {
-                        info!("error: {}", err);
+                        error!("{}", err);
                         false
                     }
                 }
