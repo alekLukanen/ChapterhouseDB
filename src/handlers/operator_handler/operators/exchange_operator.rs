@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::u64;
 
 use anyhow::{Context, Result};
 use thiserror::Error;
@@ -156,5 +157,85 @@ impl MessageConsumer for ExchangeOperatorSubscriber {
 impl MessageReceiver for ExchangeOperatorSubscriber {
     fn sender(&self) -> mpsc::Sender<Message> {
         self.sender.clone()
+    }
+}
+
+//////////////////////////////////////////////////////
+// Record Pool
+
+#[derive(Debug, Error)]
+pub enum RecordPoolError {
+    #[error("operator does not exist: {0}")]
+    OperatorDoesNotExist(String),
+}
+
+struct RecordRef {
+    id: u64,
+    record: arrow::array::RecordBatch,
+    processed_by_operators: Vec<String>,
+}
+
+struct ReservedRecord {
+    record_id: u64,
+    operator_instance_id: u128,
+    sent_record_to_operator_time: chrono::DateTime<chrono::Utc>,
+    last_heartbeat_time: chrono::DateTime<chrono::Utc>,
+}
+
+struct OperatorRecordQueue {
+    operator_id: String,
+    records_to_process: std::collections::VecDeque<u64>,
+    records_reserved_by_operator: std::collections::HashMap<u64, ReservedRecord>,
+}
+
+struct RecordPool {
+    records: std::collections::HashMap<u64, RecordRef>,
+    operator_record_queues: Vec<OperatorRecordQueue>,
+}
+
+impl RecordPool {
+    fn new(operator_ids: Vec<String>) -> RecordPool {
+        RecordPool {
+            records: std::collections::HashMap::new(),
+            operator_record_queues: operator_ids
+                .iter()
+                .map(|item| OperatorRecordQueue {
+                    operator_id: item.clone(),
+                    records_to_process: std::collections::VecDeque::new(),
+                    records_reserved_by_operator: std::collections::HashMap::new(),
+                })
+                .collect(),
+        }
+    }
+
+    fn add_record(&mut self, record_id: u64, record: arrow::array::RecordBatch) {
+        self.records.insert(
+            record_id,
+            RecordRef {
+                id: record_id,
+                record,
+                processed_by_operators: Vec::new(),
+            },
+        );
+        self.operator_record_queues.iter_mut().for_each(|item| {
+            item.records_to_process.push_back(record_id.clone());
+        })
+    }
+
+    fn get_next_record(
+        &mut self,
+        operator_id: &String,
+    ) -> Result<Option<(u64, arrow::array::RecordBatch)>> {
+        let mut op_queue = if let Some(queue) = self
+            .operator_record_queues
+            .iter()
+            .find(|item| item.operator_id == *operator_id)
+        {
+            queue
+        } else {
+            return Err(RecordPoolError::OperatorDoesNotExist(operator_id.clone()).into());
+        };
+
+        Ok(None)
     }
 }
