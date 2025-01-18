@@ -16,7 +16,7 @@ use crate::planner;
 use super::exchange_operator::ExchangeOperator;
 use super::operator_task_registry::OperatorTaskRegistry;
 use super::producer_operator::ProducerOperator;
-use super::table_funcs::TableFuncConfig;
+use super::table_func_tasks::TableFuncConfig;
 use super::ConnectionRegistry;
 
 #[derive(Debug, Error)]

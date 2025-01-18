@@ -11,7 +11,7 @@ use crate::handlers::{
 };
 
 use super::{
-    operator_task_trackers::RestrictedOperatorTaskTracker, table_funcs::TableFuncConfig,
+    operator_task_trackers::RestrictedOperatorTaskTracker, table_func_tasks::TableFuncConfig,
     ConnectionRegistry,
 };
 

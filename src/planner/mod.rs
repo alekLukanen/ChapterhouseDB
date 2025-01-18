@@ -7,5 +7,6 @@ mod test_physical_planner;
 
 pub use logical_planner::{LogicalPlan, LogicalPlanner};
 pub use physical_planner::{
-    Operator, OperatorCompute, OperatorTask, OperatorType, PhysicalPlan, PhysicalPlanner,
+    DataFormat, Operator, OperatorCompute, OperatorTask, OperatorType, PhysicalPlan,
+    PhysicalPlanner,
 };

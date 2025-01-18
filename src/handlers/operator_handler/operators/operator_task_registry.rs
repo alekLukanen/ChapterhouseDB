@@ -1,5 +1,5 @@
 use super::{
-    table_funcs,
+    table_func_tasks,
     traits::{TableFuncSyntaxValidator, TableFuncTaskBuilder},
 };
 
@@ -49,7 +49,7 @@ impl OperatorTaskRegistry {
 
 pub fn build_default_operator_task_registry() -> OperatorTaskRegistry {
     OperatorTaskRegistry::new().add_table_func_task_builder(
-        Box::new(table_funcs::ReadFilesTaskBuilder::new()),
-        Box::new(table_funcs::ReadFilesSyntaxValidator::new()),
+        Box::new(table_func_tasks::ReadFilesTaskBuilder::new()),
+        Box::new(table_func_tasks::ReadFilesSyntaxValidator::new()),
     )
 }

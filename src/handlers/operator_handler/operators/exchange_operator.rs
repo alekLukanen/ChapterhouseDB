@@ -368,7 +368,7 @@ impl RecordPool {
     }
 
     fn requeue_reserved_records_with_stale_heartbeat(&mut self) -> Result<()> {
-        self.operator_record_queues.iter_mut().for_each(|q| {
+        self.operator_record_queues.iter_mut().try_for_each(|q| {
             q.records_reserved_by_operator
                 .iter()
                 .filter(|res_rec| {
@@ -382,16 +382,20 @@ impl RecordPool {
                 .map(|res_rec| res_rec.0.clone())
                 .collect::<Vec<u64>>()
                 .iter()
-                .for_each(|res_rec_id| {
+                .try_for_each(|res_rec_id| {
                     q.records_reserved_by_operator.remove(res_rec_id);
                     q.records_to_process.push_front(res_rec_id.clone());
                     if let Some(metrics) = q.record_processing_metrics.get_mut(&res_rec_id) {
                         metrics.failure_count += 1;
+                        Ok(())
+                    } else {
+                        Err(RecordPoolError::RecordProcessingMetricsDoesNotExist(
+                            res_rec_id.clone(),
+                            q.operator_id.clone(),
+                        )
+                        .into())
                     }
-                });
-        });
-        return Err(
-            RecordPoolError::RecordProcessingMetricsDoesNotExist(res_rec_id.clone()).into(),
-        );
+                })
+        })
     }
 }
