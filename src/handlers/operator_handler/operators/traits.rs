@@ -15,11 +15,13 @@ use super::{
     ConnectionRegistry,
 };
 
-pub trait TableFuncTaskBuilder: fmt::Debug + Send + Sync {
+//////////////////////////////////////////////////////////
+// task builder traits
+
+pub trait TaskBuilder: fmt::Debug + Send + Sync {
     fn build(
         &self,
         op_in_config: OperatorInstanceConfig,
-        table_func_config: TableFuncConfig,
         operator_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
         conn_reg: Arc<ConnectionRegistry>,

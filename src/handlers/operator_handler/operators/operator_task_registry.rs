@@ -1,10 +1,20 @@
+use crate::planner;
+
 use super::{
     table_func_tasks,
-    traits::{TableFuncSyntaxValidator, TableFuncTaskBuilder},
+    traits::{TableFuncSyntaxValidator, TaskBuilder},
 };
+use anyhow::Result;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum OperatorTaskRegistryError {
+    #[error("not implemented: {0}")]
+    NotImplemented(String),
+}
 
 struct TableFuncTaskDef {
-    builder: Box<dyn TableFuncTaskBuilder>,
+    builder: Box<dyn TaskBuilder>,
     syntax_validator: Box<dyn TableFuncSyntaxValidator>,
 }
 
@@ -21,7 +31,7 @@ impl OperatorTaskRegistry {
 
     pub fn add_table_func_task_builder(
         mut self,
-        builder: Box<dyn TableFuncTaskBuilder>,
+        builder: Box<dyn TaskBuilder>,
         syntax_validator: Box<dyn TableFuncSyntaxValidator>,
     ) -> Self {
         self.table_funcs.push(TableFuncTaskDef {
@@ -31,10 +41,36 @@ impl OperatorTaskRegistry {
         self
     }
 
-    pub fn find_table_func_task_builder(
+    pub fn find_task_builder(
+        &self,
+        task: &planner::OperatorTask,
+    ) -> Result<Option<&Box<dyn TaskBuilder>>> {
+        match task {
+            planner::OperatorTask::TableFunc { func_name, .. } => {
+                Ok(self.find_table_func_task_builder_by_name(func_name))
+            }
+            planner::OperatorTask::Table { .. } => Err(OperatorTaskRegistryError::NotImplemented(
+                format!("find task builder for OperatorTask type {}", task.name()),
+            )
+            .into()),
+            planner::OperatorTask::Filter { .. } => Err(OperatorTaskRegistryError::NotImplemented(
+                format!("find task builder for OperatorTask type {}", task.name()),
+            )
+            .into()),
+            planner::OperatorTask::MaterializeFile { .. } => {
+                Err(OperatorTaskRegistryError::NotImplemented(format!(
+                    "find task builder for OperatorTask type {}",
+                    task.name()
+                ))
+                .into())
+            }
+        }
+    }
+
+    pub fn find_table_func_task_builder_by_name(
         &self,
         func_name: &String,
-    ) -> Option<&Box<dyn TableFuncTaskBuilder>> {
+    ) -> Option<&Box<dyn TaskBuilder>> {
         let def = self
             .table_funcs
             .iter()

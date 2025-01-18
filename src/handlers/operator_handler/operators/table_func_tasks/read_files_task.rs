@@ -13,9 +13,7 @@ use crate::handlers::message_handler::{
 use crate::handlers::message_router_handler::MessageConsumer;
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
 use crate::handlers::operator_handler::operators::operator_task_trackers::RestrictedOperatorTaskTracker;
-use crate::handlers::operator_handler::operators::traits::{
-    TableFuncSyntaxValidator, TableFuncTaskBuilder,
-};
+use crate::handlers::operator_handler::operators::traits::{TableFuncSyntaxValidator, TaskBuilder};
 use crate::handlers::operator_handler::operators::ConnectionRegistry;
 
 use super::config::TableFuncConfig;
@@ -471,17 +469,17 @@ impl ReadFilesTaskBuilder {
     }
 }
 
-impl TableFuncTaskBuilder for ReadFilesTaskBuilder {
+impl TaskBuilder for ReadFilesTaskBuilder {
     fn build(
         &self,
         op_in_config: OperatorInstanceConfig,
-        table_func_config: TableFuncConfig,
         operator_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
         conn_reg: Arc<ConnectionRegistry>,
         tt: &mut RestrictedOperatorTaskTracker,
         ct: CancellationToken,
     ) -> Result<(tokio::sync::oneshot::Receiver<()>, Box<dyn MessageConsumer>)> {
+        let table_func_config = TableFuncConfig::try_from(&op_in_config)?;
         let read_files_config = ReadFilesConfig::parse_config(&table_func_config)?;
         let mut op = ReadFilesTask::new(
             op_in_config,

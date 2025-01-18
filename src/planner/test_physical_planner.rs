@@ -110,7 +110,7 @@ fn test_build_materialize_operators() -> Result<()> {
 
     assert_eq!(2, operations.len());
 
-    let ref expected_task_type = OperatorTask::Materialize {
+    let ref expected_task_type = OperatorTask::MaterializeFile {
         data_format: DataFormat::Parquet,
         fields: vec![SelectItem::Wildcard(WildcardAdditionalOptions {
             opt_except: None,

@@ -51,18 +51,15 @@ impl OperatorBuilder {
         match &op_in.config.operator.operator_type {
             planner::OperatorType::Producer { task, .. } => match task {
                 planner::OperatorTask::TableFunc { func_name, .. } => {
-                    let bldr =
-                        if let Some(bldr) = self.op_reg.find_table_func_task_builder(func_name) {
-                            bldr
-                        } else {
-                            return Err(OperatorBuilderError::NotImplemented(format!(
-                                "table func: {}",
-                                func_name
-                            ))
-                            .into());
-                        };
-
-                    let table_func_config = TableFuncConfig::try_from(&op_in.config)?;
+                    let bldr = if let Some(bldr) = self.op_reg.find_task_builder(task)? {
+                        bldr
+                    } else {
+                        return Err(OperatorBuilderError::NotImplemented(format!(
+                            "table func: {}",
+                            func_name
+                        ))
+                        .into());
+                    };
 
                     let (pipe1, pipe2) = Pipe::new(1);
                     let mut producer_operator = ProducerOperator::new(
@@ -77,7 +74,6 @@ impl OperatorBuilder {
                     let task_ct = producer_operator.get_task_ct();
                     let (oneshot_res, msg_consumer) = bldr.build(
                         op_in.config.clone(),
-                        table_func_config,
                         pipe2,
                         self.msg_reg.clone(),
                         self.conn_reg.clone(),
@@ -105,7 +101,7 @@ impl OperatorBuilder {
                     )
                     .into())
                 }
-                planner::OperatorTask::Materialize { .. } => {
+                planner::OperatorTask::MaterializeFile { .. } => {
                     return Err(OperatorBuilderError::NotImplemented(
                         "materialize operator task".to_string(),
                     )

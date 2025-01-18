@@ -45,10 +45,21 @@ pub enum OperatorTask {
         expr: Expr,
     },
     // materialize stage
-    Materialize {
+    MaterializeFile {
         data_format: DataFormat,
         fields: Vec<SelectItem>,
     },
+}
+
+impl OperatorTask {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::TableFunc { .. } => "TableFunc",
+            Self::Table { .. } => "Table",
+            Self::Filter { .. } => "Filter",
+            Self::MaterializeFile { .. } => "MaterializeFile",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
@@ -394,7 +405,7 @@ impl PhysicalPlanner {
             }
         };
 
-        let op_task = OperatorTask::Materialize {
+        let op_task = OperatorTask::MaterializeFile {
             data_format: DataFormat::Parquet,
             fields,
         };

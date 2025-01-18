@@ -1,7 +1,7 @@
 use crate::planner;
 
 #[derive(Debug)]
-pub struct MaterializeConfig {
+pub struct MaterializeFileConfig {
     pub data_format: planner::DataFormat,
     pub fields: Vec<sqlparser::ast::SelectItem>,
 
