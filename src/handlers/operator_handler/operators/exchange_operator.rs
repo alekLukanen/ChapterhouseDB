@@ -167,6 +167,14 @@ impl MessageReceiver for ExchangeOperatorSubscriber {
 pub enum RecordPoolError {
     #[error("operator does not exist: {0}")]
     OperatorDoesNotExist(String),
+    #[error("record does not exist: {0}")]
+    RecordDoesNotExist(u64),
+    #[error("record {0} processing metrics does not exist for operator {1}")]
+    RecordProcessingMetricsDoesNotExist(u64, String),
+    #[error("reserved record instance missing for operator: {0}")]
+    ReservedRecordInstanceMissingForOperator(String),
+    #[error("record {0} already processed by operator {1}")]
+    RecordAlreadyProcessedByOperator(u64, String),
 }
 
 struct RecordRef {
@@ -178,23 +186,36 @@ struct RecordRef {
 struct ReservedRecord {
     record_id: u64,
     operator_instance_id: u128,
-    sent_record_to_operator_time: chrono::DateTime<chrono::Utc>,
-    last_heartbeat_time: chrono::DateTime<chrono::Utc>,
+    reserved_time: chrono::DateTime<chrono::Utc>,
+    last_heartbeat_time: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+struct RecordProcessingMetrics {
+    failure_count: u32,
 }
 
 struct OperatorRecordQueue {
     operator_id: String,
     records_to_process: std::collections::VecDeque<u64>,
     records_reserved_by_operator: std::collections::HashMap<u64, ReservedRecord>,
+    record_processing_metrics: std::collections::HashMap<u64, RecordProcessingMetrics>,
+}
+
+struct RecordPoolConfig {
+    max_heartbeat_interval: chrono::Duration,
 }
 
 struct RecordPool {
     records: std::collections::HashMap<u64, RecordRef>,
     operator_record_queues: Vec<OperatorRecordQueue>,
+    operator_ids: Vec<String>,
+
+    config: RecordPoolConfig,
 }
 
 impl RecordPool {
-    fn new(operator_ids: Vec<String>) -> RecordPool {
+    fn new(mut operator_ids: Vec<String>, config: RecordPoolConfig) -> RecordPool {
+        operator_ids.sort();
         RecordPool {
             records: std::collections::HashMap::new(),
             operator_record_queues: operator_ids
@@ -203,8 +224,11 @@ impl RecordPool {
                     operator_id: item.clone(),
                     records_to_process: std::collections::VecDeque::new(),
                     records_reserved_by_operator: std::collections::HashMap::new(),
+                    record_processing_metrics: std::collections::HashMap::new(),
                 })
                 .collect(),
+            operator_ids,
+            config,
         }
     }
 
@@ -225,10 +249,11 @@ impl RecordPool {
     fn get_next_record(
         &mut self,
         operator_id: &String,
+        operator_instance_id: u128,
     ) -> Result<Option<(u64, arrow::array::RecordBatch)>> {
-        let mut op_queue = if let Some(queue) = self
+        let op_queue = if let Some(queue) = self
             .operator_record_queues
-            .iter()
+            .iter_mut()
             .find(|item| item.operator_id == *operator_id)
         {
             queue
@@ -236,6 +261,137 @@ impl RecordPool {
             return Err(RecordPoolError::OperatorDoesNotExist(operator_id.clone()).into());
         };
 
-        Ok(None)
+        let record_id = op_queue.records_to_process.pop_front();
+        match record_id {
+            Some(record_id) => {
+                let record = if let Some(rec) = self.records.get(&record_id) {
+                    rec
+                } else {
+                    panic!("unable to find record in pool but it should exist");
+                };
+
+                // store a reserved record
+                op_queue.records_reserved_by_operator.insert(
+                    record_id,
+                    ReservedRecord {
+                        record_id,
+                        operator_instance_id,
+                        reserved_time: chrono::Utc::now(),
+                        last_heartbeat_time: None,
+                    },
+                );
+                op_queue
+                    .record_processing_metrics
+                    .insert(record_id, RecordProcessingMetrics { failure_count: 0 });
+
+                Ok(Some((record_id, record.record.clone())))
+            }
+            None => Ok(None),
+        }
+    }
+
+    fn update_reserved_record_heartbeat(&mut self, operator_id: &String, record_id: u64) {
+        self.operator_record_queues
+            .iter_mut()
+            .filter(|item| item.operator_id == *operator_id)
+            .for_each(|item| {
+                item.records_reserved_by_operator
+                    .iter_mut()
+                    .filter(|item2| item2.1.record_id == record_id)
+                    .take(1)
+                    .for_each(|item2| {
+                        item2.1.last_heartbeat_time = Some(chrono::Utc::now());
+                    });
+            })
+    }
+
+    fn operator_completed_record_processing(
+        &mut self,
+        operator_id: &String,
+        record_id: u64,
+    ) -> Result<()> {
+        let op_queue = if let Some(queue) = self
+            .operator_record_queues
+            .iter_mut()
+            .find(|item| item.operator_id == *operator_id)
+        {
+            queue
+        } else {
+            return Err(RecordPoolError::OperatorDoesNotExist(operator_id.clone()).into());
+        };
+
+        let reserved_record = op_queue.records_reserved_by_operator.remove(&record_id);
+        if reserved_record.is_none() {
+            return Err(RecordPoolError::ReservedRecordInstanceMissingForOperator(
+                operator_id.clone(),
+            )
+            .into());
+        }
+        op_queue.record_processing_metrics.remove(&record_id);
+
+        let rec_ref = self.records.get_mut(&record_id);
+        match rec_ref {
+            Some(rec_ref) => {
+                let already_finished = rec_ref
+                    .processed_by_operators
+                    .iter()
+                    .find(|&item| *item == *operator_id)
+                    .is_some();
+                if already_finished {
+                    // this should never be the case
+                    return Err(RecordPoolError::RecordAlreadyProcessedByOperator(
+                        record_id,
+                        operator_id.clone(),
+                    )
+                    .into());
+                }
+
+                rec_ref.processed_by_operators.push(operator_id.clone());
+
+                if rec_ref.processed_by_operators.len() == self.operator_ids.len() {
+                    let mut pbo = rec_ref.processed_by_operators.clone();
+                    pbo.sort();
+                    if pbo == self.operator_ids {
+                        self.records.remove(&record_id);
+                    }
+                }
+
+                Ok(())
+            }
+            None => Err(RecordPoolError::RecordDoesNotExist(record_id).into()),
+        }
+    }
+
+    fn maintain(&mut self) -> Result<()> {
+        self.requeue_reserved_records_with_stale_heartbeat()?;
+        Ok(())
+    }
+
+    fn requeue_reserved_records_with_stale_heartbeat(&mut self) -> Result<()> {
+        self.operator_record_queues.iter_mut().for_each(|q| {
+            q.records_reserved_by_operator
+                .iter()
+                .filter(|res_rec| {
+                    if let Some(last_heartbeat_time) = res_rec.1.last_heartbeat_time {
+                        chrono::Utc::now().signed_duration_since(last_heartbeat_time)
+                            > self.config.max_heartbeat_interval
+                    } else {
+                        false
+                    }
+                })
+                .map(|res_rec| res_rec.0.clone())
+                .collect::<Vec<u64>>()
+                .iter()
+                .for_each(|res_rec_id| {
+                    q.records_reserved_by_operator.remove(res_rec_id);
+                    q.records_to_process.push_front(res_rec_id.clone());
+                    if let Some(metrics) = q.record_processing_metrics.get_mut(&res_rec_id) {
+                        metrics.failure_count += 1;
+                    }
+                });
+        });
+        return Err(
+            RecordPoolError::RecordProcessingMetricsDoesNotExist(res_rec_id.clone()).into(),
+        );
     }
 }
