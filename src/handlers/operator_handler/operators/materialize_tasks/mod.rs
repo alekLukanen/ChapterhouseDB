@@ -1,3 +1,3 @@
 mod config;
 mod conversions;
-mod materialize_file_task;
+mod materialize_files_task;

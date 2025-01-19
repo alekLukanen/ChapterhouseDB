@@ -6,39 +6,39 @@ use crate::{
     planner::{OperatorTask, OperatorType},
 };
 
-use super::config::MaterializeFileConfig;
+use super::config::MaterializeFilesConfig;
 
 #[derive(Debug, Error)]
-pub enum TryFromMaterializeFileConfigError {
+pub enum TryFromMaterializeFilesConfigError {
     #[error("unable to convert")]
     UnableToConvert,
 }
 
-impl TryFrom<&OperatorInstanceConfig> for MaterializeFileConfig {
-    type Error = TryFromMaterializeFileConfigError;
+impl TryFrom<&OperatorInstanceConfig> for MaterializeFilesConfig {
+    type Error = TryFromMaterializeFilesConfigError;
 
     fn try_from(
         op_in_config: &OperatorInstanceConfig,
-    ) -> Result<MaterializeFileConfig, Self::Error> {
+    ) -> Result<MaterializeFilesConfig, Self::Error> {
         match &op_in_config.operator.operator_type {
             OperatorType::Producer {
                 task,
                 outbound_exchange_id,
                 inbound_exchange_ids,
             } => match task {
-                OperatorTask::MaterializeFile {
+                OperatorTask::MaterializeFiles {
                     data_format,
                     fields,
-                } => Ok(MaterializeFileConfig {
+                } => Ok(MaterializeFilesConfig {
                     data_format: data_format.clone(),
                     fields: fields.clone(),
                     outbound_exchange_id: outbound_exchange_id.clone(),
                     inbound_exchange_ids: inbound_exchange_ids.clone(),
                 }),
-                _ => Err(TryFromMaterializeFileConfigError::UnableToConvert.into()),
+                _ => Err(TryFromMaterializeFilesConfigError::UnableToConvert.into()),
             },
             OperatorType::Exchange { .. } => {
-                Err(TryFromMaterializeFileConfigError::UnableToConvert.into())
+                Err(TryFromMaterializeFilesConfigError::UnableToConvert.into())
             }
         }
     }

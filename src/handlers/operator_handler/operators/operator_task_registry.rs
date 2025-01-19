@@ -11,6 +11,10 @@ use thiserror::Error;
 pub enum OperatorTaskRegistryError {
     #[error("not implemented: {0}")]
     NotImplemented(String),
+    #[error("materialize file task builder already set")]
+    MaterializeFileTaskBuilderAlreadySet,
+    #[error("task func task builder already added for function: {0}")]
+    TaskFuncTaskBuilderAlreadyAddedForFunction(String),
 }
 
 struct TableFuncTaskDef {
@@ -18,27 +22,59 @@ struct TableFuncTaskDef {
     syntax_validator: Box<dyn TableFuncSyntaxValidator>,
 }
 
+struct MaterializeFileTaskDef {
+    builder: Box<dyn TaskBuilder>,
+    data_formats: Vec<planner::DataFormat>,
+}
+
 pub struct OperatorTaskRegistry {
-    table_funcs: Vec<TableFuncTaskDef>,
+    table_func_tasks: Vec<TableFuncTaskDef>,
+    materialize_files_task: Option<MaterializeFileTaskDef>,
 }
 
 impl OperatorTaskRegistry {
     pub fn new() -> OperatorTaskRegistry {
         OperatorTaskRegistry {
-            table_funcs: Vec::new(),
+            table_func_tasks: Vec::new(),
+            materialize_files_task: None,
         }
+    }
+
+    pub fn add_materialize_files_builder(
+        mut self,
+        builder: Box<dyn TaskBuilder>,
+        data_formats: Vec<planner::DataFormat>,
+    ) -> Result<Self> {
+        if self.materialize_files_task.is_some() {
+            return Err(OperatorTaskRegistryError::MaterializeFileTaskBuilderAlreadySet.into());
+        }
+        self.materialize_files_task = Some(MaterializeFileTaskDef {
+            builder,
+            data_formats,
+        });
+        Ok(self)
     }
 
     pub fn add_table_func_task_builder(
         mut self,
         builder: Box<dyn TaskBuilder>,
         syntax_validator: Box<dyn TableFuncSyntaxValidator>,
-    ) -> Self {
-        self.table_funcs.push(TableFuncTaskDef {
+    ) -> Result<Self> {
+        if self.table_func_tasks.iter().any(|task| {
+            task.syntax_validator.implements_func_name() == syntax_validator.implements_func_name()
+        }) {
+            return Err(
+                OperatorTaskRegistryError::TaskFuncTaskBuilderAlreadyAddedForFunction(
+                    syntax_validator.implements_func_name(),
+                )
+                .into(),
+            );
+        }
+        self.table_func_tasks.push(TableFuncTaskDef {
             builder,
             syntax_validator,
         });
-        self
+        Ok(self)
     }
 
     pub fn find_task_builder(
@@ -57,12 +93,12 @@ impl OperatorTaskRegistry {
                 format!("find task builder for OperatorTask type {}", task.name()),
             )
             .into()),
-            planner::OperatorTask::MaterializeFile { .. } => {
-                Err(OperatorTaskRegistryError::NotImplemented(format!(
-                    "find task builder for OperatorTask type {}",
-                    task.name()
-                ))
-                .into())
+            planner::OperatorTask::MaterializeFiles { .. } => {
+                if let Some(materialize_files_task) = &self.materialize_files_task {
+                    Ok(Some(&materialize_files_task.builder))
+                } else {
+                    Ok(None)
+                }
             }
         }
     }
@@ -72,7 +108,7 @@ impl OperatorTaskRegistry {
         func_name: &String,
     ) -> Option<&Box<dyn TaskBuilder>> {
         let def = self
-            .table_funcs
+            .table_func_tasks
             .iter()
             .find(|item| item.syntax_validator.implements_func_name() == *func_name);
         if let Some(def) = def {
@@ -83,9 +119,10 @@ impl OperatorTaskRegistry {
     }
 }
 
-pub fn build_default_operator_task_registry() -> OperatorTaskRegistry {
-    OperatorTaskRegistry::new().add_table_func_task_builder(
+pub fn build_default_operator_task_registry() -> Result<OperatorTaskRegistry> {
+    let reg = OperatorTaskRegistry::new().add_table_func_task_builder(
         Box::new(table_func_tasks::ReadFilesTaskBuilder::new()),
         Box::new(table_func_tasks::ReadFilesSyntaxValidator::new()),
-    )
+    )?;
+    Ok(reg)
 }

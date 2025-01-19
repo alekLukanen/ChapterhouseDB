@@ -165,7 +165,7 @@ impl ReadFilesTask {
         }
     }
 
-    pub fn subscriber(&self) -> Box<dyn MessageConsumer> {
+    pub fn consumer(&self) -> Box<dyn MessageConsumer> {
         Box::new(ReadFilesConsumer {
             msg_reg: self.msg_reg.clone(),
         })
@@ -489,7 +489,7 @@ impl TaskBuilder for ReadFilesTaskBuilder {
             conn_reg.clone(),
         );
 
-        let consumer = op.subscriber();
+        let consumer = op.consumer();
 
         let (tx, rx) = tokio::sync::oneshot::channel();
         tt.spawn(async move {

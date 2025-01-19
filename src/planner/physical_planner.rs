@@ -26,6 +26,20 @@ pub enum DataFormat {
     Parquet,
 }
 
+impl DataFormat {
+    fn name(&self) -> &str {
+        match self {
+            Self::Parquet => "Parquet",
+        }
+    }
+}
+
+impl std::fmt::Display for DataFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "DataFormat::{}", self.name())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
 pub enum OperatorTask {
     // table source stage
@@ -45,7 +59,7 @@ pub enum OperatorTask {
         expr: Expr,
     },
     // materialize stage
-    MaterializeFile {
+    MaterializeFiles {
         data_format: DataFormat,
         fields: Vec<SelectItem>,
     },
@@ -57,8 +71,14 @@ impl OperatorTask {
             Self::TableFunc { .. } => "TableFunc",
             Self::Table { .. } => "Table",
             Self::Filter { .. } => "Filter",
-            Self::MaterializeFile { .. } => "MaterializeFile",
+            Self::MaterializeFiles { .. } => "MaterializeFiles",
         }
+    }
+}
+
+impl std::fmt::Display for OperatorTask {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "OperatorTask::{}", self.name())
     }
 }
 
@@ -405,7 +425,7 @@ impl PhysicalPlanner {
             }
         };
 
-        let op_task = OperatorTask::MaterializeFile {
+        let op_task = OperatorTask::MaterializeFiles {
             data_format: DataFormat::Parquet,
             fields,
         };

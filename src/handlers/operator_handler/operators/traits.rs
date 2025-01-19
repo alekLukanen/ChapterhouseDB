@@ -30,6 +30,9 @@ pub trait TaskBuilder: fmt::Debug + Send + Sync {
     ) -> Result<(tokio::sync::oneshot::Receiver<()>, Box<dyn MessageConsumer>)>;
 }
 
+//////////////////////////////////////////////////////////
+// table func validator
+
 pub trait TableFuncSyntaxValidator: fmt::Debug + Send + Sync {
     fn valid(&self, config: &TableFuncConfig) -> bool;
     fn implements_func_name(&self) -> String;

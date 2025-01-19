@@ -16,13 +16,14 @@ use crate::planner;
 use super::exchange_operator::ExchangeOperator;
 use super::operator_task_registry::OperatorTaskRegistry;
 use super::producer_operator::ProducerOperator;
-use super::table_func_tasks::TableFuncConfig;
 use super::ConnectionRegistry;
 
 #[derive(Debug, Error)]
 pub enum OperatorBuilderError {
     #[error("not implemented: {0}")]
     NotImplemented(String),
+    #[error("operator task builder not found: {0}")]
+    OperatorTaskBuilderNotFound(String),
 }
 
 pub struct OperatorBuilder {
@@ -51,43 +52,17 @@ impl OperatorBuilder {
         match &op_in.config.operator.operator_type {
             planner::OperatorType::Producer { task, .. } => match task {
                 planner::OperatorTask::TableFunc { func_name, .. } => {
-                    let bldr = if let Some(bldr) = self.op_reg.find_task_builder(task)? {
-                        bldr
-                    } else {
-                        return Err(OperatorBuilderError::NotImplemented(format!(
-                            "table func: {}",
-                            func_name
-                        ))
-                        .into());
-                    };
-
-                    let (pipe1, pipe2) = Pipe::new(1);
-                    let mut producer_operator = ProducerOperator::new(
-                        op_in.config.clone(),
-                        self.message_router_state.clone(),
-                        pipe1,
-                        self.msg_reg.clone(),
-                    )
-                    .await;
-
-                    let mut restricted_tt = producer_operator.restricted_tt();
-                    let task_ct = producer_operator.get_task_ct();
-                    let (oneshot_res, msg_consumer) = bldr.build(
-                        op_in.config.clone(),
-                        pipe2,
-                        self.msg_reg.clone(),
-                        self.conn_reg.clone(),
-                        &mut restricted_tt,
-                        task_ct,
-                    )?;
-
-                    producer_operator = producer_operator.set_task_msg_consumer(msg_consumer);
-                    let ct = op_in.ct.clone();
-                    tt.spawn(async move {
-                        if let Err(err) = producer_operator.async_main(ct, oneshot_res).await {
-                            error!("{:?}", err);
+                    match self.build_producer_operator(op_in, tt, task).await {
+                        Ok(_) => {
+                            return Ok(());
                         }
-                    });
+                        Err(err) => {
+                            return Err(err.context(format!(
+                                "failed building producer operator for func_name: {}",
+                                func_name
+                            )));
+                        }
+                    }
                 }
                 planner::OperatorTask::Table { .. } => {
                     return Err(OperatorBuilderError::NotImplemented(
@@ -101,11 +76,18 @@ impl OperatorBuilder {
                     )
                     .into())
                 }
-                planner::OperatorTask::MaterializeFile { .. } => {
-                    return Err(OperatorBuilderError::NotImplemented(
-                        "materialize operator task".to_string(),
-                    )
-                    .into())
+                planner::OperatorTask::MaterializeFiles { data_format, .. } => {
+                    match self.build_producer_operator(op_in, tt, task).await {
+                        Ok(_) => {
+                            return Ok(());
+                        }
+                        Err(err) => {
+                            return Err(err.context(format!(
+                                "failed building producer operator for data format: {}",
+                                data_format
+                            )));
+                        }
+                    }
                 }
             },
             planner::OperatorType::Exchange { .. } => {
@@ -123,6 +105,56 @@ impl OperatorBuilder {
                 });
             }
         }
+
+        Ok(())
+    }
+
+    async fn build_producer_operator(
+        &self,
+        op_in: &OperatorInstance,
+        tt: &TaskTracker,
+        task: &planner::OperatorTask,
+    ) -> Result<()> {
+        let bldr = match self.op_reg.find_task_builder(task) {
+            Ok(Some(bldr)) => bldr,
+            Ok(None) => {
+                return Err(OperatorBuilderError::OperatorTaskBuilderNotFound(
+                    task.name().to_string(),
+                )
+                .into());
+            }
+            Err(err) => {
+                return Err(err.context("failed trying to find the task builder"));
+            }
+        };
+
+        let (pipe1, pipe2) = Pipe::new(1);
+        let mut producer_operator = ProducerOperator::new(
+            op_in.config.clone(),
+            self.message_router_state.clone(),
+            pipe1,
+            self.msg_reg.clone(),
+        )
+        .await;
+
+        let mut restricted_tt = producer_operator.restricted_tt();
+        let task_ct = producer_operator.get_task_ct();
+        let (oneshot_res, msg_consumer) = bldr.build(
+            op_in.config.clone(),
+            pipe2,
+            self.msg_reg.clone(),
+            self.conn_reg.clone(),
+            &mut restricted_tt,
+            task_ct,
+        )?;
+
+        producer_operator = producer_operator.set_task_msg_consumer(msg_consumer);
+        let ct = op_in.ct.clone();
+        tt.spawn(async move {
+            if let Err(err) = producer_operator.async_main(ct, oneshot_res).await {
+                error!("{:?}", err);
+            }
+        });
 
         Ok(())
     }

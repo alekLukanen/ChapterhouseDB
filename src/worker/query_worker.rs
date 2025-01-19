@@ -64,7 +64,7 @@ impl QueryWorker {
         let tt = TaskTracker::new();
 
         let msg_reg = Arc::new(MessageRegistry::new());
-        let op_reg = Arc::new(operators::build_default_operator_task_registry());
+        let op_reg = Arc::new(operators::build_default_operator_task_registry()?);
         let conn_reg = self.config.conn_reg.clone();
 
         // Connect Pool and Router ////////////////////////
