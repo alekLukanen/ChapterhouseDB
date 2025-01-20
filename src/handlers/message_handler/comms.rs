@@ -1,8 +1,11 @@
+use std::collections::VecDeque;
+
 use anyhow::Result;
 use thiserror::Error;
 use tokio::sync::mpsc;
+use tracing::field::debug;
 
-use super::Message;
+use super::{Message, MessageName};
 
 #[derive(Debug, Error)]
 pub enum PipeError {
@@ -16,6 +19,7 @@ pub struct Pipe {
     receiver: mpsc::Receiver<Message>,
     sent_from_query_id: Option<u128>,
     sent_from_operation_id: Option<u128>,
+    msg_queue: VecDeque<Message>,
 }
 
 impl Pipe {
@@ -31,12 +35,14 @@ impl Pipe {
                 receiver: rx2,
                 sent_from_query_id: None,
                 sent_from_operation_id: None,
+                msg_queue: VecDeque::new(),
             },
             Pipe {
                 sender: tx2,
                 receiver: rx1,
                 sent_from_query_id: None,
                 sent_from_operation_id: None,
+                msg_queue: VecDeque::new(),
             },
         )
     }
@@ -57,6 +63,7 @@ impl Pipe {
                 receiver: rx,
                 sent_from_query_id: None,
                 sent_from_operation_id: None,
+                msg_queue: VecDeque::new(),
             },
             tx,
         )
@@ -98,6 +105,36 @@ impl Pipe {
 
     pub async fn recv(&mut self) -> Option<Message> {
         self.receiver.recv().await
+    }
+
+    pub async fn recv_filter(
+        &mut self,
+        msg_name: MessageName,
+        max_wait: chrono::Duration,
+    ) -> Result<Option<Message>> {
+        let timer = tokio::time::sleep(max_wait.to_std()?);
+        loop {
+            tokio::select! {
+                msg = self.receiver.recv() => {
+
+                }
+                _ = timer => {
+                }
+            }
+            let msg = self.receiver.recv().await;
+            match msg {
+                Some(msg) => {
+                    if msg.msg.msg_name() == msg_name {
+                        return Ok(Some(msg));
+                    } else {
+                        self.msg_queue.push_back(msg);
+                    }
+                }
+                None => {
+                    return Ok(None);
+                }
+            }
+        }
     }
 
     pub fn close_receiver(&mut self) {
