@@ -43,6 +43,7 @@ pub struct SerializedMessage {
     data_len: u64,
     msg_name_id: u16,
     msg_id: u128,
+    request_id: u128,
 
     // determines which of the "senf_from" values
     // have been set
@@ -77,6 +78,7 @@ impl SerializedMessage {
         let data_len: u64 = msg_data.len() as u64;
         let msg_name_id = msg.msg_name_id;
         let msg_id = msg.msg_id;
+        let request_id = msg.request_id;
         let mut routing_flags: u8 = 0;
         let mut sent_from_flags: u8 = 0;
 
@@ -128,6 +130,7 @@ impl SerializedMessage {
             header_version: HEADER_VERSION,
             msg_name_id,
             msg_id,
+            request_id,
             sent_from_flags,
             sent_from_worker_id,
             sent_from_query_id,
@@ -143,7 +146,7 @@ impl SerializedMessage {
     }
 
     pub fn header_len() -> u32 {
-        8 + 2 + 2 + 16 + 1 + 16 + 16 + 16 + 16 + 1 + 16 + 16 + 16
+        8 + 2 + 2 + 16 + 16 + 1 + 16 + 16 + 16 + 16 + 1 + 16 + 16 + 16
     }
 
     pub fn parse_registered_msg_id(data: &mut BytesMut) -> Result<u16> {
@@ -169,6 +172,7 @@ impl SerializedMessage {
                 let header_version = buf.get_u16();
                 let msg_name_id = buf.get_u16();
                 let msg_id = buf.get_u128();
+                let request_id = buf.get_u128();
 
                 let sent_from_flags = buf.get_u8();
                 let sent_from_worker_id = buf.get_u128();
@@ -194,6 +198,7 @@ impl SerializedMessage {
                     header_version,
                     msg_name_id,
                     msg_id,
+                    request_id,
                     sent_from_flags,
                     sent_from_worker_id,
                     sent_from_query_id,
@@ -242,6 +247,7 @@ impl SerializedMessage {
         buf.put_u16(self.header_version);
         buf.put_u16(self.msg_name_id);
         buf.put_u128(self.msg_id);
+        buf.put_u128(self.request_id);
         buf.put_u8(self.sent_from_flags);
         buf.put_u128(self.sent_from_worker_id);
         buf.put_u128(self.sent_from_query_id);
@@ -261,6 +267,7 @@ impl SerializedMessage {
 pub struct Message {
     pub msg_name_id: u16,
     pub msg_id: u128,
+    pub request_id: u128,
     pub msg: Box<dyn SendableMessage>,
 
     // sent from
@@ -285,6 +292,7 @@ impl Clone for Message {
         Message {
             msg_name_id: self.msg_name_id,
             msg_id: self.msg_id,
+            request_id: self.request_id,
             msg: self.msg.clone_box(),
             sent_from_worker_id: self.sent_from_worker_id,
             sent_from_query_id: self.sent_from_query_id,
@@ -311,6 +319,7 @@ impl Message {
         Message {
             msg_name_id: msg.msg_name().as_u16(),
             msg_id: Uuid::new_v4().as_u128(),
+            request_id: Uuid::new_v4().as_u128(),
             msg,
             sent_from_worker_id: None,
             sent_from_query_id: None,
@@ -327,6 +336,7 @@ impl Message {
 
     pub fn reply(&self, sendable: Box<dyn SendableMessage>) -> Message {
         let mut msg = Message::new(sendable);
+        msg.request_id = self.request_id.clone();
         msg.route_to_worker_id = self.sent_from_worker_id.clone();
         msg.route_to_operation_id = self.sent_from_operation_id.clone();
         msg.route_to_connection_id = self.sent_from_connection_id.clone();
@@ -337,6 +347,11 @@ impl Message {
 
     pub fn take_msg(self) -> Box<dyn SendableMessage> {
         self.msg
+    }
+
+    pub fn set_request_id(mut self, _id: u128) -> Message {
+        self.request_id = _id;
+        self
     }
 
     pub fn set_inbound_stream_id(mut self, _id: u128) -> Message {
@@ -435,6 +450,7 @@ impl Message {
         let msg = Message {
             msg_name_id: ser_msg.msg_name_id,
             msg_id: ser_msg.msg_id,
+            request_id: ser_msg.request_id,
             msg,
             sent_from_worker_id,
             sent_from_query_id,

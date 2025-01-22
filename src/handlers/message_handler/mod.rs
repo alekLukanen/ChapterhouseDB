@@ -6,7 +6,7 @@ mod messages;
 #[cfg(test)]
 pub mod test_messages;
 
-pub(crate) use self::comms::Pipe;
+pub use self::comms::{Pipe, Request};
 pub use self::connection_pool_handler::ConnectionPoolHandler;
 pub use self::message_registry::MessageRegistry;
 pub use self::messages::*;

@@ -5,7 +5,9 @@ use thiserror::Error;
 use tracing::debug;
 
 use crate::handlers::{
-    message_handler::{Message, MessageRegistry, Ping, Pipe, QueryHandlerRequests},
+    message_handler::{
+        Message, MessageName, MessageRegistry, Ping, Pipe, QueryHandlerRequests, Request,
+    },
     operator_handler::operator_handler_state::OperatorInstanceConfig,
 };
 
@@ -15,8 +17,6 @@ pub enum IdentifyExchangeRequestError {
     OperatorTypeNotImplemented(String),
     #[error("received the wrong message type")]
     ReceivedTheWrongMessageType,
-    #[error("received none message")]
-    ReceivedNoneMessage,
     #[error("received no operator instances for the exchange")]
     ReceivedNoOperatorInstancesForTheExchange,
     #[error("received multiple operator instances for the exchange")]
@@ -127,38 +127,32 @@ impl<'a> IdentifyExchangeRequest<'a> {
     }
 
     async fn get_exchange_worker_id(&mut self) -> Result<u128> {
+        let mut msg = Message::new(Box::new(Ping::Ping));
         if let Some(exchange_operator_instance_id) = self.exchange_operator_instance_id {
-            let msg = Message::new(Box::new(Ping::Ping))
-                .set_route_to_operation_id(exchange_operator_instance_id);
-            self.pipe.send(msg).await?;
+            msg = msg.set_route_to_operation_id(exchange_operator_instance_id);
         } else {
             return Err(IdentifyExchangeRequestError::ExchangeOperatorInstanceIdNotSet.into());
         }
 
-        let resp_msg = self.pipe.recv().await;
-        match resp_msg {
-            Some(resp_msg) => {
-                let ping_msg: &Ping = self.msg_reg.try_cast_msg(&resp_msg)?;
-                match ping_msg {
-                    Ping::Pong => {
-                        let worker_id = if let Some(id) = resp_msg.sent_from_worker_id {
-                            id
-                        } else {
-                            return Err(
-                                IdentifyExchangeRequestError::ReceivedMessageWithoutAWorkerId
-                                    .into(),
-                            );
-                        };
-                        Ok(worker_id)
-                    }
-                    Ping::Ping => {
-                        Err(IdentifyExchangeRequestError::ReceivedTheWrongMessageType.into())
-                    }
+        let resp_msg = self
+            .pipe
+            .send_request(Request {
+                msg,
+                expect_response_msg_name: MessageName::Ping,
+                timeout: chrono::Duration::seconds(10),
+            })
+            .await?;
+
+        let ping_msg: &Ping = self.msg_reg.try_cast_msg(&resp_msg)?;
+        match ping_msg {
+            Ping::Pong => {
+                if let Some(worker_id) = resp_msg.sent_from_worker_id {
+                    Ok(worker_id)
+                } else {
+                    Err(IdentifyExchangeRequestError::ReceivedMessageWithoutAWorkerId.into())
                 }
             }
-            None => {
-                return Err(IdentifyExchangeRequestError::ReceivedNoneMessage.into());
-            }
+            Ping::Ping => Err(IdentifyExchangeRequestError::ReceivedTheWrongMessageType.into()),
         }
     }
 
@@ -194,46 +188,43 @@ impl<'a> IdentifyExchangeRequest<'a> {
 
     async fn get_exchange_operator_instance_id(&mut self) -> Result<u128> {
         // find the worker with the exchange
-        let ping_msg = Message::new(Box::new(
+        let list_msg = Message::new(Box::new(
             QueryHandlerRequests::ListOperatorInstancesRequest {
                 query_id: self.query_id.clone(),
                 operator_id: self.exchange_id.clone(),
             },
         ));
-        self.pipe.send(ping_msg).await?;
 
-        debug!("sent list request");
+        let resp_msg = self
+            .pipe
+            .send_request(Request {
+                msg: list_msg,
+                expect_response_msg_name: MessageName::QueryHandlerRequests,
+                timeout: chrono::Duration::seconds(10),
+            })
+            .await?;
 
-        let resp_msg = self.pipe.recv().await;
         debug!("received list response");
 
+        let resp_msg: &QueryHandlerRequests = self.msg_reg.try_cast_msg(&resp_msg)?;
         match resp_msg {
-            Some(resp_msg) => {
-                let resp_msg: &QueryHandlerRequests = self.msg_reg.try_cast_msg(&resp_msg)?;
-                match resp_msg {
-                    QueryHandlerRequests::ListOperatorInstancesResponse { op_instance_ids } => {
-                        if op_instance_ids.len() == 1 {
-                            Ok(op_instance_ids.get(0).unwrap().clone())
-                        } else if op_instance_ids.len() == 0 {
-                            return Err(
-                                IdentifyExchangeRequestError::ReceivedNoOperatorInstancesForTheExchange.into()
-                            );
-                        } else {
-                            return Err(
-                                IdentifyExchangeRequestError::ReceivedMultipleOperatorInstancesForTheExchange
-                                    .into(),
-                            );
-                        }
-                    }
-                    _ => {
-                        return Err(
-                            IdentifyExchangeRequestError::ReceivedTheWrongMessageType.into()
+            QueryHandlerRequests::ListOperatorInstancesResponse { op_instance_ids } => {
+                if op_instance_ids.len() == 1 {
+                    Ok(op_instance_ids.get(0).unwrap().clone())
+                } else if op_instance_ids.len() == 0 {
+                    return Err(
+                        IdentifyExchangeRequestError::ReceivedNoOperatorInstancesForTheExchange
+                            .into(),
+                    );
+                } else {
+                    return Err(
+                        IdentifyExchangeRequestError::ReceivedMultipleOperatorInstancesForTheExchange
+                            .into(),
                         );
-                    }
                 }
             }
-            None => {
-                return Err(IdentifyExchangeRequestError::ReceivedNoneMessage.into());
+            _ => {
+                return Err(IdentifyExchangeRequestError::ReceivedTheWrongMessageType.into());
             }
         }
     }

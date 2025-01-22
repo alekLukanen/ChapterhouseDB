@@ -63,7 +63,6 @@ impl ProducerOperator {
     fn subscriber(&self) -> Box<dyn Subscriber> {
         Box::new(ProducerOperatorSubscriber {
             sender: self.sender.clone(),
-            msg_reg: self.msg_reg.clone(),
             operator_instance_id: self.operator_instance_config.id.clone(),
             query_id: self.operator_instance_config.query_id.clone(),
         })
@@ -155,7 +154,6 @@ impl ProducerOperator {
 #[derive(Debug, Clone)]
 pub struct ProducerOperatorSubscriber {
     sender: mpsc::Sender<Message>,
-    msg_reg: Arc<MessageRegistry>,
     operator_instance_id: u128,
     query_id: u128,
 }

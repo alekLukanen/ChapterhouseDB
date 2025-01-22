@@ -12,10 +12,14 @@ const MAX_MSG_QUEUE_LENGTH: usize = 100;
 pub enum PipeError {
     #[error("timed out waiting for message to send")]
     TimedOutWaitingForMessageToSend,
-    #[error("timed out waiting for message by name: {0}")]
-    TimedOutWaitingForMessageByName(MessageName),
+    #[error("timed out waiting for message with request id: {0}")]
+    TimedOutWaitingForMessageWithRequestId(u128),
     #[error("queue has reach max capacity: {0}")]
     QueueHasReachedMaxCapacity(usize),
+    #[error("channel closed")]
+    ChannelClosed,
+    #[error("request received unexpected message name: {0}")]
+    RequestReceivedUnexpectedMessageName(MessageName),
 }
 
 #[derive(Debug)]
@@ -88,7 +92,25 @@ impl Pipe {
         self
     }
 
-    pub async fn send(&self, msg: Message) -> Result<()> {
+    pub async fn send_request(&mut self, req: Request) -> Result<Message> {
+        let request_id = req.msg.request_id.clone();
+        self.send(req.msg).await?;
+        let msg = self.recv_request(&request_id, req.timeout).await?;
+        if let Some(msg) = msg {
+            if msg.msg.msg_name() == req.expect_response_msg_name {
+                Ok(msg)
+            } else {
+                Err(
+                    PipeError::RequestReceivedUnexpectedMessageName(req.expect_response_msg_name)
+                        .into(),
+                )
+            }
+        } else {
+            Err(PipeError::ChannelClosed.into())
+        }
+    }
+
+    pub async fn send(&self, msg: Message) -> Result<u128> {
         let mut msg = msg;
         if let Some(id) = self.sent_from_query_id {
             msg = msg.set_sent_from_query_id(id);
@@ -96,13 +118,16 @@ impl Pipe {
         if let Some(id) = self.sent_from_operation_id {
             msg = msg.set_sent_from_operation_id(id)
         }
+
+        let request_id = msg.request_id;
         tokio::select! {
-            _ = self.sender.send(msg) => {},
+            _ = self.sender.send(msg) => {
+                Ok(request_id)
+            },
             _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
-                return Err(PipeError::TimedOutWaitingForMessageToSend.into());
+                Err(PipeError::TimedOutWaitingForMessageToSend.into())
             }
         }
-        Ok(())
     }
 
     pub async fn send_all(&self, msgs: Vec<Message>) -> Result<()> {
@@ -119,9 +144,9 @@ impl Pipe {
         self.receiver.recv().await
     }
 
-    pub async fn recv_filter(
+    pub async fn recv_request(
         &mut self,
-        msg_name: MessageName,
+        request_id: &u128,
         max_wait: chrono::Duration,
     ) -> Result<Option<Message>> {
         if self.msg_queue.len() > 0 {
@@ -129,7 +154,7 @@ impl Pipe {
                 .msg_queue
                 .iter()
                 .enumerate()
-                .find(|(_, msg)| msg.msg.msg_name() == msg_name)
+                .find(|(_, msg)| msg.request_id == *request_id)
                 .map(|(idx, _)| idx);
             if let Some(next_msg_idx) = next_msg_idx {
                 let msg = self.msg_queue.remove(next_msg_idx);
@@ -143,7 +168,7 @@ impl Pipe {
             loop {
                 match self.receiver.recv().await {
                     Some(msg) => {
-                        if msg.msg.msg_name() == msg_name {
+                        if msg.request_id == *request_id {
                             return Ok(Some(msg));
                         } else if self.msg_queue.len() < self.max_msg_queue_length {
                             self.msg_queue.push_back(msg);
@@ -161,9 +186,10 @@ impl Pipe {
             }
         })
         .await
-        .unwrap_or(Err(
-            PipeError::TimedOutWaitingForMessageByName(msg_name).into()
-        ))
+        .unwrap_or(Err(PipeError::TimedOutWaitingForMessageWithRequestId(
+            request_id.clone(),
+        )
+        .into()))
     }
 
     pub fn close_receiver(&mut self) {
@@ -173,4 +199,10 @@ impl Pipe {
     pub fn split(self) -> (mpsc::Sender<Message>, mpsc::Receiver<Message>) {
         (self.sender, self.receiver)
     }
+}
+
+pub struct Request {
+    pub msg: Message,
+    pub expect_response_msg_name: MessageName,
+    pub timeout: chrono::Duration,
 }
