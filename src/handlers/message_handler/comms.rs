@@ -98,7 +98,7 @@ impl Pipe {
         }
         tokio::select! {
             _ = self.sender.send(msg) => {},
-            _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
                 return Err(PipeError::TimedOutWaitingForMessageToSend.into());
             }
         }
@@ -124,7 +124,20 @@ impl Pipe {
         msg_name: MessageName,
         max_wait: chrono::Duration,
     ) -> Result<Option<Message>> {
-        // TODO: implement message queue filter pop
+        if self.msg_queue.len() > 0 {
+            let next_msg_idx = self
+                .msg_queue
+                .iter()
+                .enumerate()
+                .find(|(_, msg)| msg.msg.msg_name() == msg_name)
+                .map(|(idx, _)| idx);
+            if let Some(next_msg_idx) = next_msg_idx {
+                let msg = self.msg_queue.remove(next_msg_idx);
+                if let Some(msg) = msg {
+                    return Ok(Some(msg));
+                }
+            }
+        }
 
         tokio::time::timeout(max_wait.to_std()?, async {
             loop {
