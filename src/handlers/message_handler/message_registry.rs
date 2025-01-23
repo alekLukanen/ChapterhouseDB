@@ -7,8 +7,9 @@ use super::{
         IdentifyParser, Message, MessageParser, PingParser, SerializedMessage,
         SerializedMessageError,
     },
-    OperatorInstanceAssignmentParser, OperatorInstanceAvailableParser, QueryHandlerRequests,
-    QueryHandlerRequestsParser, RunQueryParser, RunQueryRespParser, SendableMessage,
+    ExchangeRequestsParser, OperatorInstanceAssignmentParser, OperatorInstanceAvailableParser,
+    QueryHandlerRequests, QueryHandlerRequestsParser, RunQueryParser, RunQueryRespParser,
+    SendableMessage,
 };
 
 #[derive(Debug, Clone, Error)]
@@ -48,6 +49,7 @@ impl MessageRegistry {
         self.add(Box::new(OperatorInstanceAvailableParser::new()));
         self.add(Box::new(OperatorInstanceAssignmentParser::new()));
         self.add(Box::new(QueryHandlerRequestsParser::new()));
+        self.add(Box::new(ExchangeRequestsParser::new()));
     }
 
     pub fn build_msg(&self, buf: &mut BytesMut) -> Result<Option<Message>> {

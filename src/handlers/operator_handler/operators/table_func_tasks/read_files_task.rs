@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
 use crate::handlers::message_handler::{
-    Message, MessageName, MessageRegistry, Ping, Pipe, QueryHandlerRequests, StoreRecordBatch,
+    ExchangeRequests, Message, MessageName, MessageRegistry, Ping, Pipe, QueryHandlerRequests,
 };
 use crate::handlers::message_router_handler::MessageConsumer;
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
@@ -250,7 +250,7 @@ impl ReadFilesTask {
     async fn send_record(&mut self, record: arrow::array::RecordBatch) -> Result<()> {
         if self.exchange_worker_id == None {
             let ref mut pipe = self.operator_pipe;
-            let resp = IdentifyExchangeRequest::request_outbound_exhcnage(
+            let resp = IdentifyExchangeRequest::request_outbound_exchange(
                 &self.operator_instance_config,
                 pipe,
                 self.msg_reg.clone(),
@@ -263,7 +263,7 @@ impl ReadFilesTask {
         assert!(self.exchange_worker_id.is_some());
 
         let msg_record_id = self.next_record_id();
-        let record_msg = Message::new(Box::new(StoreRecordBatch::RequestSendRecord {
+        let record_msg = Message::new(Box::new(ExchangeRequests::SendRecordRequest {
             record_id: msg_record_id,
             record,
             table_aliases: Vec::new(),
@@ -274,9 +274,9 @@ impl ReadFilesTask {
 
         let resp_msg = self.operator_pipe.recv().await;
         if let Some(resp_msg) = resp_msg {
-            let resp_msg: &StoreRecordBatch = self.msg_reg.try_cast_msg(&resp_msg)?;
+            let resp_msg: &ExchangeRequests = self.msg_reg.try_cast_msg(&resp_msg)?;
             match resp_msg {
-                StoreRecordBatch::ResponseReceivedRecord { record_id } => {
+                ExchangeRequests::SendRecordResponse { record_id } => {
                     if *record_id != msg_record_id {
                         return Err(
                             ReadFilesError::ReceivedTheWrongRecordId(record_id.clone()).into()
@@ -367,13 +367,14 @@ impl MessageConsumer for ReadFilesConsumer {
                 }
             },
             MessageName::StoreRecordBatch => {
-                match self.msg_reg.try_cast_msg::<StoreRecordBatch>(msg) {
-                    Ok(StoreRecordBatch::ResponseReceivedRecord { .. }) => true,
-                    Ok(StoreRecordBatch::RequestSendRecord { .. }) => false,
+                match self.msg_reg.try_cast_msg::<ExchangeRequests>(msg) {
+                    Ok(ExchangeRequests::SendRecordResponse { .. }) => true,
+                    Ok(ExchangeRequests::SendRecordRequest { .. }) => false,
                     Err(err) => {
                         error!("{:?}", err);
                         false
                     }
+                    _ => false,
                 }
             }
             MessageName::QueryHandlerRequests => {

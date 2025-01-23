@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
 use crate::handlers::message_handler::{
-    Message, MessageName, MessageRegistry, Ping, Pipe, StoreRecordBatch,
+    ExchangeRequests, Message, MessageName, MessageRegistry, Ping, Pipe,
 };
 use crate::handlers::message_router_handler::{
     MessageConsumer, MessageReceiver, MessageRouterState, Subscriber,
@@ -140,13 +140,14 @@ impl MessageConsumer for ExchangeOperatorSubscriber {
                 }
             },
             MessageName::StoreRecordBatch => {
-                match self.msg_reg.try_cast_msg::<StoreRecordBatch>(msg) {
-                    Ok(StoreRecordBatch::RequestSendRecord { .. }) => true,
-                    Ok(StoreRecordBatch::ResponseReceivedRecord { .. }) => false,
+                match self.msg_reg.try_cast_msg::<ExchangeRequests>(msg) {
+                    Ok(ExchangeRequests::SendRecordRequest { .. }) => true,
+                    Ok(ExchangeRequests::GetNextRecordRequest { .. }) => true,
                     Err(err) => {
                         error!("{}", err);
                         false
                     }
+                    _ => false,
                 }
             }
             _ => false,

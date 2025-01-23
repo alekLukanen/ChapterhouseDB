@@ -490,19 +490,21 @@ pub enum MessageName {
     OperatorInstanceAssignment,
     StoreRecordBatch,
     QueryHandlerRequests,
+    ExchangeRequests,
 }
 
 impl MessageName {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Ping => "ping",
+            Self::Ping => "Ping",
             Self::Identify => "Identify",
-            Self::RunQuery => "run_query",
-            Self::RunQueryResp => "run_query_resp",
-            Self::OperatorInstanceAvailable => "operator_instance_available",
-            Self::OperatorInstanceAssignment => "operator_instance_assignment",
-            Self::StoreRecordBatch => "store_record_batch",
-            Self::QueryHandlerRequests => "query_handler_requests",
+            Self::RunQuery => "RunQuery",
+            Self::RunQueryResp => "RunQueryResp",
+            Self::OperatorInstanceAvailable => "OperatorInstanceAvailable",
+            Self::OperatorInstanceAssignment => "OperatorInstanceAssignment",
+            Self::StoreRecordBatch => "StoreRecordBatch",
+            Self::QueryHandlerRequests => "QueryHandlerRequests",
+            Self::ExchangeRequests => "ExchangeRequests",
         }
     }
     pub fn as_u16(&self) -> u16 {
@@ -515,6 +517,7 @@ impl MessageName {
             Self::OperatorInstanceAssignment => 5,
             Self::StoreRecordBatch => 6,
             Self::QueryHandlerRequests => 7,
+            Self::ExchangeRequests => 8,
         }
     }
 }
@@ -874,6 +877,7 @@ impl MessageParser for OperatorInstanceAssignmentParser {
         MessageName::OperatorInstanceAssignment
     }
 }
+
 ////////////////////////////////////////////////////////////
 //
 
@@ -927,7 +931,7 @@ impl MessageParser for QueryHandlerRequestsParser {
 //
 
 #[derive(Debug, Error)]
-pub enum StoreRecordBatchError {
+pub enum ExchangeRequestsError {
     #[error("read exact failed")]
     ReadExactFailed,
     #[error("not implemented: {0}")]
@@ -937,42 +941,72 @@ pub enum StoreRecordBatchError {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub enum StoreRecordBatch {
-    RequestSendRecord {
+pub enum ExchangeRequests {
+    GetNextRecordRequest {
+        operator_id: String,
+    },
+    GetNextRecordResponse {
         record_id: u64,
         #[serde(skip_serializing)]
         record: arrow::array::RecordBatch,
         table_aliases: Vec<Vec<String>>, // [["tableName", "tableAlias"], ...]
     },
-    ResponseReceivedRecord {
+    SendRecordRequest {
+        record_id: u64,
+        #[serde(skip_serializing)]
+        record: arrow::array::RecordBatch,
+        table_aliases: Vec<Vec<String>>, // [["tableName", "tableAlias"], ...]
+    },
+    SendRecordResponse {
         record_id: u64,
     },
 }
 
+impl ExchangeRequests {
+    fn msg_id(&self) -> u8 {
+        match self {
+            Self::GetNextRecordRequest { .. } => 0,
+            Self::GetNextRecordResponse { .. } => 1,
+            Self::SendRecordRequest { .. } => 2,
+            Self::SendRecordResponse { .. } => 3,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
-struct StoreRecordBatchRequestSendRecordMetaData {
+struct ExchangeRequestsGetNextRecordResponse {
     record_id: u64,
     table_aliases: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
-struct StoreRecordBatchResponseReceivedRecord {
+struct ExchangeRequestsGetNextRecordRequest {
+    operator_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ExchangeRequestsSendRecordRequest {
+    record_id: u64,
+    table_aliases: Vec<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ExchangeRequestsSendRecordResponse {
     record_id: u64,
 }
 
-impl StoreRecordBatch {
-    fn msg_id(&self) -> u8 {
-        match self {
-            Self::RequestSendRecord { .. } => 0,
-            Self::ResponseReceivedRecord { .. } => 1,
-        }
-    }
-}
-
-impl SendableMessage for StoreRecordBatch {
+impl SendableMessage for ExchangeRequests {
     fn to_bytes(&self) -> Result<Vec<u8>> {
         match self {
-            Self::RequestSendRecord { record, .. } => {
+            Self::GetNextRecordRequest { .. } => {
+                let meta_data = serde_json::to_vec(self)?;
+                let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len());
+                buf.put_u8(self.msg_id());
+                buf.put_u64(meta_data.len() as u64);
+                buf.put(&meta_data[..]);
+                return Ok(buf.to_vec());
+            }
+            Self::GetNextRecordResponse { record, .. } => {
                 let mut data_buf = Vec::new();
                 {
                     let mut record_writer =
@@ -991,7 +1025,26 @@ impl SendableMessage for StoreRecordBatch {
 
                 return Ok(buf.to_vec());
             }
-            Self::ResponseReceivedRecord { .. } => {
+            Self::SendRecordRequest { record, .. } => {
+                let mut data_buf = Vec::new();
+                {
+                    let mut record_writer =
+                        arrow::ipc::writer::StreamWriter::try_new(&mut data_buf, &record.schema())?;
+                    record_writer.write(record)?;
+                    record_writer.finish()?
+                }
+
+                let meta_data = serde_json::to_vec(self)?;
+
+                let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len() + data_buf.len());
+                buf.put_u8(self.msg_id());
+                buf.put_u64(meta_data.len() as u64);
+                buf.put(&meta_data[..]);
+                buf.put(&data_buf[..]);
+
+                return Ok(buf.to_vec());
+            }
+            Self::SendRecordResponse { .. } => {
                 let meta_data = serde_json::to_vec(self)?;
                 let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len());
                 buf.put_u8(self.msg_id());
@@ -1002,7 +1055,7 @@ impl SendableMessage for StoreRecordBatch {
         }
     }
     fn msg_name(&self) -> MessageName {
-        MessageName::StoreRecordBatch
+        MessageName::ExchangeRequests
     }
     fn clone_box(&self) -> Box<dyn SendableMessage> {
         Box::new(self.clone())
@@ -1016,15 +1069,46 @@ impl SendableMessage for StoreRecordBatch {
 }
 
 #[derive(Debug, Clone)]
-pub struct StoreRecordBatchParser {}
+pub struct ExchangeRequestsParser {}
 
-impl StoreRecordBatchParser {
-    pub fn new() -> StoreRecordBatchParser {
-        StoreRecordBatchParser {}
+impl ExchangeRequestsParser {
+    pub fn new() -> ExchangeRequestsParser {
+        ExchangeRequestsParser {}
+    }
+
+    fn parse_record(&self, buf: &mut Cursor<&[u8]>) -> Result<arrow::array::RecordBatch> {
+        let mut record_data = BytesMut::with_capacity(buf.remaining());
+        record_data.resize(buf.remaining(), 0);
+        match buf.read_exact(&mut record_data) {
+            Err(_) => return Err(ExchangeRequestsError::ReadExactFailed.into()),
+            _ => (),
+        }
+
+        let mut record_data_cursor = std::io::Cursor::new(&record_data[..]);
+        let record_reader =
+            arrow::ipc::reader::StreamReader::try_new(&mut record_data_cursor, None)?;
+        let mut result_record: Option<arrow::array::RecordBatch> = None;
+        for record in record_reader {
+            match record {
+                Ok(record) => {
+                    if result_record.is_some() {
+                        return Err(ExchangeRequestsError::ReceivedMultipleRecordBatches.into());
+                    }
+                    result_record = Some(record);
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
+
+        if let Some(record) = result_record {
+            Ok(record)
+        } else {
+            Err(ExchangeRequestsError::NotImplemented("no record".to_string()).into())
+        }
     }
 }
 
-impl MessageParser for StoreRecordBatchParser {
+impl MessageParser for ExchangeRequestsParser {
     fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
         let mut buf = Cursor::new(&ser_msg.msg_data[..]);
         buf.set_position(0);
@@ -1036,60 +1120,71 @@ impl MessageParser for StoreRecordBatchParser {
             let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
             meta_data.resize(meta_data_len as usize, 0);
             match buf.read_exact(&mut meta_data) {
-                Err(_) => return Err(StoreRecordBatchError::ReadExactFailed.into()),
+                Err(_) => return Err(ExchangeRequestsError::ReadExactFailed.into()),
                 _ => (),
             }
-            let meta: StoreRecordBatchRequestSendRecordMetaData =
+            let meta: ExchangeRequestsGetNextRecordRequest =
                 serde_json::from_slice(&meta_data[..])?;
 
-            let mut record_data = BytesMut::with_capacity(buf.remaining());
-            record_data.resize(buf.remaining(), 0);
-            match buf.read_exact(&mut record_data) {
-                Err(_) => return Err(StoreRecordBatchError::ReadExactFailed.into()),
-                _ => (),
-            }
+            let msg = ExchangeRequests::GetNextRecordRequest {
+                operator_id: meta.operator_id,
+            };
 
-            let mut record_data_cursor = std::io::Cursor::new(&record_data[..]);
-            let record_reader =
-                arrow::ipc::reader::StreamReader::try_new(&mut record_data_cursor, None)?;
-            let mut result_record: Option<arrow::array::RecordBatch> = None;
-            for record in record_reader {
-                match record {
-                    Ok(record) => {
-                        if result_record.is_some() {
-                            return Err(StoreRecordBatchError::ReceivedMultipleRecordBatches.into());
-                        }
-                        result_record = Some(record);
-                    }
-                    Err(err) => return Err(err.into()),
-                }
-            }
-
-            if let Some(record) = result_record {
-                let msg = StoreRecordBatch::RequestSendRecord {
-                    record_id: meta.record_id,
-                    record,
-                    table_aliases: meta.table_aliases,
-                };
-
-                Ok(Message::build_from_serialized_message(
-                    ser_msg,
-                    Box::new(msg),
-                ))
-            } else {
-                Err(StoreRecordBatchError::NotImplemented("no record".to_string()).into())
-            }
+            Ok(Message::build_from_serialized_message(
+                ser_msg,
+                Box::new(msg),
+            ))
         } else if msg_id == 1 {
             let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
             meta_data.resize(meta_data_len as usize, 0);
             match buf.read_exact(&mut meta_data) {
-                Err(_) => return Err(StoreRecordBatchError::ReadExactFailed.into()),
+                Err(_) => return Err(ExchangeRequestsError::ReadExactFailed.into()),
                 _ => (),
             }
-            let meta: StoreRecordBatchResponseReceivedRecord =
+            let meta: ExchangeRequestsGetNextRecordResponse =
                 serde_json::from_slice(&meta_data[..])?;
 
-            let msg = StoreRecordBatch::ResponseReceivedRecord {
+            let record = self.parse_record(&mut buf)?;
+            let msg = ExchangeRequests::GetNextRecordResponse {
+                record_id: meta.record_id,
+                record,
+                table_aliases: meta.table_aliases,
+            };
+
+            Ok(Message::build_from_serialized_message(
+                ser_msg,
+                Box::new(msg),
+            ))
+        } else if msg_id == 2 {
+            let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
+            meta_data.resize(meta_data_len as usize, 0);
+            match buf.read_exact(&mut meta_data) {
+                Err(_) => return Err(ExchangeRequestsError::ReadExactFailed.into()),
+                _ => (),
+            }
+            let meta: ExchangeRequestsSendRecordRequest = serde_json::from_slice(&meta_data[..])?;
+
+            let record = self.parse_record(&mut buf)?;
+            let msg = ExchangeRequests::SendRecordRequest {
+                record_id: meta.record_id,
+                record,
+                table_aliases: meta.table_aliases,
+            };
+
+            Ok(Message::build_from_serialized_message(
+                ser_msg,
+                Box::new(msg),
+            ))
+        } else if msg_id == 3 {
+            let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
+            meta_data.resize(meta_data_len as usize, 0);
+            match buf.read_exact(&mut meta_data) {
+                Err(_) => return Err(ExchangeRequestsError::ReadExactFailed.into()),
+                _ => (),
+            }
+            let meta: ExchangeRequestsSendRecordResponse = serde_json::from_slice(&meta_data[..])?;
+
+            let msg = ExchangeRequests::SendRecordResponse {
                 record_id: meta.record_id,
             };
 
@@ -1099,11 +1194,11 @@ impl MessageParser for StoreRecordBatchParser {
             ))
         } else {
             return Err(
-                StoreRecordBatchError::NotImplemented(format!("msg id: {}", msg_id)).into(),
+                ExchangeRequestsError::NotImplemented(format!("msg id: {}", msg_id)).into(),
             );
         }
     }
     fn msg_name(&self) -> MessageName {
-        MessageName::StoreRecordBatch
+        MessageName::ExchangeRequests
     }
 }

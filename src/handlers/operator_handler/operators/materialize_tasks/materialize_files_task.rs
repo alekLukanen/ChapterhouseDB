@@ -8,8 +8,8 @@ use crate::handlers::{
     operator_handler::{
         operator_handler_state::OperatorInstanceConfig,
         operators::{
-            operator_task_trackers::RestrictedOperatorTaskTracker, traits::TaskBuilder,
-            ConnectionRegistry,
+            operator_task_trackers::RestrictedOperatorTaskTracker,
+            requests::IdentifyExchangeRequest, traits::TaskBuilder, ConnectionRegistry,
         },
     },
 };
@@ -58,6 +58,33 @@ impl MaterializeFilesTask {
 
     async fn async_main(&mut self, ct: tokio_util::sync::CancellationToken) -> Result<()> {
         debug!("materialize_files_task.async_main()");
+
+        // find the exchange
+        let ref mut pipe = self.operator_pipe;
+        let req = IdentifyExchangeRequest::request_outbound_exchange(
+            &self.operator_instance_config,
+            pipe,
+            self.msg_reg.clone(),
+        );
+        tokio::select! {
+            resp = req => {
+                match resp {
+                    Ok(resp) => {
+                        self.exchange_operator_instance_id = Some(resp.exchange_operator_instance_id);
+                        self.exchange_worker_id = Some(resp.exchange_worker_id);
+                    }
+                    Err(err) => {
+                        return Err(err);
+                    }
+                }
+            }
+            _ = ct.cancelled() => {
+                return Ok(());
+            }
+        }
+
+        // loop over all records in the exchange
+        loop {}
 
         Ok(())
     }

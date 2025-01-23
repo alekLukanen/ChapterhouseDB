@@ -39,8 +39,8 @@ pub struct IdentifyExchangeResponse {
 }
 
 pub struct IdentifyExchangeRequest<'a> {
-    pub exchange_operator_instance_id: Option<u128>,
-    pub exchange_worker_id: Option<u128>,
+    exchange_operator_instance_id: Option<u128>,
+    exchange_worker_id: Option<u128>,
     exchange_id: String,
     query_id: u128,
     pipe: &'a mut Pipe,
@@ -48,7 +48,7 @@ pub struct IdentifyExchangeRequest<'a> {
 }
 
 impl<'a> IdentifyExchangeRequest<'a> {
-    pub async fn request_outbound_exhcnage(
+    pub async fn request_outbound_exchange(
         op_in_config: &OperatorInstanceConfig,
         pipe: &'a mut Pipe,
         msg_reg: Arc<MessageRegistry>,
@@ -93,9 +93,11 @@ impl<'a> IdentifyExchangeRequest<'a> {
     }
 
     async fn identify_exchange(&mut self) -> Result<()> {
-        self.exchange_operator_instance_id =
-            Some(self.get_exchange_operator_instance_id_with_retry(2).await?);
-        self.exchange_worker_id = Some(self.get_exchange_worker_id_with_retry(2).await?);
+        self.exchange_operator_instance_id = Some(
+            self.get_exchange_operator_instance_id_with_retry(10)
+                .await?,
+        );
+        self.exchange_worker_id = Some(self.get_exchange_worker_id_with_retry(10).await?);
         Ok(())
     }
 
@@ -163,10 +165,28 @@ impl<'a> IdentifyExchangeRequest<'a> {
         for retry_idx in 0..(num_retries + 1) {
             let res = self.get_exchange_operator_instance_id().await;
             match res {
-                Ok(val) => {
+                Ok(Some(val)) => {
                     return Ok(val);
                 }
+                Ok(None) => {
+                    debug!(
+                        operator_id = self.exchange_id.clone(),
+                        query_id = self.query_id.clone(),
+                        "query handler didn't have an operator instance id for exchange operator; retrying after delay",
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(std::cmp::min(
+                        retry_idx as u64 + 1,
+                        5,
+                    )))
+                    .await;
+                    continue;
+                }
                 Err(err) => {
+                    debug!(
+                        operator_id = self.exchange_id.clone(),
+                        query_id = self.query_id.clone(),
+                        "query handler request returned an error; retrying after delay"
+                    );
                     if retry_idx == num_retries {
                         return Err(err.context("failed to get the exchange operator instance id"));
                     } else {
@@ -186,7 +206,7 @@ impl<'a> IdentifyExchangeRequest<'a> {
         .into())
     }
 
-    async fn get_exchange_operator_instance_id(&mut self) -> Result<u128> {
+    async fn get_exchange_operator_instance_id(&mut self) -> Result<Option<u128>> {
         // find the worker with the exchange
         let list_msg = Message::new(Box::new(
             QueryHandlerRequests::ListOperatorInstancesRequest {
@@ -210,12 +230,9 @@ impl<'a> IdentifyExchangeRequest<'a> {
         match resp_msg {
             QueryHandlerRequests::ListOperatorInstancesResponse { op_instance_ids } => {
                 if op_instance_ids.len() == 1 {
-                    Ok(op_instance_ids.get(0).unwrap().clone())
+                    Ok(Some(op_instance_ids.get(0).unwrap().clone()))
                 } else if op_instance_ids.len() == 0 {
-                    return Err(
-                        IdentifyExchangeRequestError::ReceivedNoOperatorInstancesForTheExchange
-                            .into(),
-                    );
+                    return Ok(None);
                 } else {
                     return Err(
                         IdentifyExchangeRequestError::ReceivedMultipleOperatorInstancesForTheExchange
