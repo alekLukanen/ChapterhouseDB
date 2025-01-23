@@ -1,5 +1,5 @@
 use core::fmt;
-use std::any::Any;
+use std::{any::Any, sync::Arc};
 
 use anyhow::Result;
 use bytes::{Buf, BufMut, BytesMut};
@@ -948,13 +948,13 @@ pub enum ExchangeRequests {
     GetNextRecordResponse {
         record_id: u64,
         #[serde(skip_serializing)]
-        record: arrow::array::RecordBatch,
+        record: Arc<arrow::array::RecordBatch>,
         table_aliases: Vec<Vec<String>>, // [["tableName", "tableAlias"], ...]
     },
     SendRecordRequest {
         record_id: u64,
         #[serde(skip_serializing)]
-        record: arrow::array::RecordBatch,
+        record: Arc<arrow::array::RecordBatch>,
         table_aliases: Vec<Vec<String>>, // [["tableName", "tableAlias"], ...]
     },
     SendRecordResponse {
@@ -1147,7 +1147,7 @@ impl MessageParser for ExchangeRequestsParser {
             let record = self.parse_record(&mut buf)?;
             let msg = ExchangeRequests::GetNextRecordResponse {
                 record_id: meta.record_id,
-                record,
+                record: Arc::new(record),
                 table_aliases: meta.table_aliases,
             };
 
@@ -1167,7 +1167,7 @@ impl MessageParser for ExchangeRequestsParser {
             let record = self.parse_record(&mut buf)?;
             let msg = ExchangeRequests::SendRecordRequest {
                 record_id: meta.record_id,
-                record,
+                record: Arc::new(record),
                 table_aliases: meta.table_aliases,
             };
 

@@ -12,7 +12,9 @@ use crate::handlers::message_handler::{
 use crate::handlers::message_router_handler::MessageConsumer;
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
 use crate::handlers::operator_handler::operators::operator_task_trackers::RestrictedOperatorTaskTracker;
-use crate::handlers::operator_handler::operators::requests::IdentifyExchangeRequest;
+use crate::handlers::operator_handler::operators::requests::{
+    IdentifyExchangeRequest, SendRecordRequest,
+};
 use crate::handlers::operator_handler::operators::traits::{TableFuncSyntaxValidator, TaskBuilder};
 use crate::handlers::operator_handler::operators::ConnectionRegistry;
 
@@ -263,31 +265,19 @@ impl ReadFilesTask {
         assert!(self.exchange_worker_id.is_some());
 
         let msg_record_id = self.next_record_id();
-        let record_msg = Message::new(Box::new(ExchangeRequests::SendRecordRequest {
-            record_id: msg_record_id,
+        let table_aliases = Vec::new();
+        let ref mut pipe = self.operator_pipe;
+        SendRecordRequest::send_record_request(
+            msg_record_id,
             record,
-            table_aliases: Vec::new(),
-        }))
-        .set_route_to_worker_id(self.exchange_worker_id.unwrap());
-
-        self.operator_pipe.send(record_msg).await?;
-
-        let resp_msg = self.operator_pipe.recv().await;
-        if let Some(resp_msg) = resp_msg {
-            let resp_msg: &ExchangeRequests = self.msg_reg.try_cast_msg(&resp_msg)?;
-            match resp_msg {
-                ExchangeRequests::SendRecordResponse { record_id } => {
-                    if *record_id != msg_record_id {
-                        return Err(
-                            ReadFilesError::ReceivedTheWrongRecordId(record_id.clone()).into()
-                        );
-                    }
-                }
-                _ => {
-                    return Err(ReadFilesError::ReceivedTheWrongMessageType.into());
-                }
-            }
-        }
+            table_aliases,
+            self.exchange_operator_instance_id.unwrap().clone(),
+            self.exchange_worker_id.unwrap().clone(),
+            &self.operator_instance_config,
+            pipe,
+            self.msg_reg.clone(),
+        )
+        .await?;
 
         Ok(())
     }

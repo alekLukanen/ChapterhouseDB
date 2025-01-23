@@ -31,6 +31,8 @@ pub enum IdentifyExchangeRequestError {
         "missing part of response: exchange_operator_instance_id={0:?}, exchange_worker_id={1:?}"
     )]
     MissingPartOfResponse(Option<u128>, Option<u128>),
+    #[error("operator instance id could not be determined")]
+    OperatorInstanceIdCouldNotBeDetermined,
 }
 
 pub struct IdentifyExchangeResponse {
@@ -102,30 +104,27 @@ impl<'a> IdentifyExchangeRequest<'a> {
     }
 
     async fn get_exchange_worker_id_with_retry(&mut self, num_retries: u8) -> Result<u128> {
+        let mut last_err: Option<anyhow::Error> = None;
         for retry_idx in 0..(num_retries + 1) {
-            let res = self.get_exchange_worker_id().await;
-            match res {
+            match self.get_exchange_worker_id().await {
                 Ok(val) => {
                     return Ok(val);
                 }
                 Err(err) => {
-                    if retry_idx == num_retries {
-                        return Err(err.context("failed to get the exchange operator worker id"));
-                    } else {
-                        tokio::time::sleep(std::time::Duration::from_secs(std::cmp::min(
-                            retry_idx as u64 + 1,
-                            5,
-                        )))
-                        .await;
-                        continue;
-                    }
+                    last_err = Some(err);
+
+                    tokio::time::sleep(std::time::Duration::from_secs(std::cmp::min(
+                        retry_idx as u64 + 1,
+                        5,
+                    )))
+                    .await;
+                    continue;
                 }
             }
         }
-        Err(IdentifyExchangeRequestError::NotImplemented(
-            "unable to get the operator worker id but failed to provide error".to_string(),
-        )
-        .into())
+        return Err(last_err
+            .unwrap()
+            .context("failed to get the exchange operator worker id"));
     }
 
     async fn get_exchange_worker_id(&mut self) -> Result<u128> {
@@ -162,6 +161,7 @@ impl<'a> IdentifyExchangeRequest<'a> {
         &mut self,
         num_retries: u8,
     ) -> Result<u128> {
+        let mut last_err: Option<anyhow::Error> = None;
         for retry_idx in 0..(num_retries + 1) {
             let res = self.get_exchange_operator_instance_id().await;
             match res {
@@ -188,7 +188,7 @@ impl<'a> IdentifyExchangeRequest<'a> {
                         "query handler request returned an error; retrying after delay"
                     );
                     if retry_idx == num_retries {
-                        return Err(err.context("failed to get the exchange operator instance id"));
+                        last_err = Some(err);
                     } else {
                         tokio::time::sleep(std::time::Duration::from_secs(std::cmp::min(
                             retry_idx as u64 + 1,
@@ -200,10 +200,11 @@ impl<'a> IdentifyExchangeRequest<'a> {
                 }
             }
         }
-        Err(IdentifyExchangeRequestError::NotImplemented(
-            "unable to get the operator instance id but failed to provide error".to_string(),
-        )
-        .into())
+        if let Some(err) = last_err {
+            Err(err.context("unable to get operator instance id"))
+        } else {
+            Err(IdentifyExchangeRequestError::OperatorInstanceIdCouldNotBeDetermined.into())
+        }
     }
 
     async fn get_exchange_operator_instance_id(&mut self) -> Result<Option<u128>> {
