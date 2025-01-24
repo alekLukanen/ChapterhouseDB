@@ -104,6 +104,15 @@ pub enum OperatorType {
     },
 }
 
+impl OperatorType {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Producer { .. } => "Producer",
+            Self::Exchange { .. } => "Exchange",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
 pub struct OperatorCompute {
     pub instances: usize,

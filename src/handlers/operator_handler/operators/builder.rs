@@ -96,7 +96,7 @@ impl OperatorBuilder {
                     self.message_router_state.clone(),
                     self.msg_reg.clone(),
                 )
-                .await;
+                .await?;
                 let ct = op_in.ct.clone();
                 tt.spawn(async move {
                     if let Err(err) = ex_op.async_main(ct).await {

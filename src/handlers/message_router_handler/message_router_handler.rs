@@ -122,7 +122,7 @@ impl MessageRouterHandler {
                 Some(msg) = self.connection_pipe.recv() => {
                     let routed = self.route_msg(&msg).await?;
                     if !routed {
-                        info!("message ignored: {}", msg);
+                        debug!("message ignored: {}", msg);
                     }
                 }
                 Some(mut msg) = self.internal_sub_receiver.recv() => {

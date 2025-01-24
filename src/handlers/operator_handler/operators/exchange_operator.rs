@@ -15,15 +15,22 @@ use crate::handlers::message_router_handler::{
 };
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
 use crate::handlers::operator_handler::operators::common_message_handlers::handle_ping_message;
+use crate::planner;
 
 #[derive(Debug, Error)]
 pub enum ExchangeOperatorError {
     #[error("received an unhandled message: {0}")]
     ReceivedAnUnhandledMessage(String),
+    #[error("invalid operator type: {0}")]
+    InvalidOperatorType(String),
+    #[error("operation instance id not set on message")]
+    OperationInstanceIdNotSetOnMessage,
 }
 
 #[derive(Debug)]
 pub struct ExchangeOperator {
+    record_pool: RecordPool,
+
     operator_instance_config: OperatorInstanceConfig,
     message_router_state: Arc<Mutex<MessageRouterState>>,
     router_pipe: Pipe,
@@ -36,19 +43,40 @@ impl ExchangeOperator {
         op_in_config: OperatorInstanceConfig,
         message_router_state: Arc<Mutex<MessageRouterState>>,
         msg_reg: Arc<MessageRegistry>,
-    ) -> ExchangeOperator {
+    ) -> Result<ExchangeOperator> {
         let router_sender = message_router_state.lock().await.sender();
         let (mut pipe, sender) = Pipe::new_with_existing_sender(router_sender, 1);
         pipe.set_sent_from_query_id(op_in_config.query_id.clone());
         pipe.set_sent_from_operation_id(op_in_config.id.clone());
 
-        ExchangeOperator {
+        let operator_ids = match &op_in_config.operator.operator_type {
+            planner::OperatorType::Exchange {
+                outbound_producer_ids,
+                ..
+            } => outbound_producer_ids.clone(),
+            planner::OperatorType::Producer { .. } => {
+                return Err(ExchangeOperatorError::InvalidOperatorType(
+                    op_in_config.operator.operator_type.name().to_string(),
+                )
+                .into());
+            }
+        };
+
+        let record_pool = RecordPool::new(
+            operator_ids,
+            RecordPoolConfig {
+                max_heartbeat_interval: chrono::Duration::seconds(10),
+            },
+        );
+
+        Ok(ExchangeOperator {
+            record_pool,
             operator_instance_config: op_in_config,
             message_router_state,
             router_pipe: pipe,
             sender,
             msg_reg,
-        }
+        })
     }
 
     fn subscriber(&self) -> Box<dyn Subscriber> {
@@ -85,12 +113,9 @@ impl ExchangeOperator {
                         }
                     }
 
-                    match msg.msg.msg_name() {
-                        _ => {
-                            return Err(ExchangeOperatorError::ReceivedAnUnhandledMessage(
-                                msg.msg.msg_name().to_string()
-                            ).into());
-                        }
+                    let routed = self.route_msg(&msg).await?;
+                    if !routed {
+                        debug!("message ignored: {}", msg);
                     }
                 }
                 _ = ct.cancelled() => {
@@ -103,6 +128,71 @@ impl ExchangeOperator {
             "closed exchange operator for instance {}",
             self.operator_instance_config.id
         );
+
+        Ok(())
+    }
+
+    async fn route_msg(&mut self, msg: &Message) -> Result<bool> {
+        let msg_reg = self.msg_reg.clone();
+        match msg.msg.msg_name() {
+            MessageName::ExchangeRequests => {
+                let cast_msg: &ExchangeRequests = msg_reg.try_cast_msg(msg)?;
+                match cast_msg {
+                    ExchangeRequests::SendRecordRequest {
+                        record_id,
+                        record,
+                        table_aliases,
+                    } => {
+                        self.handle_send_record_request(
+                            msg,
+                            record_id,
+                            record.clone(),
+                            table_aliases,
+                        )
+                        .await?;
+                        Ok(true)
+                    }
+                    ExchangeRequests::GetNextRecordRequest { operator_id } => Ok(true),
+                    _ => Ok(false),
+                }
+            }
+            _ => Ok(false),
+        }
+    }
+
+    async fn handle_send_record_request(
+        &mut self,
+        msg: &Message,
+        record_id: &u64,
+        record: Arc<arrow::array::RecordBatch>,
+        table_aliases: &Vec<Vec<String>>,
+    ) -> Result<()> {
+        self.record_pool
+            .add_record(record_id.clone(), record.clone(), table_aliases.clone());
+
+        let resp_msg = msg.reply(Box::new(ExchangeRequests::SendRecordResponse {
+            record_id: record_id.clone(),
+        }));
+        self.router_pipe.send(resp_msg).await?;
+
+        Ok(())
+    }
+
+    async fn handle_get_next_record_request(
+        &mut self,
+        msg: &Message,
+        operator_id: &String,
+    ) -> Result<()> {
+        let op_in_id = if let Some(id) = &msg.sent_from_operation_id {
+            id.clone()
+        } else {
+            return Err(ExchangeOperatorError::OperationInstanceIdNotSetOnMessage.into());
+        };
+
+        match self.record_pool.get_next_record(operator_id, op_in_id)? {
+            Some((record_id, record, table_aliases)) => {}
+            None => {}
+        }
 
         Ok(())
     }
@@ -178,12 +268,15 @@ pub enum RecordPoolError {
     RecordAlreadyProcessedByOperator(u64, String),
 }
 
+#[derive(Debug)]
 struct RecordRef {
     id: u64,
-    record: arrow::array::RecordBatch,
+    record: Arc<arrow::array::RecordBatch>,
+    table_aliases: Vec<Vec<String>>,
     processed_by_operators: Vec<String>,
 }
 
+#[derive(Debug)]
 struct ReservedRecord {
     record_id: u64,
     operator_instance_id: u128,
@@ -191,10 +284,12 @@ struct ReservedRecord {
     last_heartbeat_time: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+#[derive(Debug)]
 struct RecordProcessingMetrics {
     failure_count: u32,
 }
 
+#[derive(Debug)]
 struct OperatorRecordQueue {
     operator_id: String,
     records_to_process: std::collections::VecDeque<u64>,
@@ -202,10 +297,12 @@ struct OperatorRecordQueue {
     record_processing_metrics: std::collections::HashMap<u64, RecordProcessingMetrics>,
 }
 
+#[derive(Debug)]
 struct RecordPoolConfig {
     max_heartbeat_interval: chrono::Duration,
 }
 
+#[derive(Debug)]
 struct RecordPool {
     records: std::collections::HashMap<u64, RecordRef>,
     operator_record_queues: Vec<OperatorRecordQueue>,
@@ -233,12 +330,18 @@ impl RecordPool {
         }
     }
 
-    fn add_record(&mut self, record_id: u64, record: arrow::array::RecordBatch) {
+    fn add_record(
+        &mut self,
+        record_id: u64,
+        record: Arc<arrow::array::RecordBatch>,
+        table_aliases: Vec<Vec<String>>,
+    ) {
         self.records.insert(
             record_id,
             RecordRef {
                 id: record_id,
                 record,
+                table_aliases,
                 processed_by_operators: Vec::new(),
             },
         );
@@ -251,7 +354,7 @@ impl RecordPool {
         &mut self,
         operator_id: &String,
         operator_instance_id: u128,
-    ) -> Result<Option<(u64, arrow::array::RecordBatch)>> {
+    ) -> Result<Option<(u64, Arc<arrow::array::RecordBatch>, Vec<Vec<String>>)>> {
         let op_queue = if let Some(queue) = self
             .operator_record_queues
             .iter_mut()
@@ -285,7 +388,11 @@ impl RecordPool {
                     .record_processing_metrics
                     .insert(record_id, RecordProcessingMetrics { failure_count: 0 });
 
-                Ok(Some((record_id, record.record.clone())))
+                Ok(Some((
+                    record_id,
+                    record.record.clone(),
+                    record.table_aliases.clone(),
+                )))
             }
             None => Ok(None),
         }

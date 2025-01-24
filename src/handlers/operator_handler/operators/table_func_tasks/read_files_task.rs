@@ -273,7 +273,6 @@ impl ReadFilesTask {
             table_aliases,
             self.exchange_operator_instance_id.unwrap().clone(),
             self.exchange_worker_id.unwrap().clone(),
-            &self.operator_instance_config,
             pipe,
             self.msg_reg.clone(),
         )
