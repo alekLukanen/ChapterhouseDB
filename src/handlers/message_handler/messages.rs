@@ -945,12 +945,13 @@ pub enum ExchangeRequests {
     GetNextRecordRequest {
         operator_id: String,
     },
-    GetNextRecordResponse {
+    GetNextRecordResponseRecord {
         record_id: u64,
         #[serde(skip_serializing)]
         record: Arc<arrow::array::RecordBatch>,
         table_aliases: Vec<Vec<String>>, // [["tableName", "tableAlias"], ...]
     },
+    GetNextRecordResponseNoneLeft,
     SendRecordRequest {
         record_id: u64,
         #[serde(skip_serializing)]
@@ -966,18 +967,22 @@ impl ExchangeRequests {
     fn msg_id(&self) -> u8 {
         match self {
             Self::GetNextRecordRequest { .. } => 0,
-            Self::GetNextRecordResponse { .. } => 1,
-            Self::SendRecordRequest { .. } => 2,
-            Self::SendRecordResponse { .. } => 3,
+            Self::GetNextRecordResponseRecord { .. } => 1,
+            Self::GetNextRecordResponseNoneLeft => 2,
+            Self::SendRecordRequest { .. } => 3,
+            Self::SendRecordResponse { .. } => 4,
         }
     }
 }
 
 #[derive(Debug, Deserialize)]
-struct ExchangeRequestsGetNextRecordResponse {
+struct ExchangeRequestsGetNextRecordResponseRecord {
     record_id: u64,
     table_aliases: Vec<Vec<String>>,
 }
+
+#[derive(Debug, Deserialize)]
+struct ExchangeRequestsGetNextRecordResponseNoneLeft {}
 
 #[derive(Debug, Deserialize)]
 struct ExchangeRequestsGetNextRecordRequest {
@@ -1006,7 +1011,7 @@ impl SendableMessage for ExchangeRequests {
                 buf.put(&meta_data[..]);
                 return Ok(buf.to_vec());
             }
-            Self::GetNextRecordResponse { record, .. } => {
+            Self::GetNextRecordResponseRecord { record, .. } => {
                 let mut data_buf = Vec::new();
                 {
                     let mut record_writer =
@@ -1023,6 +1028,14 @@ impl SendableMessage for ExchangeRequests {
                 buf.put(&meta_data[..]);
                 buf.put(&data_buf[..]);
 
+                return Ok(buf.to_vec());
+            }
+            Self::GetNextRecordResponseNoneLeft => {
+                let meta_data = serde_json::to_vec(self)?;
+                let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len());
+                buf.put_u8(self.msg_id());
+                buf.put_u64(meta_data.len() as u64);
+                buf.put(&meta_data[..]);
                 return Ok(buf.to_vec());
             }
             Self::SendRecordRequest { record, .. } => {
@@ -1141,11 +1154,11 @@ impl MessageParser for ExchangeRequestsParser {
                 Err(_) => return Err(ExchangeRequestsError::ReadExactFailed.into()),
                 _ => (),
             }
-            let meta: ExchangeRequestsGetNextRecordResponse =
+            let meta: ExchangeRequestsGetNextRecordResponseRecord =
                 serde_json::from_slice(&meta_data[..])?;
 
             let record = self.parse_record(&mut buf)?;
-            let msg = ExchangeRequests::GetNextRecordResponse {
+            let msg = ExchangeRequests::GetNextRecordResponseRecord {
                 record_id: meta.record_id,
                 record: Arc::new(record),
                 table_aliases: meta.table_aliases,
@@ -1156,6 +1169,22 @@ impl MessageParser for ExchangeRequestsParser {
                 Box::new(msg),
             ))
         } else if msg_id == 2 {
+            let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
+            meta_data.resize(meta_data_len as usize, 0);
+            match buf.read_exact(&mut meta_data) {
+                Err(_) => return Err(ExchangeRequestsError::ReadExactFailed.into()),
+                _ => (),
+            }
+            let _: ExchangeRequestsGetNextRecordResponseNoneLeft =
+                serde_json::from_slice(&meta_data[..])?;
+
+            let msg = ExchangeRequests::GetNextRecordResponseNoneLeft;
+
+            Ok(Message::build_from_serialized_message(
+                ser_msg,
+                Box::new(msg),
+            ))
+        } else if msg_id == 3 {
             let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
             meta_data.resize(meta_data_len as usize, 0);
             match buf.read_exact(&mut meta_data) {
@@ -1175,7 +1204,7 @@ impl MessageParser for ExchangeRequestsParser {
                 ser_msg,
                 Box::new(msg),
             ))
-        } else if msg_id == 3 {
+        } else if msg_id == 4 {
             let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
             meta_data.resize(meta_data_len as usize, 0);
             match buf.read_exact(&mut meta_data) {

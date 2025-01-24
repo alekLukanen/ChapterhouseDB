@@ -152,7 +152,11 @@ impl ExchangeOperator {
                         .await?;
                         Ok(true)
                     }
-                    ExchangeRequests::GetNextRecordRequest { operator_id } => Ok(true),
+                    ExchangeRequests::GetNextRecordRequest { operator_id } => {
+                        self.handle_get_next_record_request(msg, operator_id)
+                            .await?;
+                        Ok(true)
+                    }
                     _ => Ok(false),
                 }
             }
@@ -189,9 +193,20 @@ impl ExchangeOperator {
             return Err(ExchangeOperatorError::OperationInstanceIdNotSetOnMessage.into());
         };
 
-        match self.record_pool.get_next_record(operator_id, op_in_id)? {
-            Some((record_id, record, table_aliases)) => {}
-            None => {}
+        let rec_res = self.record_pool.get_next_record(operator_id, op_in_id)?;
+        match rec_res {
+            Some((record_id, record, table_aliases)) => {
+                let resp_msg = msg.reply(Box::new(ExchangeRequests::GetNextRecordResponseRecord {
+                    record_id,
+                    record,
+                    table_aliases,
+                }));
+                self.router_pipe.send(resp_msg).await?;
+            }
+            None => {
+                let resp_msg = msg.reply(Box::new(ExchangeRequests::GetNextRecordResponseNoneLeft));
+                self.router_pipe.send(resp_msg).await?;
+            }
         }
 
         Ok(())
