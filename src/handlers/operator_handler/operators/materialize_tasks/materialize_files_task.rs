@@ -3,13 +3,17 @@ use std::sync::Arc;
 use tracing::{debug, error};
 
 use crate::handlers::{
-    message_handler::{MessageName, MessageRegistry, Ping, Pipe, QueryHandlerRequests},
+    message_handler::{
+        ExchangeRequests, MessageName, MessageRegistry, Ping, Pipe, QueryHandlerRequests,
+    },
     message_router_handler::MessageConsumer,
     operator_handler::{
         operator_handler_state::OperatorInstanceConfig,
         operators::{
             operator_task_trackers::RestrictedOperatorTaskTracker,
-            requests::IdentifyExchangeRequest, traits::TaskBuilder, ConnectionRegistry,
+            requests::{self, IdentifyExchangeRequest},
+            traits::TaskBuilder,
+            ConnectionRegistry,
         },
     },
 };
@@ -83,8 +87,24 @@ impl MaterializeFilesTask {
             }
         }
 
+        assert!(self.exchange_operator_instance_id.is_some());
+        assert!(self.exchange_worker_id.is_some());
+
         // loop over all records in the exchange
-        loop {}
+        let ref mut operator_pipe = self.operator_pipe;
+
+        loop {
+            let resp = requests::GetNextRecordRequest::get_next_record_request(
+                self.operator_instance_config.operator.id.clone(),
+                self.exchange_operator_instance_id.unwrap().clone(),
+                self.exchange_worker_id.unwrap().clone(),
+                operator_pipe,
+                self.msg_reg.clone(),
+            )
+            .await?;
+
+            // process the record
+        }
 
         Ok(())
     }
@@ -165,6 +185,16 @@ impl MessageConsumer for MaterializeFilesConsumer {
                         error!("{:?}", err);
                         false
                     }
+                }
+            }
+            MessageName::ExchangeRequests => {
+                match self.msg_reg.try_cast_msg::<ExchangeRequests>(msg) {
+                    Ok(ExchangeRequests::GetNextRecordResponseRecord { .. }) => true,
+                    Err(err) => {
+                        error!("{:?}", err);
+                        false
+                    }
+                    _ => false,
                 }
             }
             // used ...
