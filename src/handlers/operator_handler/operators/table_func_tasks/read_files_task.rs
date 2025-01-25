@@ -16,7 +16,7 @@ use crate::handlers::operator_handler::operators::requests::{
     IdentifyExchangeRequest, SendRecordRequest,
 };
 use crate::handlers::operator_handler::operators::traits::{TableFuncSyntaxValidator, TaskBuilder};
-use crate::handlers::operator_handler::operators::ConnectionRegistry;
+use crate::handlers::operator_handler::operators::{record_utils, ConnectionRegistry};
 
 use super::config::TableFuncConfig;
 
@@ -265,7 +265,11 @@ impl ReadFilesTask {
         assert!(self.exchange_worker_id.is_some());
 
         let msg_record_id = self.next_record_id();
-        let table_aliases = Vec::new();
+        let table_aliases = record_utils::get_record_table_aliases(
+            &self.operator_instance_config.operator.operator_type,
+            &record,
+        )?;
+
         let ref mut pipe = self.operator_pipe;
         SendRecordRequest::send_record_request(
             msg_record_id,
