@@ -961,6 +961,11 @@ pub enum ExchangeRequests {
     SendRecordResponse {
         record_id: u64,
     },
+    OperatorCompletedRecordProcessingRequest {
+        operator_id: String,
+        record_id: u64,
+    },
+    OperatorCompletedRecordProcessingResponse,
 }
 
 impl ExchangeRequests {
@@ -971,6 +976,8 @@ impl ExchangeRequests {
             Self::GetNextRecordResponseNoneLeft => 2,
             Self::SendRecordRequest { .. } => 3,
             Self::SendRecordResponse { .. } => 4,
+            Self::OperatorCompletedRecordProcessingRequest { .. } => 5,
+            Self::OperatorCompletedRecordProcessingResponse => 6,
         }
     }
 }
@@ -999,6 +1006,15 @@ struct ExchangeRequestsSendRecordRequest {
 struct ExchangeRequestsSendRecordResponse {
     record_id: u64,
 }
+
+#[derive(Debug, Deserialize)]
+struct ExchangeRequestsOperatorCompletedRecordProcessingRequest {
+    operator_id: String,
+    record_id: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct ExchangeRequestsOperatorCompletedRecordProcessingResponse {}
 
 impl SendableMessage for ExchangeRequests {
     fn to_bytes(&self) -> Result<Vec<u8>> {
@@ -1058,6 +1074,22 @@ impl SendableMessage for ExchangeRequests {
                 return Ok(buf.to_vec());
             }
             Self::SendRecordResponse { .. } => {
+                let meta_data = serde_json::to_vec(self)?;
+                let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len());
+                buf.put_u8(self.msg_id());
+                buf.put_u64(meta_data.len() as u64);
+                buf.put(&meta_data[..]);
+                return Ok(buf.to_vec());
+            }
+            Self::OperatorCompletedRecordProcessingRequest { .. } => {
+                let meta_data = serde_json::to_vec(self)?;
+                let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len());
+                buf.put_u8(self.msg_id());
+                buf.put_u64(meta_data.len() as u64);
+                buf.put(&meta_data[..]);
+                return Ok(buf.to_vec());
+            }
+            Self::OperatorCompletedRecordProcessingResponse { .. } => {
                 let meta_data = serde_json::to_vec(self)?;
                 let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len());
                 buf.put_u8(self.msg_id());
@@ -1216,6 +1248,41 @@ impl MessageParser for ExchangeRequestsParser {
             let msg = ExchangeRequests::SendRecordResponse {
                 record_id: meta.record_id,
             };
+
+            Ok(Message::build_from_serialized_message(
+                ser_msg,
+                Box::new(msg),
+            ))
+        } else if msg_id == 5 {
+            let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
+            meta_data.resize(meta_data_len as usize, 0);
+            match buf.read_exact(&mut meta_data) {
+                Err(_) => return Err(ExchangeRequestsError::ReadExactFailed.into()),
+                _ => (),
+            }
+
+            let meta: ExchangeRequestsOperatorCompletedRecordProcessingRequest =
+                serde_json::from_slice(&meta_data[..])?;
+            let msg = ExchangeRequests::OperatorCompletedRecordProcessingRequest {
+                operator_id: meta.operator_id,
+                record_id: meta.record_id,
+            };
+
+            Ok(Message::build_from_serialized_message(
+                ser_msg,
+                Box::new(msg),
+            ))
+        } else if msg_id == 6 {
+            let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
+            meta_data.resize(meta_data_len as usize, 0);
+            match buf.read_exact(&mut meta_data) {
+                Err(_) => return Err(ExchangeRequestsError::ReadExactFailed.into()),
+                _ => (),
+            }
+
+            let _: ExchangeRequestsOperatorCompletedRecordProcessingResponse =
+                serde_json::from_slice(&meta_data[..])?;
+            let msg = ExchangeRequests::OperatorCompletedRecordProcessingResponse;
 
             Ok(Message::build_from_serialized_message(
                 ser_msg,

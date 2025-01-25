@@ -164,6 +164,16 @@ impl ExchangeOperator {
         }
     }
 
+    async fn handle_operator_completed_record_processing_request(
+        &mut self,
+        operator_id: &String,
+        record_id: &u64,
+    ) -> Result<()> {
+        self.record_pool
+            .operator_completed_record_processing(operator_id, record_id)?;
+        Ok(())
+    }
+
     async fn handle_send_record_request(
         &mut self,
         msg: &Message,
@@ -248,6 +258,7 @@ impl MessageConsumer for ExchangeOperatorSubscriber {
                 match self.msg_reg.try_cast_msg::<ExchangeRequests>(msg) {
                     Ok(ExchangeRequests::SendRecordRequest { .. }) => true,
                     Ok(ExchangeRequests::GetNextRecordRequest { .. }) => true,
+                    Ok(ExchangeRequests::OperatorCompletedRecordProcessingRequest { .. }) => true,
                     Err(err) => {
                         error!("{}", err);
                         false
@@ -431,7 +442,7 @@ impl RecordPool {
     fn operator_completed_record_processing(
         &mut self,
         operator_id: &String,
-        record_id: u64,
+        record_id: &u64,
     ) -> Result<()> {
         let op_queue = if let Some(queue) = self
             .operator_record_queues
@@ -443,16 +454,16 @@ impl RecordPool {
             return Err(RecordPoolError::OperatorDoesNotExist(operator_id.clone()).into());
         };
 
-        let reserved_record = op_queue.records_reserved_by_operator.remove(&record_id);
+        let reserved_record = op_queue.records_reserved_by_operator.remove(record_id);
         if reserved_record.is_none() {
             return Err(RecordPoolError::ReservedRecordInstanceMissingForOperator(
                 operator_id.clone(),
             )
             .into());
         }
-        op_queue.record_processing_metrics.remove(&record_id);
+        op_queue.record_processing_metrics.remove(record_id);
 
-        let rec_ref = self.records.get_mut(&record_id);
+        let rec_ref = self.records.get_mut(record_id);
         match rec_ref {
             Some(rec_ref) => {
                 let already_finished = rec_ref
@@ -463,7 +474,7 @@ impl RecordPool {
                 if already_finished {
                     // this should never be the case
                     return Err(RecordPoolError::RecordAlreadyProcessedByOperator(
-                        record_id,
+                        record_id.clone(),
                         operator_id.clone(),
                     )
                     .into());
@@ -475,13 +486,13 @@ impl RecordPool {
                     let mut pbo = rec_ref.processed_by_operators.clone();
                     pbo.sort();
                     if pbo == self.operator_ids {
-                        self.records.remove(&record_id);
+                        self.records.remove(record_id);
                     }
                 }
 
                 Ok(())
             }
-            None => Err(RecordPoolError::RecordDoesNotExist(record_id).into()),
+            None => Err(RecordPoolError::RecordDoesNotExist(record_id.clone()).into()),
         }
     }
 

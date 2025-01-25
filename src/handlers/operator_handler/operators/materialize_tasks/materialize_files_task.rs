@@ -103,7 +103,8 @@ impl MaterializeFilesTask {
             )
             .await?;
 
-            // process the record
+            // evalute the expressions for each column and materialize the result
+            // to a parquet file
         }
 
         Ok(())
