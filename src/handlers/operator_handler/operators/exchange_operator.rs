@@ -157,6 +157,17 @@ impl ExchangeOperator {
                             .await?;
                         Ok(true)
                     }
+                    ExchangeRequests::OperatorCompletedRecordProcessingRequest {
+                        operator_id,
+                        record_id,
+                    } => {
+                        self.handle_operator_completed_record_processing_request(
+                            operator_id,
+                            record_id,
+                        )
+                        .await?;
+                        Ok(true)
+                    }
                     _ => Ok(false),
                 }
             }
