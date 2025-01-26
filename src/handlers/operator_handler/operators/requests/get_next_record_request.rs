@@ -13,10 +13,13 @@ pub enum GetNextRecordRequestError {
     ReceivedTheWrongMessageType,
 }
 
-pub struct GetNextRecordResponse {
-    record_id: u64,
-    record: Arc<arrow::array::RecordBatch>,
-    table_aliases: Vec<Vec<String>>,
+pub enum GetNextRecordResponse {
+    Record {
+        record_id: u64,
+        record: Arc<arrow::array::RecordBatch>,
+        table_aliases: Vec<Vec<String>>,
+    },
+    NoneLeft,
 }
 
 pub struct GetNextRecordRequest<'a> {
@@ -100,7 +103,7 @@ impl<'a> GetNextRecordRequest<'a> {
                 record_id,
                 record,
                 table_aliases,
-            } => Ok(GetNextRecordResponse {
+            } => Ok(GetNextRecordResponse::Record {
                 record_id: record_id.to_owned(),
                 record: record.to_owned(),
                 table_aliases: table_aliases.to_owned(),

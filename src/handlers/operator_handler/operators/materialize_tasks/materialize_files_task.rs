@@ -2,20 +2,24 @@ use anyhow::Result;
 use std::sync::Arc;
 use tracing::{debug, error};
 
-use crate::handlers::{
-    message_handler::{
-        ExchangeRequests, MessageName, MessageRegistry, Ping, Pipe, QueryHandlerRequests,
-    },
-    message_router_handler::MessageConsumer,
-    operator_handler::{
-        operator_handler_state::OperatorInstanceConfig,
-        operators::{
-            operator_task_trackers::RestrictedOperatorTaskTracker,
-            requests::{self, IdentifyExchangeRequest},
-            traits::TaskBuilder,
-            ConnectionRegistry,
+use crate::{
+    handlers::{
+        message_handler::{
+            ExchangeRequests, MessageName, MessageRegistry, Ping, Pipe, QueryHandlerRequests,
+        },
+        message_router_handler::MessageConsumer,
+        operator_handler::{
+            operator_handler_state::OperatorInstanceConfig,
+            operators::{
+                operator_task_trackers::RestrictedOperatorTaskTracker,
+                record_utils,
+                requests::{self, IdentifyExchangeRequest},
+                traits::TaskBuilder,
+                ConnectionRegistry,
+            },
         },
     },
+    planner,
 };
 
 use super::config::MaterializeFilesConfig;
@@ -103,8 +107,28 @@ impl MaterializeFilesTask {
             )
             .await?;
 
-            // evalute the expressions for each column and materialize the result
-            // to a parquet file
+            match &resp {
+                requests::GetNextRecordResponse::Record {
+                    record_id,
+                    record,
+                    table_aliases,
+                } => {
+                    // TODO: implement heartbeat for record processing
+                    // TODO: use thread-pool for record operations
+                    // evalute the expressions for each column and materialize the result
+                    // to a parquet file
+                    let proj_rec = record_utils::project_record(
+                        &self.materialize_file_config.fields,
+                        record.clone(),
+                        table_aliases,
+                    )?;
+                    // TODO: add materialization and confirmation of processing
+                }
+                requests::GetNextRecordResponse::NoneLeft => {
+                    debug!("complete materialization; read all records from the exchange");
+                    break;
+                }
+            }
         }
 
         Ok(())

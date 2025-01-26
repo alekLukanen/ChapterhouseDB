@@ -12,16 +12,21 @@ pub enum ProjectRecordError {
 }
 
 pub fn project_record(
-    fields: Vec<SelectItem>,
+    fields: &Vec<SelectItem>,
     record: Arc<RecordBatch>,
-    table_aliases: Vec<Vec<String>>,
+    table_aliases: &Vec<Vec<String>>,
 ) -> Result<RecordBatch> {
-    let proj_fields: Vec<Field> = Vec::new();
-    let proj_arrays: Vec<Arc<dyn Array>> = Vec::new();
+    let mut proj_fields: Vec<Field> = Vec::new();
+    let mut proj_arrays: Vec<Arc<dyn Array>> = Vec::new();
 
     for field in fields {
         match field {
-            SelectItem::Wildcard(_) => {}
+            SelectItem::Wildcard(_) => {
+                for (idx, field) in record.schema().fields().iter().enumerate() {
+                    proj_fields.push((**field).clone());
+                    proj_arrays.push(record.column(idx).clone());
+                }
+            }
             SelectItem::QualifiedWildcard(_, _) => {
                 return Err(ProjectRecordError::NotImplemented(
                     "SelectItem::QualifiedWildcard".to_string(),
