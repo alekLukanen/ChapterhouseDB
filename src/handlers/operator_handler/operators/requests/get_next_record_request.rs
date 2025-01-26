@@ -108,6 +108,7 @@ impl<'a> GetNextRecordRequest<'a> {
                 record: record.to_owned(),
                 table_aliases: table_aliases.to_owned(),
             }),
+            ExchangeRequests::GetNextRecordResponseNoneLeft => Ok(GetNextRecordResponse::NoneLeft),
             _ => Err(GetNextRecordRequestError::ReceivedTheWrongMessageType.into()),
         }
     }

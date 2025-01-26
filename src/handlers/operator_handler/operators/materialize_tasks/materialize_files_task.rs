@@ -1,28 +1,30 @@
 use anyhow::Result;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
+use thiserror::Error;
 use tracing::{debug, error};
+use uuid::Uuid;
 
-use crate::{
-    handlers::{
-        message_handler::{
-            ExchangeRequests, MessageName, MessageRegistry, Ping, Pipe, QueryHandlerRequests,
-        },
-        message_router_handler::MessageConsumer,
-        operator_handler::{
-            operator_handler_state::OperatorInstanceConfig,
-            operators::{
-                operator_task_trackers::RestrictedOperatorTaskTracker,
-                record_utils,
-                requests::{self, IdentifyExchangeRequest},
-                traits::TaskBuilder,
-                ConnectionRegistry,
-            },
+use crate::handlers::{
+    message_handler::{
+        ExchangeRequests, MessageName, MessageRegistry, Ping, Pipe, QueryHandlerRequests,
+    },
+    message_router_handler::MessageConsumer,
+    operator_handler::{
+        operator_handler_state::OperatorInstanceConfig,
+        operators::{
+            operator_task_trackers::RestrictedOperatorTaskTracker, record_utils, requests,
+            traits::TaskBuilder, ConnectionRegistry,
         },
     },
-    planner,
 };
 
 use super::config::MaterializeFilesConfig;
+
+#[derive(Debug, Error)]
+pub enum MaterializeFilesTaskError {
+    #[error("record path formatting returned None result")]
+    RecordPathFormattingReturnedNoneResult,
+}
 
 #[derive(Debug)]
 struct MaterializeFilesTask {
@@ -67,9 +69,12 @@ impl MaterializeFilesTask {
     async fn async_main(&mut self, ct: tokio_util::sync::CancellationToken) -> Result<()> {
         debug!("materialize_files_task.async_main()");
 
+        // get the default connection
+        let storage_conn = self.conn_reg.get_operator("default")?;
+
         // find the exchange
         let ref mut pipe = self.operator_pipe;
-        let req = IdentifyExchangeRequest::request_outbound_exchange(
+        let req = requests::IdentifyExchangeRequest::request_outbound_exchange(
             &self.operator_instance_config,
             pipe,
             self.msg_reg.clone(),
@@ -93,6 +98,8 @@ impl MaterializeFilesTask {
 
         assert!(self.exchange_operator_instance_id.is_some());
         assert!(self.exchange_worker_id.is_some());
+
+        let query_uuid_id = Uuid::from_u128(self.operator_instance_config.query_id.clone());
 
         // loop over all records in the exchange
         let ref mut operator_pipe = self.operator_pipe;
@@ -123,6 +130,44 @@ impl MaterializeFilesTask {
                         table_aliases,
                     )?;
                     // TODO: add materialization and confirmation of processing
+
+                    // materialize the projected record
+                    let mut rec_path_buf = PathBuf::from("/query_results");
+                    rec_path_buf.push(format!("{}", query_uuid_id));
+                    rec_path_buf.push(format!("rec_{}.parquet", record_id));
+                    let rec_path = if let Some(rec_path) = rec_path_buf.to_str() {
+                        rec_path
+                    } else {
+                        return Err(
+                            MaterializeFilesTaskError::RecordPathFormattingReturnedNoneResult
+                                .into(),
+                        );
+                    };
+                    let writer = storage_conn
+                        .writer_with(rec_path)
+                        .chunk(16 * 1024 * 1024)
+                        .concurrent(4)
+                        .await?;
+
+                    let parquet_writer = parquet_opendal::AsyncWriter::new(writer);
+                    let mut arrow_parquet_writer = parquet::arrow::AsyncArrowWriter::try_new(
+                        parquet_writer,
+                        proj_rec.schema(),
+                        None,
+                    )?;
+                    arrow_parquet_writer.write(&proj_rec).await?;
+                    arrow_parquet_writer.close().await?;
+
+                    // confirm processing of the record
+                    requests::OperatorCompletedRecordProcessingRequest::request(
+                        self.operator_instance_config.operator.id.clone(),
+                        record_id.clone(),
+                        self.exchange_operator_instance_id.unwrap().clone(),
+                        self.exchange_worker_id.unwrap().clone(),
+                        operator_pipe,
+                        self.msg_reg.clone(),
+                    )
+                    .await?;
                 }
                 requests::GetNextRecordResponse::NoneLeft => {
                     debug!("complete materialization; read all records from the exchange");
