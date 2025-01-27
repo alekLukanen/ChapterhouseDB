@@ -3,13 +3,9 @@ use bytes::BytesMut;
 use thiserror::Error;
 
 use super::{
-    messages::{
-        IdentifyParser, Message, MessageParser, PingParser, SerializedMessage,
-        SerializedMessageError,
-    },
-    ExchangeRequestsParser, OperatorInstanceAssignmentParser, OperatorInstanceAvailableParser,
-    QueryHandlerRequests, QueryHandlerRequestsParser, RunQueryParser, RunQueryRespParser,
-    SendableMessage,
+    messages::{Message, MessageParser, SerializedMessage, SerializedMessageError},
+    ExchangeRequestsParser, GenericMessageParser, Identify, OperatorInstanceAssignment,
+    OperatorInstanceAvailable, Ping, QueryHandlerRequests, RunQuery, RunQueryResp, SendableMessage,
 };
 
 #[derive(Debug, Clone, Error)]
@@ -42,13 +38,17 @@ impl MessageRegistry {
     }
 
     fn register_messages(&mut self) {
-        self.add(Box::new(PingParser::new()));
-        self.add(Box::new(IdentifyParser::new()));
-        self.add(Box::new(RunQueryParser::new()));
-        self.add(Box::new(RunQueryRespParser::new()));
-        self.add(Box::new(OperatorInstanceAvailableParser::new()));
-        self.add(Box::new(OperatorInstanceAssignmentParser::new()));
-        self.add(Box::new(QueryHandlerRequestsParser::new()));
+        self.add(Box::new(GenericMessageParser::<Ping>::new()));
+        self.add(Box::new(GenericMessageParser::<Identify>::new()));
+        self.add(Box::new(GenericMessageParser::<RunQuery>::new()));
+        self.add(Box::new(GenericMessageParser::<RunQueryResp>::new()));
+        self.add(Box::new(
+            GenericMessageParser::<OperatorInstanceAvailable>::new(),
+        ));
+        self.add(Box::new(
+            GenericMessageParser::<OperatorInstanceAssignment>::new(),
+        ));
+        self.add(Box::new(GenericMessageParser::<QueryHandlerRequests>::new()));
         self.add(Box::new(ExchangeRequestsParser::new()));
     }
 

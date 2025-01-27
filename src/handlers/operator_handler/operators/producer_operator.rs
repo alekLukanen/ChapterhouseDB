@@ -93,8 +93,8 @@ impl ProducerOperator {
             .context("failed subscribing")?;
 
         debug!(
-            "started the producer operator for instance {}",
-            self.operator_instance_config.id
+            "started the producer operator {} for instance {}",
+            self.operator_instance_config.operator.id, self.operator_instance_config.id
         );
 
         loop {
@@ -131,7 +131,10 @@ impl ProducerOperator {
             }
         }
 
+        debug!("closing the task tracker");
+
         self.task_ct.cancel();
+        self.tt.close();
         tokio::select! {
             _ = self.tt.wait() => {},
             _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {

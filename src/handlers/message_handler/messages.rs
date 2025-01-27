@@ -35,6 +35,65 @@ pub trait MessageParser: fmt::Debug + Send + Sync {
     fn msg_name(&self) -> MessageName;
 }
 
+pub trait GenericMessage:
+    Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + fmt::Debug + 'static
+{
+    fn msg_name() -> MessageName;
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>>;
+}
+
+impl<T> SendableMessage for T
+where
+    T: GenericMessage,
+{
+    fn to_bytes(&self) -> Result<Vec<u8>> {
+        Ok(serde_json::to_vec(self)?)
+    }
+
+    fn msg_name(&self) -> MessageName {
+        T::msg_name()
+    }
+
+    fn clone_box(&self) -> Box<dyn SendableMessage> {
+        Box::new(self.clone())
+    }
+
+    fn as_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+}
+
+#[derive(Debug)]
+pub struct GenericMessageParser<T> {
+    _marker: std::marker::PhantomData<T>,
+}
+
+impl<T> GenericMessageParser<T> {
+    pub fn new() -> Self {
+        Self {
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T> MessageParser for GenericMessageParser<T>
+where
+    T: GenericMessage,
+{
+    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
+        let msg = T::build_msg(&ser_msg.msg_data)?;
+        Ok(Message::build_from_serialized_message(ser_msg, msg))
+    }
+
+    fn msg_name(&self) -> MessageName {
+        T::msg_name()
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct SerializedMessage {
     // lengths are in bytes
@@ -488,7 +547,6 @@ pub enum MessageName {
     RunQueryResp,
     OperatorInstanceAvailable,
     OperatorInstanceAssignment,
-    StoreRecordBatch,
     QueryHandlerRequests,
     ExchangeRequests,
 }
@@ -502,7 +560,6 @@ impl MessageName {
             Self::RunQueryResp => "RunQueryResp",
             Self::OperatorInstanceAvailable => "OperatorInstanceAvailable",
             Self::OperatorInstanceAssignment => "OperatorInstanceAssignment",
-            Self::StoreRecordBatch => "StoreRecordBatch",
             Self::QueryHandlerRequests => "QueryHandlerRequests",
             Self::ExchangeRequests => "ExchangeRequests",
         }
@@ -515,9 +572,8 @@ impl MessageName {
             Self::RunQueryResp => 3,
             Self::OperatorInstanceAvailable => 4,
             Self::OperatorInstanceAssignment => 5,
-            Self::StoreRecordBatch => 6,
-            Self::QueryHandlerRequests => 7,
-            Self::ExchangeRequests => 8,
+            Self::QueryHandlerRequests => 6,
+            Self::ExchangeRequests => 7,
         }
     }
 }
@@ -537,47 +593,13 @@ pub enum Identify {
     Connection { id: u128 },
 }
 
-impl Identify {
-    pub fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+impl GenericMessage for Identify {
+    fn msg_name() -> MessageName {
+        MessageName::Identify
+    }
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
         let msg: Identify = serde_json::from_slice(data)?;
         Ok(Box::new(msg))
-    }
-}
-
-impl SendableMessage for Identify {
-    fn to_bytes(&self) -> Result<Vec<u8>> {
-        Ok(serde_json::to_vec(self)?)
-    }
-    fn msg_name(&self) -> MessageName {
-        MessageName::Identify
-    }
-    fn clone_box(&self) -> Box<dyn SendableMessage> {
-        Box::new(self.clone())
-    }
-    fn as_any(self: Box<Self>) -> Box<dyn Any> {
-        self
-    }
-    fn as_any_ref(&self) -> &dyn Any {
-        self
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct IdentifyParser {}
-
-impl IdentifyParser {
-    pub fn new() -> IdentifyParser {
-        IdentifyParser {}
-    }
-}
-
-impl MessageParser for IdentifyParser {
-    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
-        let msg = Identify::build_msg(&ser_msg.msg_data)?;
-        Ok(Message::build_from_serialized_message(ser_msg, msg))
-    }
-    fn msg_name(&self) -> MessageName {
-        MessageName::Identify
     }
 }
 
@@ -590,43 +612,13 @@ pub enum Ping {
     Pong,
 }
 
-impl SendableMessage for Ping {
-    fn to_bytes(&self) -> Result<Vec<u8>> {
-        Ok(serde_json::to_vec(self)?)
-    }
-    fn msg_name(&self) -> MessageName {
+impl GenericMessage for Ping {
+    fn msg_name() -> MessageName {
         MessageName::Ping
     }
-    fn clone_box(&self) -> Box<dyn SendableMessage> {
-        Box::new(self.clone())
-    }
-    fn as_any(self: Box<Self>) -> Box<dyn Any> {
-        self
-    }
-    fn as_any_ref(&self) -> &dyn Any {
-        self
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct PingParser {}
-
-impl PingParser {
-    pub fn new() -> PingParser {
-        PingParser {}
-    }
-}
-
-impl MessageParser for PingParser {
-    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
-        let msg: Ping = serde_json::from_slice(&ser_msg.msg_data)?;
-        Ok(Message::build_from_serialized_message(
-            ser_msg,
-            Box::new(msg),
-        ))
-    }
-    fn msg_name(&self) -> MessageName {
-        MessageName::Ping
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: Ping = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
     }
 }
 
@@ -642,47 +634,15 @@ impl RunQuery {
     pub fn new(query: String) -> RunQuery {
         RunQuery { query }
     }
+}
 
-    pub fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+impl GenericMessage for RunQuery {
+    fn msg_name() -> MessageName {
+        MessageName::RunQuery
+    }
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
         let msg: RunQuery = serde_json::from_slice(data)?;
         Ok(Box::new(msg))
-    }
-}
-
-impl SendableMessage for RunQuery {
-    fn to_bytes(&self) -> Result<Vec<u8>> {
-        Ok(serde_json::to_vec(self)?)
-    }
-    fn msg_name(&self) -> MessageName {
-        MessageName::RunQuery
-    }
-    fn clone_box(&self) -> Box<dyn SendableMessage> {
-        Box::new(self.clone())
-    }
-    fn as_any(self: Box<Self>) -> Box<dyn Any> {
-        self
-    }
-    fn as_any_ref(&self) -> &dyn Any {
-        self
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct RunQueryParser {}
-
-impl RunQueryParser {
-    pub fn new() -> RunQueryParser {
-        RunQueryParser {}
-    }
-}
-
-impl MessageParser for RunQueryParser {
-    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
-        let msg = RunQuery::build_msg(&ser_msg.msg_data)?;
-        Ok(Message::build_from_serialized_message(ser_msg, msg))
-    }
-    fn msg_name(&self) -> MessageName {
-        MessageName::RunQuery
     }
 }
 
@@ -702,40 +662,13 @@ impl RunQueryResp {
     }
 }
 
-impl SendableMessage for RunQueryResp {
-    fn to_bytes(&self) -> Result<Vec<u8>> {
-        Ok(serde_json::to_vec(self)?)
-    }
-    fn msg_name(&self) -> MessageName {
+impl GenericMessage for RunQueryResp {
+    fn msg_name() -> MessageName {
         MessageName::RunQueryResp
     }
-    fn clone_box(&self) -> Box<dyn SendableMessage> {
-        Box::new(self.clone())
-    }
-    fn as_any(self: Box<Self>) -> Box<dyn Any> {
-        self
-    }
-    fn as_any_ref(&self) -> &dyn Any {
-        self
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct RunQueryRespParser {}
-
-impl RunQueryRespParser {
-    pub fn new() -> RunQueryRespParser {
-        RunQueryRespParser {}
-    }
-}
-
-impl MessageParser for RunQueryRespParser {
-    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
-        let msg = RunQueryResp::build_msg(&ser_msg.msg_data)?;
-        Ok(Message::build_from_serialized_message(ser_msg, msg))
-    }
-    fn msg_name(&self) -> MessageName {
-        MessageName::RunQueryResp
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: RunQueryResp = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
     }
 }
 
@@ -750,43 +683,13 @@ pub enum OperatorInstanceAvailable {
     },
 }
 
-impl SendableMessage for OperatorInstanceAvailable {
-    fn to_bytes(&self) -> Result<Vec<u8>> {
-        Ok(serde_json::to_vec(self)?)
-    }
-    fn msg_name(&self) -> MessageName {
+impl GenericMessage for OperatorInstanceAvailable {
+    fn msg_name() -> MessageName {
         MessageName::OperatorInstanceAvailable
     }
-    fn clone_box(&self) -> Box<dyn SendableMessage> {
-        Box::new(self.clone())
-    }
-    fn as_any(self: Box<Self>) -> Box<dyn Any> {
-        self
-    }
-    fn as_any_ref(&self) -> &dyn Any {
-        self
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct OperatorInstanceAvailableParser {}
-
-impl OperatorInstanceAvailableParser {
-    pub fn new() -> OperatorInstanceAvailableParser {
-        OperatorInstanceAvailableParser {}
-    }
-}
-
-impl MessageParser for OperatorInstanceAvailableParser {
-    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
-        let msg: OperatorInstanceAvailable = serde_json::from_slice(&ser_msg.msg_data)?;
-        Ok(Message::build_from_serialized_message(
-            ser_msg,
-            Box::new(msg),
-        ))
-    }
-    fn msg_name(&self) -> MessageName {
-        MessageName::OperatorInstanceAvailable
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: OperatorInstanceAvailable = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
     }
 }
 
@@ -838,43 +741,13 @@ impl OperatorInstanceAssignment {
     }
 }
 
-impl SendableMessage for OperatorInstanceAssignment {
-    fn to_bytes(&self) -> Result<Vec<u8>> {
-        Ok(serde_json::to_vec(self)?)
-    }
-    fn msg_name(&self) -> MessageName {
+impl GenericMessage for OperatorInstanceAssignment {
+    fn msg_name() -> MessageName {
         MessageName::OperatorInstanceAssignment
     }
-    fn clone_box(&self) -> Box<dyn SendableMessage> {
-        Box::new(self.clone())
-    }
-    fn as_any(self: Box<Self>) -> Box<dyn Any> {
-        self
-    }
-    fn as_any_ref(&self) -> &dyn Any {
-        self
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct OperatorInstanceAssignmentParser {}
-
-impl OperatorInstanceAssignmentParser {
-    pub fn new() -> OperatorInstanceAssignmentParser {
-        OperatorInstanceAssignmentParser {}
-    }
-}
-
-impl MessageParser for OperatorInstanceAssignmentParser {
-    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
-        let msg: OperatorInstanceAssignment = serde_json::from_slice(&ser_msg.msg_data)?;
-        Ok(Message::build_from_serialized_message(
-            ser_msg,
-            Box::new(msg),
-        ))
-    }
-    fn msg_name(&self) -> MessageName {
-        MessageName::OperatorInstanceAssignment
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: OperatorInstanceAssignment = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
     }
 }
 
@@ -887,43 +760,13 @@ pub enum QueryHandlerRequests {
     ListOperatorInstancesResponse { op_instance_ids: Vec<u128> },
 }
 
-impl SendableMessage for QueryHandlerRequests {
-    fn to_bytes(&self) -> Result<Vec<u8>> {
-        Ok(serde_json::to_vec(self)?)
-    }
-    fn msg_name(&self) -> MessageName {
+impl GenericMessage for QueryHandlerRequests {
+    fn msg_name() -> MessageName {
         MessageName::QueryHandlerRequests
     }
-    fn clone_box(&self) -> Box<dyn SendableMessage> {
-        Box::new(self.clone())
-    }
-    fn as_any(self: Box<Self>) -> Box<dyn Any> {
-        self
-    }
-    fn as_any_ref(&self) -> &dyn Any {
-        self
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct QueryHandlerRequestsParser {}
-
-impl QueryHandlerRequestsParser {
-    pub fn new() -> QueryHandlerRequestsParser {
-        QueryHandlerRequestsParser {}
-    }
-}
-
-impl MessageParser for QueryHandlerRequestsParser {
-    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
-        let msg: QueryHandlerRequests = serde_json::from_slice(&ser_msg.msg_data)?;
-        Ok(Message::build_from_serialized_message(
-            ser_msg,
-            Box::new(msg),
-        ))
-    }
-    fn msg_name(&self) -> MessageName {
-        MessageName::QueryHandlerRequests
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: QueryHandlerRequests = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
     }
 }
 

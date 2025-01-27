@@ -96,8 +96,8 @@ impl ExchangeOperator {
             .context("failed subscribing")?;
 
         debug!(
-            "started the exchange operator for instance {}",
-            self.operator_instance_config.id
+            "started the exchange operator {} for instance id {}",
+            self.operator_instance_config.operator.id, self.operator_instance_config.id
         );
 
         loop {
@@ -192,6 +192,11 @@ impl ExchangeOperator {
         record: Arc<arrow::array::RecordBatch>,
         table_aliases: &Vec<Vec<String>>,
     ) -> Result<()> {
+        debug!(
+            record_id = *record_id,
+            num_rows = record.num_rows(),
+            "received record",
+        );
         self.record_pool
             .add_record(record_id.clone(), record.clone(), table_aliases.clone());
 
@@ -265,7 +270,7 @@ impl MessageConsumer for ExchangeOperatorSubscriber {
                     false
                 }
             },
-            MessageName::StoreRecordBatch => {
+            MessageName::ExchangeRequests => {
                 match self.msg_reg.try_cast_msg::<ExchangeRequests>(msg) {
                     Ok(ExchangeRequests::SendRecordRequest { .. }) => true,
                     Ok(ExchangeRequests::GetNextRecordRequest { .. }) => true,

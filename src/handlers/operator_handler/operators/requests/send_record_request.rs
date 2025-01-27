@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use thiserror::Error;
+use tracing::debug;
 
-use crate::handlers::{
-    message_handler::{ExchangeRequests, Message, MessageName, MessageRegistry, Pipe, Request},
-    operator_handler::operator_handler_state::OperatorInstanceConfig,
+use crate::handlers::message_handler::{
+    ExchangeRequests, Message, MessageName, MessageRegistry, Pipe, Request,
 };
 
 #[derive(Debug, Error)]
@@ -53,7 +53,7 @@ impl<'a> SendRecordRequest<'a> {
     }
 
     async fn process_request(&mut self) -> Result<()> {
-        self.send_record().await?;
+        self.send_record_with_retry(10).await?;
         Ok(())
     }
 
@@ -66,7 +66,7 @@ impl<'a> SendRecordRequest<'a> {
                 }
                 Err(err) => {
                     last_err = Some(err);
-
+                    debug!("failed sending record; retrying after wait period");
                     tokio::time::sleep(std::time::Duration::from_secs(std::cmp::min(
                         retry_idx as u64 + 1,
                         5,

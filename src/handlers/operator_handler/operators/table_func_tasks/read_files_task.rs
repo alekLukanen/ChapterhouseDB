@@ -359,7 +359,7 @@ impl MessageConsumer for ReadFilesConsumer {
                     false
                 }
             },
-            MessageName::StoreRecordBatch => {
+            MessageName::ExchangeRequests => {
                 match self.msg_reg.try_cast_msg::<ExchangeRequests>(msg) {
                     Ok(ExchangeRequests::SendRecordResponse { .. }) => true,
                     Ok(ExchangeRequests::SendRecordRequest { .. }) => false,

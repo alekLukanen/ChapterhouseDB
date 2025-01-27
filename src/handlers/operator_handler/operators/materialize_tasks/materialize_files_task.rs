@@ -129,7 +129,6 @@ impl MaterializeFilesTask {
                         record.clone(),
                         table_aliases,
                     )?;
-                    // TODO: add materialization and confirmation of processing
 
                     // materialize the projected record
                     let mut rec_path_buf = PathBuf::from("/query_results");

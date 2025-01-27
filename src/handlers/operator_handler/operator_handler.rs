@@ -22,6 +22,8 @@ pub enum OperatorHandlerError {
     IncorrectMessage(String),
     #[error("not implemented: {0}")]
     NotImplemented(&'static str),
+    #[error("timed out waiting for task to close")]
+    TimedOutWaitingForTaskToClose,
 }
 
 pub struct OperatorHandler {
@@ -97,6 +99,13 @@ impl OperatorHandler {
         }
 
         self.state.close()?;
+        self.tt.close();
+        tokio::select! {
+            _ = self.tt.wait() => {},
+            _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
+                return Err(OperatorHandlerError::TimedOutWaitingForTaskToClose.into());
+            }
+        }
 
         info!("closing the operator handler...");
         self.router_pipe.close_receiver();
