@@ -49,6 +49,7 @@ impl<'a> IdentifyExchangeRequest<'a> {
         pipe: &'a mut Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> Result<IdentifyExchangeResponse> {
+        debug!("request outbound exchange");
         let exchange_id = match &op_in_config.operator.operator_type {
             crate::planner::OperatorType::Producer {
                 outbound_exchange_id,
@@ -65,11 +66,64 @@ impl<'a> IdentifyExchangeRequest<'a> {
             }
         };
 
+        Self::request(
+            op_in_config.query_id.clone(),
+            exchange_id,
+            pipe,
+            msg_reg.clone(),
+        )
+        .await
+    }
+
+    pub async fn request_inbound_exchanges(
+        op_in_config: &OperatorInstanceConfig,
+        pipe: &'a mut Pipe,
+        msg_reg: Arc<MessageRegistry>,
+    ) -> Result<Vec<IdentifyExchangeResponse>> {
+        debug!("request inbound exchange");
+        let exchange_ids = match &op_in_config.operator.operator_type {
+            crate::planner::OperatorType::Producer {
+                inbound_exchange_ids,
+                ..
+            } => inbound_exchange_ids.clone(),
+            crate::planner::OperatorType::Exchange { .. } => {
+                return Err(
+                    IdentifyExchangeRequestError::OperatorTypeNotImplemented(format!(
+                        "{:?}",
+                        op_in_config.operator.operator_type
+                    ))
+                    .into(),
+                );
+            }
+        };
+
+        let mut res: Vec<IdentifyExchangeResponse> = Vec::new();
+        for exchange_id in exchange_ids {
+            res.push(
+                Self::request(
+                    op_in_config.query_id.clone(),
+                    exchange_id,
+                    pipe,
+                    msg_reg.clone(),
+                )
+                .await?,
+            );
+        }
+
+        Ok(res)
+    }
+
+    async fn request(
+        query_id: u128,
+        exchange_id: String,
+        pipe: &mut Pipe,
+        msg_reg: Arc<MessageRegistry>,
+    ) -> Result<IdentifyExchangeResponse> {
         let mut res = IdentifyExchangeRequest {
             exchange_operator_instance_id: None,
             exchange_worker_id: None,
             exchange_id,
-            query_id: op_in_config.query_id,
+            query_id,
             pipe,
             msg_reg,
         };

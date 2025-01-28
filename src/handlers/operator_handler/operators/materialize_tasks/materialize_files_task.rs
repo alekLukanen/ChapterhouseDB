@@ -24,6 +24,8 @@ use super::config::MaterializeFilesConfig;
 pub enum MaterializeFilesTaskError {
     #[error("record path formatting returned None result")]
     RecordPathFormattingReturnedNoneResult,
+    #[error("more than one exchange is currently not implement")]
+    MoreThanOneExchangeIsCurrentlyNotImplemented,
 }
 
 #[derive(Debug)]
@@ -72,7 +74,7 @@ impl MaterializeFilesTask {
 
         // find the exchange
         let ref mut pipe = self.operator_pipe;
-        let req = requests::IdentifyExchangeRequest::request_outbound_exchange(
+        let req = requests::IdentifyExchangeRequest::request_inbound_exchanges(
             &self.operator_instance_config,
             pipe,
             self.msg_reg.clone(),
@@ -81,6 +83,10 @@ impl MaterializeFilesTask {
             resp = req => {
                 match resp {
                     Ok(resp) => {
+                        if resp.len() != 1 {
+                            return Err(MaterializeFilesTaskError::MoreThanOneExchangeIsCurrentlyNotImplemented.into());
+                        }
+                        let resp = resp.get(0).unwrap();
                         self.exchange_operator_instance_id = Some(resp.exchange_operator_instance_id);
                         self.exchange_worker_id = Some(resp.exchange_worker_id);
                     }

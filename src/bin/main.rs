@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use clap;
-use tracing_subscriber::{self, util::SubscriberInitExt};
+use tracing_subscriber;
 
 use chapterhouseqe::{
     handlers::operator_handler::{operators, TotalOperatorCompute},
@@ -45,8 +45,8 @@ fn main() {
         args.connect_to_addresses,
         TotalOperatorCompute {
             instances: 10,
-            memory_in_mib: 1 << 11, // 2048 mebibytes
-            cpu_in_thousandths: 2_000,
+            memory_in_mib: 1 << 12, // 4096 mebibytes
+            cpu_in_thousandths: 4_000,
         },
         conn_reg,
     ));
