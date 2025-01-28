@@ -7,7 +7,9 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::debug;
 
-use crate::handlers::message_handler::{Message, MessageName, MessageRegistry, Ping, Pipe};
+use crate::handlers::message_handler::messages;
+use crate::handlers::message_handler::messages::message::{Message, MessageName};
+use crate::handlers::message_handler::{MessageRegistry, Pipe};
 use crate::handlers::message_router_handler::{
     MessageConsumer, MessageReceiver, MessageRouterState, Subscriber,
 };
@@ -102,8 +104,8 @@ impl ProducerOperator {
                 Some(msg) = self.router_pipe.recv() => {
                     debug!("received message: {}", msg);
                     if msg.msg.msg_name() == MessageName::Ping {
-                        let ping_msg: &Ping = self.msg_reg.try_cast_msg(&msg)?;
-                        if matches!(ping_msg, Ping::Ping) {
+                        let ping_msg: &messages::common::Ping = self.msg_reg.try_cast_msg(&msg)?;
+                        if matches!(ping_msg, messages::common::Ping::Ping) {
                             let pong_msg = handle_ping_message(&msg, ping_msg)?;
                             self.router_pipe.send(pong_msg).await?;
                         }
@@ -164,7 +166,7 @@ pub struct ProducerOperatorSubscriber {
 impl Subscriber for ProducerOperatorSubscriber {}
 
 impl MessageConsumer for ProducerOperatorSubscriber {
-    fn consumes_message(&self, msg: &crate::handlers::message_handler::Message) -> bool {
+    fn consumes_message(&self, msg: &Message) -> bool {
         if (msg.route_to_operation_id.is_some()
             && msg.route_to_operation_id != Some(self.operator_instance_id))
             || (msg.sent_from_query_id.is_some() && msg.sent_from_query_id != Some(self.query_id))

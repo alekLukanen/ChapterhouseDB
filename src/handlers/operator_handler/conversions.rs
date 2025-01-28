@@ -2,7 +2,7 @@ use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
 use super::operator_handler_state::{OperatorInstance, OperatorInstanceConfig, Status};
-use crate::handlers::message_handler::OperatorInstanceAssignment;
+use crate::handlers::message_handler::messages;
 
 #[derive(Debug, Error)]
 pub enum TryFromOperatorInstanceError {
@@ -10,14 +10,14 @@ pub enum TryFromOperatorInstanceError {
     UnableToConvertMessageToOperatorInstance,
 }
 
-impl TryFrom<&OperatorInstanceAssignment> for OperatorInstance {
+impl TryFrom<&messages::query::OperatorInstanceAssignment> for OperatorInstance {
     type Error = TryFromOperatorInstanceError;
 
     fn try_from(
-        op_in_assign: &OperatorInstanceAssignment,
+        op_in_assign: &messages::query::OperatorInstanceAssignment,
     ) -> Result<OperatorInstance, Self::Error> {
         match op_in_assign {
-            OperatorInstanceAssignment::Assign {
+            messages::query::OperatorInstanceAssignment::Assign {
                 query_id,
                 op_instance_id,
                 pipeline_id,

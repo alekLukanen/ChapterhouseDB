@@ -7,10 +7,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use super::query_handler_state::{self, QueryHandlerState, Status};
-use crate::handlers::message_handler::{
-    Message, MessageName, MessageRegistry, OperatorInstanceAssignment, OperatorInstanceAvailable,
-    Pipe, QueryHandlerRequests, RunQuery, RunQueryResp,
-};
+use crate::handlers::message_handler::messages;
+use crate::handlers::message_handler::messages::message::{Message, MessageName};
+use crate::handlers::message_handler::{MessageRegistry, Pipe};
 use crate::handlers::message_router_handler::{
     MessageConsumer, MessageReceiver, MessageRouterState, Subscriber,
 };
@@ -109,10 +108,10 @@ impl QueryHandler {
         &mut self,
         msg: &Message,
     ) -> Result<()> {
-        let list_operator_instances_request: &QueryHandlerRequests =
+        let list_operator_instances_request: &messages::query::QueryHandlerRequests =
             self.msg_reg.try_cast_msg(msg)?;
         match list_operator_instances_request {
-            QueryHandlerRequests::ListOperatorInstancesRequest {
+            messages::query::QueryHandlerRequests::ListOperatorInstancesRequest {
                 query_id,
                 operator_id,
             } => {
@@ -120,7 +119,7 @@ impl QueryHandler {
                     .state
                     .get_operator_instances(query_id.clone(), operator_id.clone())?;
                 let resp_msg = msg.reply(Box::new(
-                    QueryHandlerRequests::ListOperatorInstancesResponse {
+                    messages::query::QueryHandlerRequests::ListOperatorInstancesResponse {
                         op_instance_ids: op_instances.iter().map(|item| item.id).collect(),
                     },
                 ));
@@ -137,9 +136,10 @@ impl QueryHandler {
     }
 
     async fn handle_operator_instance_assignment_responses(&mut self, msg: &Message) -> Result<()> {
-        let op_in_assign: &OperatorInstanceAssignment = self.msg_reg.try_cast_msg(msg)?;
+        let op_in_assign: &messages::query::OperatorInstanceAssignment =
+            self.msg_reg.try_cast_msg(msg)?;
         match op_in_assign {
-            OperatorInstanceAssignment::AssignAcceptedResponse {
+            messages::query::OperatorInstanceAssignment::AssignAcceptedResponse {
                 query_id,
                 op_instance_id,
                 ..
@@ -158,7 +158,7 @@ impl QueryHandler {
                     Status::Running,
                 )?;
             }
-            OperatorInstanceAssignment::AssignRejectedResponse {
+            messages::query::OperatorInstanceAssignment::AssignRejectedResponse {
                 query_id,
                 op_instance_id,
                 error,
@@ -176,7 +176,7 @@ impl QueryHandler {
                     Status::Error(error.clone()),
                 )?;
             }
-            OperatorInstanceAssignment::Assign { .. } => {
+            messages::query::OperatorInstanceAssignment::Assign { .. } => {
                 return Err(
                     QueryHandlerError::IncorrectMessage(format!("{:?}", op_in_assign)).into(),
                 );
@@ -187,11 +187,12 @@ impl QueryHandler {
     }
 
     async fn handle_operator_instance_response(&mut self, msg: &Message) -> Result<()> {
-        let op_avail_resp: &OperatorInstanceAvailable = self.msg_reg.try_cast_msg(msg)?;
+        let op_avail_resp: &messages::query::OperatorInstanceAvailable =
+            self.msg_reg.try_cast_msg(msg)?;
         let can_accept_up_to = match op_avail_resp {
-            OperatorInstanceAvailable::NotificationResponse { can_accept_up_to } => {
-                can_accept_up_to
-            }
+            messages::query::OperatorInstanceAvailable::NotificationResponse {
+                can_accept_up_to,
+            } => can_accept_up_to,
             _ => {
                 return Err(
                     QueryHandlerError::IncorrectMessage(format!("{:?}", op_avail_resp)).into(),
@@ -206,12 +207,14 @@ impl QueryHandler {
         let msgs = operator_instances
             .iter()
             .map(|item| {
-                msg.reply(Box::new(OperatorInstanceAssignment::Assign {
-                    op_instance_id: item.1.id,
-                    query_id: item.0,
-                    pipeline_id: item.1.pipeline_id.clone(),
-                    operator: item.2.clone(),
-                }))
+                msg.reply(Box::new(
+                    messages::query::OperatorInstanceAssignment::Assign {
+                        op_instance_id: item.1.id,
+                        query_id: item.0,
+                        pipeline_id: item.1.pipeline_id.clone(),
+                        operator: item.2.clone(),
+                    },
+                ))
             })
             .collect();
         self.router_pipe.send_all(msgs).await?;
@@ -222,13 +225,14 @@ impl QueryHandler {
     }
 
     async fn handle_run_query(&mut self, msg: &Message) -> Result<()> {
-        let run_query: &RunQuery = self.msg_reg.try_cast_msg(&msg)?;
+        let run_query: &messages::query::RunQuery = self.msg_reg.try_cast_msg(&msg)?;
 
         let logical_plan = match LogicalPlanner::new(run_query.query.clone()).build() {
             Ok(plan) => plan,
             Err(err) => {
                 info!("error: {}", err);
-                let not_created_resp = msg.reply(Box::new(RunQueryResp::NotCreated));
+                let not_created_resp =
+                    msg.reply(Box::new(messages::query::RunQueryResp::NotCreated));
                 self.router_pipe.send(not_created_resp).await?;
                 return Ok(());
             }
@@ -237,7 +241,8 @@ impl QueryHandler {
             Ok(plan) => plan,
             Err(err) => {
                 info!("error: {}", err);
-                let not_created_resp = msg.reply(Box::new(RunQueryResp::NotCreated));
+                let not_created_resp =
+                    msg.reply(Box::new(messages::query::RunQueryResp::NotCreated));
                 self.router_pipe.send(not_created_resp).await?;
                 return Ok(());
             }
@@ -246,7 +251,7 @@ impl QueryHandler {
         let mut query = query_handler_state::Query::new(run_query.query.clone(), physical_plan);
         query.init();
 
-        let run_query_resp = msg.reply(Box::new(RunQueryResp::Created {
+        let run_query_resp = msg.reply(Box::new(messages::query::RunQueryResp::Created {
             query_id: query.id.clone(),
         }));
 
@@ -255,7 +260,9 @@ impl QueryHandler {
 
         info!("added a new query");
 
-        let in_avail_msg = Message::new(Box::new(OperatorInstanceAvailable::Notification));
+        let in_avail_msg = Message::new(Box::new(
+            messages::query::OperatorInstanceAvailable::Notification,
+        ));
         self.router_pipe.send(in_avail_msg).await?;
 
         Ok(())
@@ -277,22 +284,41 @@ impl MessageConsumer for QueryHandlerSubscriber {
         match msg.msg.msg_name() {
             MessageName::RunQuery => true,
             MessageName::OperatorInstanceAvailable => {
-                match self.msg_reg.try_cast_msg::<OperatorInstanceAvailable>(msg) {
-                    Ok(OperatorInstanceAvailable::NotificationResponse { .. }) => true,
+                match self
+                    .msg_reg
+                    .try_cast_msg::<messages::query::OperatorInstanceAvailable>(msg)
+                {
+                    Ok(messages::query::OperatorInstanceAvailable::NotificationResponse {
+                        ..
+                    }) => true,
                     _ => false,
                 }
             }
             MessageName::OperatorInstanceAssignment => {
-                match self.msg_reg.try_cast_msg::<OperatorInstanceAssignment>(msg) {
-                    Ok(OperatorInstanceAssignment::AssignAcceptedResponse { .. }) => true,
-                    Ok(OperatorInstanceAssignment::AssignRejectedResponse { .. }) => true,
+                match self
+                    .msg_reg
+                    .try_cast_msg::<messages::query::OperatorInstanceAssignment>(msg)
+                {
+                    Ok(messages::query::OperatorInstanceAssignment::AssignAcceptedResponse {
+                        ..
+                    }) => true,
+                    Ok(messages::query::OperatorInstanceAssignment::AssignRejectedResponse {
+                        ..
+                    }) => true,
                     _ => false,
                 }
             }
             MessageName::QueryHandlerRequests => {
-                match self.msg_reg.try_cast_msg::<QueryHandlerRequests>(msg) {
-                    Ok(QueryHandlerRequests::ListOperatorInstancesRequest { .. }) => true,
-                    Ok(QueryHandlerRequests::ListOperatorInstancesResponse { .. }) => false,
+                match self
+                    .msg_reg
+                    .try_cast_msg::<messages::query::QueryHandlerRequests>(msg)
+                {
+                    Ok(messages::query::QueryHandlerRequests::ListOperatorInstancesRequest {
+                        ..
+                    }) => true,
+                    Ok(messages::query::QueryHandlerRequests::ListOperatorInstancesResponse {
+                        ..
+                    }) => false,
                     Err(_) => false,
                 }
             }

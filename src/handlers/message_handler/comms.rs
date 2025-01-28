@@ -4,7 +4,7 @@ use anyhow::Result;
 use thiserror::Error;
 use tokio::sync::mpsc;
 
-use super::{Message, MessageName};
+use super::messages::message::{Message, MessageName};
 
 const MAX_MSG_QUEUE_LENGTH: usize = 100;
 

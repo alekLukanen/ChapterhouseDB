@@ -11,7 +11,7 @@ use tracing::info;
 
 use super::connection::{Connection, ConnectionComm};
 use super::message_registry::MessageRegistry;
-use super::messages::Message;
+use super::messages::message::Message;
 use super::Pipe;
 
 #[derive(Error, Debug)]

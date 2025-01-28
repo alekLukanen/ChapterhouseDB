@@ -10,10 +10,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 use uuid::Uuid;
 
-use crate::handlers::message_handler::SerializedMessageError;
+use crate::handlers::message_handler::messages;
+use crate::handlers::message_handler::messages::message::{Message, SerializedMessageError};
 
 use super::message_registry::MessageRegistry;
-use super::messages::{Identify, Message};
 use super::Pipe;
 
 #[derive(Debug, Error)]
@@ -95,7 +95,7 @@ impl Connection {
         );
 
         if self.send_identification_msg {
-            let identity_msg = Message::new(Box::new(Identify::Worker {
+            let identity_msg = Message::new(Box::new(messages::common::Identify::Worker {
                 id: self.worker_id.clone(),
             }))
             .set_sent_from_worker_id(self.worker_id.clone());

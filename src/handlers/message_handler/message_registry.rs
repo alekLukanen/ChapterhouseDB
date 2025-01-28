@@ -2,10 +2,10 @@ use anyhow::Result;
 use bytes::BytesMut;
 use thiserror::Error;
 
-use super::{
-    messages::{Message, MessageParser, SerializedMessage, SerializedMessageError},
-    ExchangeRequestsParser, GenericMessageParser, Identify, OperatorInstanceAssignment,
-    OperatorInstanceAvailable, Ping, QueryHandlerRequests, RunQuery, RunQueryResp, SendableMessage,
+use super::messages;
+use super::messages::message::{
+    GenericMessageParser, Message, MessageParser, SendableMessage, SerializedMessage,
+    SerializedMessageError,
 };
 
 #[derive(Debug, Clone, Error)]
@@ -38,18 +38,28 @@ impl MessageRegistry {
     }
 
     fn register_messages(&mut self) {
-        self.add(Box::new(GenericMessageParser::<Ping>::new()));
-        self.add(Box::new(GenericMessageParser::<Identify>::new()));
-        self.add(Box::new(GenericMessageParser::<RunQuery>::new()));
-        self.add(Box::new(GenericMessageParser::<RunQueryResp>::new()));
         self.add(Box::new(
-            GenericMessageParser::<OperatorInstanceAvailable>::new(),
+            GenericMessageParser::<messages::common::Ping>::new(),
         ));
         self.add(Box::new(
-            GenericMessageParser::<OperatorInstanceAssignment>::new(),
+            GenericMessageParser::<messages::common::Identify>::new(),
         ));
-        self.add(Box::new(GenericMessageParser::<QueryHandlerRequests>::new()));
-        self.add(Box::new(ExchangeRequestsParser::new()));
+        self.add(Box::new(
+            GenericMessageParser::<messages::query::RunQuery>::new(),
+        ));
+        self.add(Box::new(GenericMessageParser::<
+            messages::query::RunQueryResp,
+        >::new()));
+        self.add(Box::new(GenericMessageParser::<
+            messages::query::OperatorInstanceAvailable,
+        >::new()));
+        self.add(Box::new(GenericMessageParser::<
+            messages::query::OperatorInstanceAssignment,
+        >::new()));
+        self.add(Box::new(GenericMessageParser::<
+            messages::query::QueryHandlerRequests,
+        >::new()));
+        self.add(Box::new(messages::exchange::ExchangeRequestsParser::new()));
     }
 
     pub fn build_msg(&self, buf: &mut BytesMut) -> Result<Option<Message>> {

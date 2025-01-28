@@ -8,11 +8,10 @@ use tracing::info;
 
 use super::operator_handler_state::{OperatorHandlerState, OperatorInstance, TotalOperatorCompute};
 use super::operators;
+use crate::handlers::message_handler::messages;
+use crate::handlers::message_handler::messages::message::{Message, MessageName};
 use crate::handlers::{
-    message_handler::{
-        Message, MessageName, MessageRegistry, OperatorInstanceAssignment,
-        OperatorInstanceAvailable, Pipe,
-    },
+    message_handler::{MessageRegistry, Pipe},
     message_router_handler::{MessageConsumer, MessageReceiver, MessageRouterState, Subscriber},
 };
 
@@ -131,7 +130,8 @@ impl OperatorHandler {
     }
 
     async fn handle_operator_instance_assignment(&mut self, msg: Message) -> Result<()> {
-        let assignment: &OperatorInstanceAssignment = self.msg_reg.try_cast_msg(&msg)?;
+        let assignment: &messages::query::OperatorInstanceAssignment =
+            self.msg_reg.try_cast_msg(&msg)?;
         let op_in: OperatorInstance = OperatorInstance::try_from(assignment)?;
 
         match self.op_builder.build_operator(&op_in, &self.tt).await {
@@ -139,7 +139,7 @@ impl OperatorHandler {
                 self.state.add_operator_instance(op_in)?;
 
                 let resp_msg = msg.reply(Box::new(
-                    OperatorInstanceAssignment::AssignAcceptedResponse {
+                    messages::query::OperatorInstanceAssignment::AssignAcceptedResponse {
                         query_id: assignment.get_query_id(),
                         op_instance_id: assignment.get_op_instance_id(),
                         pipeline_id: assignment.get_pipeline_id(),
@@ -151,7 +151,7 @@ impl OperatorHandler {
                 info!("error: {}", err);
 
                 let resp_msg = msg.reply(Box::new(
-                    OperatorInstanceAssignment::AssignRejectedResponse {
+                    messages::query::OperatorInstanceAssignment::AssignRejectedResponse {
                         query_id: assignment.get_query_id(),
                         op_instance_id: assignment.get_op_instance_id(),
                         pipeline_id: assignment.get_pipeline_id(),
@@ -166,9 +166,10 @@ impl OperatorHandler {
     }
 
     async fn handle_operator_instance_available(&self, msg: Message) -> Result<()> {
-        let op_in_avail: &OperatorInstanceAvailable = self.msg_reg.try_cast_msg(&msg)?;
+        let op_in_avail: &messages::query::OperatorInstanceAvailable =
+            self.msg_reg.try_cast_msg(&msg)?;
         match op_in_avail {
-            OperatorInstanceAvailable::Notification => (),
+            messages::query::OperatorInstanceAvailable::Notification => (),
             _ => {
                 return Err(
                     OperatorHandlerError::IncorrectMessage(format!("{:?}", op_in_avail)).into(),
@@ -187,9 +188,11 @@ impl OperatorHandler {
             return Ok(());
         }
 
-        let resp = msg.reply(Box::new(OperatorInstanceAvailable::NotificationResponse {
-            can_accept_up_to: allowed_compute.clone(),
-        }));
+        let resp = msg.reply(Box::new(
+            messages::query::OperatorInstanceAvailable::NotificationResponse {
+                can_accept_up_to: allowed_compute.clone(),
+            },
+        ));
         self.router_pipe.send(resp).await?;
 
         Ok(())
@@ -210,14 +213,20 @@ impl MessageConsumer for OperatorHandlerSubscriber {
     fn consumes_message(&self, msg: &Message) -> bool {
         match msg.msg.msg_name() {
             MessageName::OperatorInstanceAvailable => {
-                match self.msg_reg.try_cast_msg::<OperatorInstanceAvailable>(msg) {
-                    Ok(OperatorInstanceAvailable::Notification { .. }) => true,
+                match self
+                    .msg_reg
+                    .try_cast_msg::<messages::query::OperatorInstanceAvailable>(msg)
+                {
+                    Ok(messages::query::OperatorInstanceAvailable::Notification { .. }) => true,
                     _ => false,
                 }
             }
             MessageName::OperatorInstanceAssignment => {
-                match self.msg_reg.try_cast_msg::<OperatorInstanceAssignment>(msg) {
-                    Ok(OperatorInstanceAssignment::Assign { .. }) => true,
+                match self
+                    .msg_reg
+                    .try_cast_msg::<messages::query::OperatorInstanceAssignment>(msg)
+                {
+                    Ok(messages::query::OperatorInstanceAssignment::Assign { .. }) => true,
                     _ => false,
                 }
             }

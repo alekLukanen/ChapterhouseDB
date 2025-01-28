@@ -1,13 +1,14 @@
 use anyhow::Result;
 use bytes::{BufMut, BytesMut};
 
-use super::messages::{Message, Ping, SerializedMessage};
+use super::messages;
+use super::messages::message::{Message, SerializedMessage};
 
 #[test]
 fn test_serialize_and_parse() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let msg = Message::new(Box::new(Ping::Ping));
+    let msg = Message::new(Box::new(messages::common::Ping::Ping));
 
     let ser_msg = SerializedMessage::new(&msg)?;
     let msg_data = msg.to_bytes()?;

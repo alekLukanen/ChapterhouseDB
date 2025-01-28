@@ -1,4 +1,3 @@
-use crate::handlers::message_handler::{Message, Ping, SendableMessage};
 use anyhow::Result;
 use core::str;
 use std::{
@@ -7,6 +6,9 @@ use std::{
 };
 use tracing::info;
 use uuid::Uuid;
+
+use crate::handlers::message_handler::messages;
+use crate::handlers::message_handler::messages::message::{Message, SendableMessage};
 
 pub struct QueryClient {
     address: String,
@@ -32,7 +34,7 @@ impl QueryClient {
 
         for _ in 0..count {
             info!("sending a message...");
-            let ping = self.new_msg(Box::new(Ping::Ping));
+            let ping = self.new_msg(Box::new(messages::common::Ping::Ping));
             let ping_data = ping.to_bytes()?;
 
             info!("ping_data.len(): {}", ping_data.len());

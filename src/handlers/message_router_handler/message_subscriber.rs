@@ -1,7 +1,7 @@
 use core::fmt;
 use tokio::sync::mpsc::{self, Sender};
 
-use crate::handlers::message_handler::Message;
+use crate::handlers::message_handler::messages::message::Message;
 
 pub trait MessageConsumer: fmt::Debug + Send + Sync {
     fn consumes_message(&self, msg: &Message) -> bool;

@@ -10,7 +10,9 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::{debug, info};
 
-use crate::handlers::message_handler::{Identify, Message, MessageName, MessageRegistry, Pipe};
+use crate::handlers::message_handler::messages;
+use crate::handlers::message_handler::messages::message::{Message, MessageName};
+use crate::handlers::message_handler::{MessageRegistry, Pipe};
 
 use super::message_subscriber::{ExternalSubscriber, InternalSubscriber, Subscriber};
 
@@ -219,16 +221,17 @@ impl MessageRouterHandler {
     }
 
     async fn identify_external_subscriber(&mut self, msg: &Message) -> Result<bool> {
-        let identify_msg: &Identify = self.msg_reg.cast_msg(msg);
+        let identify_msg: &messages::common::Identify = self.msg_reg.cast_msg(msg);
         match identify_msg {
-            Identify::Worker { id } => {
+            messages::common::Identify::Worker { id } => {
                 if let Some(inbound_stream_id) = msg.inbound_stream_id {
-                    let identify_back = Message::new(Box::new(Identify::Worker {
-                        id: self.worker_id.clone(),
-                    }))
-                    .set_sent_from_worker_id(self.worker_id.clone())
-                    .set_route_to_worker_id(id.clone())
-                    .set_inbound_stream_id(inbound_stream_id);
+                    let identify_back =
+                        Message::new(Box::new(messages::common::Identify::Worker {
+                            id: self.worker_id.clone(),
+                        }))
+                        .set_sent_from_worker_id(self.worker_id.clone())
+                        .set_route_to_worker_id(id.clone())
+                        .set_inbound_stream_id(inbound_stream_id);
                     self.connection_pipe.send(identify_back).await?;
                 } else if let Some(outbound_stream_id) = msg.outbound_stream_id {
                     let worker_id = id.clone();
@@ -245,7 +248,7 @@ impl MessageRouterHandler {
                     return Ok(false);
                 }
             }
-            Identify::Connection { id } => {
+            messages::common::Identify::Connection { id } => {
                 if let Some(inbound_stream_id) = msg.inbound_stream_id {
                     let sub = ExternalSubscriber::InboundClientConnection {
                         connection_id: id.clone(),
@@ -253,12 +256,13 @@ impl MessageRouterHandler {
                     };
                     self.state.lock().await.add_external_subscriber(sub)?;
 
-                    let identify_back = Message::new(Box::new(Identify::Worker {
-                        id: self.worker_id.clone(),
-                    }))
-                    .set_sent_from_worker_id(self.worker_id.clone())
-                    .set_route_to_connection_id(id.clone())
-                    .set_inbound_stream_id(inbound_stream_id);
+                    let identify_back =
+                        Message::new(Box::new(messages::common::Identify::Worker {
+                            id: self.worker_id.clone(),
+                        }))
+                        .set_sent_from_worker_id(self.worker_id.clone())
+                        .set_route_to_connection_id(id.clone())
+                        .set_inbound_stream_id(inbound_stream_id);
                     self.connection_pipe.send(identify_back).await?;
                 } else {
                     return Ok(false);

@@ -5,9 +5,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use uuid::Uuid;
 
-use crate::handlers::message_handler::{
-    Identify, Message, MessageRegistry, RunQuery, RunQueryResp, SendableMessage,
-};
+use crate::handlers::message_handler::{messages, MessageRegistry};
 
 #[derive(Debug, Error)]
 pub enum AsyncQueryClientError {
@@ -33,18 +31,19 @@ impl AsyncQueryClient {
         }
     }
 
-    pub async fn run_query(&self, query: String) -> Result<RunQueryResp> {
+    pub async fn run_query(&self, query: String) -> Result<messages::query::RunQueryResp> {
         let (ref mut stream, connection_id) = self
             .create_connection()
             .await
             .context("connection failed")?;
 
-        let ref mut run_query = Message::new(Box::new(RunQuery::new(query)));
+        let ref mut run_query =
+            messages::message::Message::new(Box::new(messages::query::RunQuery::new(query)));
         self.send_msg(stream, run_query, connection_id)
             .await
             .context("failed to send query")?;
 
-        let query_resp: RunQueryResp = self.expect_msg(stream).await?;
+        let query_resp: messages::query::RunQueryResp = self.expect_msg(stream).await?;
         Ok(query_resp)
     }
 
@@ -58,10 +57,13 @@ impl AsyncQueryClient {
     }
 
     async fn identify(&self, stream: &mut TcpStream, connection_id: u128) -> Result<()> {
-        let ref mut identify = Message::new(Box::new(Identify::Connection { id: connection_id }));
+        let ref mut identify =
+            messages::message::Message::new(Box::new(messages::common::Identify::Connection {
+                id: connection_id,
+            }));
         self.send_msg(stream, identify, connection_id).await?;
 
-        let _: Identify = self
+        let _: messages::common::Identify = self
             .expect_msg(stream)
             .await
             .context("failed to receive response identification from the worker")?;
@@ -69,7 +71,10 @@ impl AsyncQueryClient {
         Ok(())
     }
 
-    async fn expect_msg<T: SendableMessage>(&self, stream: &mut TcpStream) -> Result<T> {
+    async fn expect_msg<T: messages::message::SendableMessage>(
+        &self,
+        stream: &mut TcpStream,
+    ) -> Result<T> {
         let msg = self.read_msg(stream).await?;
         match msg {
             Some(msg) => Ok(self.msg_reg.try_cast_msg_owned(msg)?),
@@ -77,7 +82,7 @@ impl AsyncQueryClient {
         }
     }
 
-    async fn read_msg(&self, stream: &mut TcpStream) -> Result<Option<Message>> {
+    async fn read_msg(&self, stream: &mut TcpStream) -> Result<Option<messages::message::Message>> {
         let ref mut buf = BytesMut::new();
         loop {
             if let Ok(msg) = self.msg_reg.build_msg(buf) {
@@ -110,7 +115,7 @@ impl AsyncQueryClient {
     async fn send_msg(
         &self,
         stream: &mut TcpStream,
-        msg: &mut Message,
+        msg: &mut messages::message::Message,
         connection_id: u128,
     ) -> Result<()> {
         msg.set_sent_from_connection_id(connection_id);
