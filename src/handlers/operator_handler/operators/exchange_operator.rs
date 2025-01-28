@@ -7,9 +7,9 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
-use crate::handlers::message_handler::{
-    ExchangeRequests, Message, MessageName, MessageRegistry, Ping, Pipe,
-};
+use crate::handlers::message_handler::messages;
+use crate::handlers::message_handler::messages::message::{Message, MessageName};
+use crate::handlers::message_handler::{MessageRegistry, Pipe};
 use crate::handlers::message_router_handler::{
     MessageConsumer, MessageReceiver, MessageRouterState, Subscriber,
 };
@@ -19,8 +19,6 @@ use crate::planner;
 
 #[derive(Debug, Error)]
 pub enum ExchangeOperatorError {
-    #[error("received an unhandled message: {0}")]
-    ReceivedAnUnhandledMessage(String),
     #[error("invalid operator type: {0}")]
     InvalidOperatorType(String),
     #[error("operation instance id not set on message")]
@@ -105,8 +103,8 @@ impl ExchangeOperator {
                 Some(msg) = self.router_pipe.recv() => {
                     debug!("received message: {}", msg);
                     if msg.msg.msg_name() == MessageName::Ping {
-                        let ping_msg: &Ping = self.msg_reg.try_cast_msg(&msg)?;
-                        if matches!(ping_msg, Ping::Ping) {
+                        let ping_msg: &messages::common::Ping = self.msg_reg.try_cast_msg(&msg)?;
+                        if matches!(ping_msg, messages::common::Ping::Ping) {
                             let pong_msg = handle_ping_message(&msg, ping_msg)?;
                             self.router_pipe.send(pong_msg).await?;
                             continue;
@@ -136,9 +134,9 @@ impl ExchangeOperator {
         let msg_reg = self.msg_reg.clone();
         match msg.msg.msg_name() {
             MessageName::ExchangeRequests => {
-                let cast_msg: &ExchangeRequests = msg_reg.try_cast_msg(msg)?;
+                let cast_msg: &messages::exchange::ExchangeRequests = msg_reg.try_cast_msg(msg)?;
                 match cast_msg {
-                    ExchangeRequests::SendRecordRequest {
+                    messages::exchange::ExchangeRequests::SendRecordRequest {
                         record_id,
                         record,
                         table_aliases,
@@ -152,12 +150,12 @@ impl ExchangeOperator {
                         .await?;
                         Ok(true)
                     }
-                    ExchangeRequests::GetNextRecordRequest { operator_id } => {
+                    messages::exchange::ExchangeRequests::GetNextRecordRequest { operator_id } => {
                         self.handle_get_next_record_request(msg, operator_id)
                             .await?;
                         Ok(true)
                     }
-                    ExchangeRequests::OperatorCompletedRecordProcessingRequest {
+                    messages::exchange::ExchangeRequests::OperatorCompletedRecordProcessingRequest {
                         operator_id,
                         record_id,
                     } => {
@@ -200,9 +198,11 @@ impl ExchangeOperator {
         self.record_pool
             .add_record(record_id.clone(), record.clone(), table_aliases.clone());
 
-        let resp_msg = msg.reply(Box::new(ExchangeRequests::SendRecordResponse {
-            record_id: record_id.clone(),
-        }));
+        let resp_msg = msg.reply(Box::new(
+            messages::exchange::ExchangeRequests::SendRecordResponse {
+                record_id: record_id.clone(),
+            },
+        ));
         self.router_pipe.send(resp_msg).await?;
 
         Ok(())
@@ -222,15 +222,19 @@ impl ExchangeOperator {
         let rec_res = self.record_pool.get_next_record(operator_id, op_in_id)?;
         match rec_res {
             Some((record_id, record, table_aliases)) => {
-                let resp_msg = msg.reply(Box::new(ExchangeRequests::GetNextRecordResponseRecord {
-                    record_id,
-                    record,
-                    table_aliases,
-                }));
+                let resp_msg = msg.reply(Box::new(
+                    messages::exchange::ExchangeRequests::GetNextRecordResponseRecord {
+                        record_id,
+                        record,
+                        table_aliases,
+                    },
+                ));
                 self.router_pipe.send(resp_msg).await?;
             }
             None => {
-                let resp_msg = msg.reply(Box::new(ExchangeRequests::GetNextRecordResponseNoneLeft));
+                let resp_msg = msg.reply(Box::new(
+                    messages::exchange::ExchangeRequests::GetNextRecordResponseNoneLeft,
+                ));
                 self.router_pipe.send(resp_msg).await?;
             }
         }
@@ -253,7 +257,7 @@ pub struct ExchangeOperatorSubscriber {
 impl Subscriber for ExchangeOperatorSubscriber {}
 
 impl MessageConsumer for ExchangeOperatorSubscriber {
-    fn consumes_message(&self, msg: &crate::handlers::message_handler::Message) -> bool {
+    fn consumes_message(&self, msg: &Message) -> bool {
         if (msg.route_to_operation_id.is_some()
             && msg.route_to_operation_id != Some(self.operator_instance_id))
             || (msg.sent_from_query_id.is_some() && msg.sent_from_query_id != Some(self.query_id))
@@ -262,19 +266,22 @@ impl MessageConsumer for ExchangeOperatorSubscriber {
         }
 
         match msg.msg.msg_name() {
-            MessageName::Ping => match self.msg_reg.try_cast_msg::<Ping>(msg) {
-                Ok(Ping::Ping) => true,
-                Ok(Ping::Pong) => false,
+            MessageName::Ping => match self.msg_reg.try_cast_msg::<messages::common::Ping>(msg) {
+                Ok(messages::common::Ping::Ping) => true,
+                Ok(messages::common::Ping::Pong) => false,
                 Err(err) => {
                     error!("{}", err);
                     false
                 }
             },
             MessageName::ExchangeRequests => {
-                match self.msg_reg.try_cast_msg::<ExchangeRequests>(msg) {
-                    Ok(ExchangeRequests::SendRecordRequest { .. }) => true,
-                    Ok(ExchangeRequests::GetNextRecordRequest { .. }) => true,
-                    Ok(ExchangeRequests::OperatorCompletedRecordProcessingRequest { .. }) => true,
+                match self
+                    .msg_reg
+                    .try_cast_msg::<messages::exchange::ExchangeRequests>(msg)
+                {
+                    Ok(messages::exchange::ExchangeRequests::SendRecordRequest { .. }) => true,
+                    Ok(messages::exchange::ExchangeRequests::GetNextRecordRequest { .. }) => true,
+                    Ok(messages::exchange::ExchangeRequests::OperatorCompletedRecordProcessingRequest { .. }) => true,
                     Err(err) => {
                         error!("{}", err);
                         false

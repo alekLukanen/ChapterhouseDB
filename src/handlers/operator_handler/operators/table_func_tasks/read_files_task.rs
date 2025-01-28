@@ -6,9 +6,9 @@ use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
-use crate::handlers::message_handler::{
-    ExchangeRequests, Message, MessageName, MessageRegistry, Ping, Pipe, QueryHandlerRequests,
-};
+use crate::handlers::message_handler::messages;
+use crate::handlers::message_handler::messages::message::{Message, MessageName};
+use crate::handlers::message_handler::{MessageRegistry, Pipe};
 use crate::handlers::message_router_handler::MessageConsumer;
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
 use crate::handlers::operator_handler::operators::operator_task_trackers::RestrictedOperatorTaskTracker;
@@ -24,10 +24,6 @@ use super::config::TableFuncConfig;
 pub enum ReadFilesError {
     #[error("cancelled")]
     Cancelled,
-    #[error("received the wrong record id: {0}")]
-    ReceivedTheWrongRecordId(u64),
-    #[error("received the wrong message type")]
-    ReceivedTheWrongMessageType,
 }
 
 #[derive(Debug, Error)]
@@ -349,20 +345,23 @@ pub struct ReadFilesConsumer {
 }
 
 impl MessageConsumer for ReadFilesConsumer {
-    fn consumes_message(&self, msg: &crate::handlers::message_handler::Message) -> bool {
+    fn consumes_message(&self, msg: &Message) -> bool {
         match msg.msg.msg_name() {
-            MessageName::Ping => match self.msg_reg.try_cast_msg::<Ping>(msg) {
-                Ok(Ping::Ping) => false,
-                Ok(Ping::Pong) => true,
+            MessageName::Ping => match self.msg_reg.try_cast_msg::<messages::common::Ping>(msg) {
+                Ok(messages::common::Ping::Ping) => false,
+                Ok(messages::common::Ping::Pong) => true,
                 Err(err) => {
                     error!("{:?}", err);
                     false
                 }
             },
             MessageName::ExchangeRequests => {
-                match self.msg_reg.try_cast_msg::<ExchangeRequests>(msg) {
-                    Ok(ExchangeRequests::SendRecordResponse { .. }) => true,
-                    Ok(ExchangeRequests::SendRecordRequest { .. }) => false,
+                match self
+                    .msg_reg
+                    .try_cast_msg::<messages::exchange::ExchangeRequests>(msg)
+                {
+                    Ok(messages::exchange::ExchangeRequests::SendRecordResponse { .. }) => true,
+                    Ok(messages::exchange::ExchangeRequests::SendRecordRequest { .. }) => false,
                     Err(err) => {
                         error!("{:?}", err);
                         false
@@ -371,9 +370,16 @@ impl MessageConsumer for ReadFilesConsumer {
                 }
             }
             MessageName::QueryHandlerRequests => {
-                match self.msg_reg.try_cast_msg::<QueryHandlerRequests>(msg) {
-                    Ok(QueryHandlerRequests::ListOperatorInstancesResponse { .. }) => true,
-                    Ok(QueryHandlerRequests::ListOperatorInstancesRequest { .. }) => false,
+                match self
+                    .msg_reg
+                    .try_cast_msg::<messages::query::QueryHandlerRequests>(msg)
+                {
+                    Ok(messages::query::QueryHandlerRequests::ListOperatorInstancesResponse {
+                        ..
+                    }) => true,
+                    Ok(messages::query::QueryHandlerRequests::ListOperatorInstancesRequest {
+                        ..
+                    }) => false,
                     Err(err) => {
                         error!("{:?}", err);
                         false

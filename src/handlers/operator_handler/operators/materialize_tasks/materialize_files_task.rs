@@ -4,10 +4,10 @@ use thiserror::Error;
 use tracing::{debug, error};
 use uuid::Uuid;
 
+use crate::handlers::message_handler::messages;
+use crate::handlers::message_handler::messages::message::{Message, MessageName};
+use crate::handlers::message_handler::{MessageRegistry, Pipe};
 use crate::handlers::{
-    message_handler::{
-        ExchangeRequests, MessageName, MessageRegistry, Ping, Pipe, QueryHandlerRequests,
-    },
     message_router_handler::MessageConsumer,
     operator_handler::{
         operator_handler_state::OperatorInstanceConfig,
@@ -37,7 +37,6 @@ struct MaterializeFilesTask {
 
     exchange_worker_id: Option<u128>,
     exchange_operator_instance_id: Option<u128>,
-    record_id: u64,
 }
 
 impl MaterializeFilesTask {
@@ -56,7 +55,6 @@ impl MaterializeFilesTask {
             conn_reg,
             exchange_worker_id: None,
             exchange_operator_instance_id: None,
-            record_id: 0,
         }
     }
 
@@ -180,7 +178,7 @@ impl MaterializeFilesTask {
 }
 
 //////////////////////////////////////////////////////
-// Table Func Producer Builder
+// Matterialize Files Producer Builder
 
 #[derive(Debug, Clone)]
 pub struct MaterializeFilesTaskBuilder {}
@@ -235,21 +233,28 @@ pub struct MaterializeFilesConsumer {
 }
 
 impl MessageConsumer for MaterializeFilesConsumer {
-    fn consumes_message(&self, msg: &crate::handlers::message_handler::Message) -> bool {
+    fn consumes_message(&self, msg: &Message) -> bool {
         match msg.msg.msg_name() {
             // used to find the exchange
-            MessageName::Ping => match self.msg_reg.try_cast_msg::<Ping>(msg) {
-                Ok(Ping::Ping) => false,
-                Ok(Ping::Pong) => true,
+            MessageName::Ping => match self.msg_reg.try_cast_msg::<messages::common::Ping>(msg) {
+                Ok(messages::common::Ping::Ping) => false,
+                Ok(messages::common::Ping::Pong) => true,
                 Err(err) => {
                     error!("{:?}", err);
                     false
                 }
             },
             MessageName::QueryHandlerRequests => {
-                match self.msg_reg.try_cast_msg::<QueryHandlerRequests>(msg) {
-                    Ok(QueryHandlerRequests::ListOperatorInstancesResponse { .. }) => true,
-                    Ok(QueryHandlerRequests::ListOperatorInstancesRequest { .. }) => false,
+                match self
+                    .msg_reg
+                    .try_cast_msg::<messages::query::QueryHandlerRequests>(msg)
+                {
+                    Ok(messages::query::QueryHandlerRequests::ListOperatorInstancesResponse {
+                        ..
+                    }) => true,
+                    Ok(messages::query::QueryHandlerRequests::ListOperatorInstancesRequest {
+                        ..
+                    }) => false,
                     Err(err) => {
                         error!("{:?}", err);
                         false
@@ -257,8 +262,13 @@ impl MessageConsumer for MaterializeFilesConsumer {
                 }
             }
             MessageName::ExchangeRequests => {
-                match self.msg_reg.try_cast_msg::<ExchangeRequests>(msg) {
-                    Ok(ExchangeRequests::GetNextRecordResponseRecord { .. }) => true,
+                match self
+                    .msg_reg
+                    .try_cast_msg::<messages::exchange::ExchangeRequests>(msg)
+                {
+                    Ok(messages::exchange::ExchangeRequests::GetNextRecordResponseRecord {
+                        ..
+                    }) => true,
                     Err(err) => {
                         error!("{:?}", err);
                         false

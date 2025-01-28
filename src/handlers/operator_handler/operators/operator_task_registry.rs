@@ -1,7 +1,7 @@
-use crate::planner;
+use crate::planner::{self, DataFormat};
 
 use super::{
-    table_func_tasks,
+    materialize_tasks, table_func_tasks,
     traits::{TableFuncSyntaxValidator, TaskBuilder},
 };
 use anyhow::Result;
@@ -93,9 +93,18 @@ impl OperatorTaskRegistry {
                 format!("find task builder for OperatorTask type {}", task.name()),
             )
             .into()),
-            planner::OperatorTask::MaterializeFiles { .. } => {
+            planner::OperatorTask::MaterializeFiles { data_format, .. } => {
                 if let Some(materialize_files_task) = &self.materialize_files_task {
-                    Ok(Some(&materialize_files_task.builder))
+                    if materialize_files_task
+                        .data_formats
+                        .iter()
+                        .find(|item| *item == data_format)
+                        .is_some()
+                    {
+                        Ok(Some(&materialize_files_task.builder))
+                    } else {
+                        Ok(None)
+                    }
                 } else {
                     Ok(None)
                 }
@@ -120,9 +129,14 @@ impl OperatorTaskRegistry {
 }
 
 pub fn build_default_operator_task_registry() -> Result<OperatorTaskRegistry> {
-    let reg = OperatorTaskRegistry::new().add_table_func_task_builder(
-        Box::new(table_func_tasks::ReadFilesTaskBuilder::new()),
-        Box::new(table_func_tasks::ReadFilesSyntaxValidator::new()),
-    )?;
+    let reg = OperatorTaskRegistry::new()
+        .add_table_func_task_builder(
+            Box::new(table_func_tasks::ReadFilesTaskBuilder::new()),
+            Box::new(table_func_tasks::ReadFilesSyntaxValidator::new()),
+        )?
+        .add_materialize_files_builder(
+            Box::new(materialize_tasks::MaterializeFilesTaskBuilder::new()),
+            vec![DataFormat::Parquet],
+        )?;
     Ok(reg)
 }

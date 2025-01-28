@@ -4,12 +4,10 @@ use anyhow::Result;
 use thiserror::Error;
 use tracing::debug;
 
-use crate::handlers::{
-    message_handler::{
-        Message, MessageName, MessageRegistry, Ping, Pipe, QueryHandlerRequests, Request,
-    },
-    operator_handler::operator_handler_state::OperatorInstanceConfig,
-};
+use crate::handlers::message_handler::messages;
+use crate::handlers::message_handler::messages::message::{Message, MessageName};
+use crate::handlers::message_handler::{MessageRegistry, Pipe, Request};
+use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
 
 #[derive(Debug, Error)]
 pub enum IdentifyExchangeRequestError {
@@ -17,16 +15,12 @@ pub enum IdentifyExchangeRequestError {
     OperatorTypeNotImplemented(String),
     #[error("received the wrong message type")]
     ReceivedTheWrongMessageType,
-    #[error("received no operator instances for the exchange")]
-    ReceivedNoOperatorInstancesForTheExchange,
     #[error("received multiple operator instances for the exchange")]
     ReceivedMultipleOperatorInstancesForTheExchange,
     #[error("exchange operator instance id not set")]
     ExchangeOperatorInstanceIdNotSet,
     #[error("received message without a worker id")]
     ReceivedMessageWithoutAWorkerId,
-    #[error("not implemented: {0}")]
-    NotImplemented(String),
     #[error(
         "missing part of response: exchange_operator_instance_id={0:?}, exchange_worker_id={1:?}"
     )]
@@ -128,7 +122,7 @@ impl<'a> IdentifyExchangeRequest<'a> {
     }
 
     async fn get_exchange_worker_id(&mut self) -> Result<u128> {
-        let mut msg = Message::new(Box::new(Ping::Ping));
+        let mut msg = Message::new(Box::new(messages::common::Ping::Ping));
         if let Some(exchange_operator_instance_id) = self.exchange_operator_instance_id {
             msg = msg.set_route_to_operation_id(exchange_operator_instance_id);
         } else {
@@ -144,16 +138,18 @@ impl<'a> IdentifyExchangeRequest<'a> {
             })
             .await?;
 
-        let ping_msg: &Ping = self.msg_reg.try_cast_msg(&resp_msg)?;
+        let ping_msg: &messages::common::Ping = self.msg_reg.try_cast_msg(&resp_msg)?;
         match ping_msg {
-            Ping::Pong => {
+            messages::common::Ping::Pong => {
                 if let Some(worker_id) = resp_msg.sent_from_worker_id {
                     Ok(worker_id)
                 } else {
                     Err(IdentifyExchangeRequestError::ReceivedMessageWithoutAWorkerId.into())
                 }
             }
-            Ping::Ping => Err(IdentifyExchangeRequestError::ReceivedTheWrongMessageType.into()),
+            messages::common::Ping::Ping => {
+                Err(IdentifyExchangeRequestError::ReceivedTheWrongMessageType.into())
+            }
         }
     }
 
@@ -210,7 +206,7 @@ impl<'a> IdentifyExchangeRequest<'a> {
     async fn get_exchange_operator_instance_id(&mut self) -> Result<Option<u128>> {
         // find the worker with the exchange
         let list_msg = Message::new(Box::new(
-            QueryHandlerRequests::ListOperatorInstancesRequest {
+            messages::query::QueryHandlerRequests::ListOperatorInstancesRequest {
                 query_id: self.query_id.clone(),
                 operator_id: self.exchange_id.clone(),
             },
@@ -227,9 +223,12 @@ impl<'a> IdentifyExchangeRequest<'a> {
 
         debug!("received list response");
 
-        let resp_msg: &QueryHandlerRequests = self.msg_reg.try_cast_msg(&resp_msg)?;
+        let resp_msg: &messages::query::QueryHandlerRequests =
+            self.msg_reg.try_cast_msg(&resp_msg)?;
         match resp_msg {
-            QueryHandlerRequests::ListOperatorInstancesResponse { op_instance_ids } => {
+            messages::query::QueryHandlerRequests::ListOperatorInstancesResponse {
+                op_instance_ids,
+            } => {
                 if op_instance_ids.len() == 1 {
                     Ok(Some(op_instance_ids.get(0).unwrap().clone()))
                 } else if op_instance_ids.len() == 0 {

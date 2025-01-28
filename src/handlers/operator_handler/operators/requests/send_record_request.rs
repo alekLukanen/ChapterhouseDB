@@ -4,14 +4,12 @@ use anyhow::Result;
 use thiserror::Error;
 use tracing::debug;
 
-use crate::handlers::message_handler::{
-    ExchangeRequests, Message, MessageName, MessageRegistry, Pipe, Request,
-};
+use crate::handlers::message_handler::messages;
+use crate::handlers::message_handler::messages::message::{Message, MessageName};
+use crate::handlers::message_handler::{MessageRegistry, Pipe, Request};
 
 #[derive(Debug, Error)]
 pub enum SendRecordRequestError {
-    #[error("operator type not implemented: {0}")]
-    OperatorTypeNotImplemented(String),
     #[error("received the wrong message type")]
     ReceivedTheWrongMessageType,
     #[error("response record id {0} does not match the request record id {1}")]
@@ -82,11 +80,13 @@ impl<'a> SendRecordRequest<'a> {
     }
 
     async fn send_record(&mut self) -> Result<()> {
-        let msg = Message::new(Box::new(ExchangeRequests::SendRecordRequest {
-            record_id: self.record_id.clone(),
-            record: self.record.clone(),
-            table_aliases: self.table_aliases.clone(),
-        }))
+        let msg = Message::new(Box::new(
+            messages::exchange::ExchangeRequests::SendRecordRequest {
+                record_id: self.record_id.clone(),
+                record: self.record.clone(),
+                table_aliases: self.table_aliases.clone(),
+            },
+        ))
         .set_route_to_worker_id(self.exchange_worker_id.clone())
         .set_route_to_operation_id(self.exchange_operator_instance_id.clone());
 
@@ -99,9 +99,10 @@ impl<'a> SendRecordRequest<'a> {
             })
             .await?;
 
-        let send_record_resp: &ExchangeRequests = self.msg_reg.try_cast_msg(&resp_msg)?;
+        let send_record_resp: &messages::exchange::ExchangeRequests =
+            self.msg_reg.try_cast_msg(&resp_msg)?;
         match send_record_resp {
-            ExchangeRequests::SendRecordResponse { record_id } => {
+            messages::exchange::ExchangeRequests::SendRecordResponse { record_id } => {
                 if *record_id == self.record_id {
                     Ok(())
                 } else {

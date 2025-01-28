@@ -2,9 +2,9 @@ use anyhow::Result;
 use std::sync::Arc;
 use thiserror::Error;
 
-use crate::handlers::message_handler::{
-    ExchangeRequests, Message, MessageName, MessageRegistry, Pipe, Request,
-};
+use crate::handlers::message_handler::messages;
+use crate::handlers::message_handler::messages::message::{Message, MessageName};
+use crate::handlers::message_handler::{MessageRegistry, Pipe, Request};
 
 #[derive(Debug, Error)]
 pub enum OperatorCompletedRecordProcessingRequestError {
@@ -78,11 +78,14 @@ impl<'a> OperatorCompletedRecordProcessingRequest<'a> {
 
     async fn operator_completed_record_processing(&mut self) -> Result<()> {
         let msg = Message::new(Box::new(
-            ExchangeRequests::OperatorCompletedRecordProcessingRequest {
+            messages::exchange::ExchangeRequests::OperatorCompletedRecordProcessingRequest {
                 operator_id: self.operator_id.clone(),
                 record_id: self.record_id.clone(),
             },
-        ));
+        ))
+        .set_route_to_worker_id(self.exchange_worker_id.clone())
+        .set_route_to_operation_id(self.exchange_operator_instance_id.clone());
+
         let resp_msg = self
             .pipe
             .send_request(Request {
@@ -92,9 +95,12 @@ impl<'a> OperatorCompletedRecordProcessingRequest<'a> {
             })
             .await?;
 
-        let resp_cast_msg: &ExchangeRequests = self.msg_reg.try_cast_msg(&resp_msg)?;
+        let resp_cast_msg: &messages::exchange::ExchangeRequests =
+            self.msg_reg.try_cast_msg(&resp_msg)?;
         match resp_cast_msg {
-            ExchangeRequests::OperatorCompletedRecordProcessingResponse => Ok(()),
+            messages::exchange::ExchangeRequests::OperatorCompletedRecordProcessingResponse => {
+                Ok(())
+            }
             _ => Err(
                 OperatorCompletedRecordProcessingRequestError::ReceivedTheWrongMessageType(
                     format!("{}", resp_msg),

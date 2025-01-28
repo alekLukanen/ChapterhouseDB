@@ -3,9 +3,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use thiserror::Error;
 
-use crate::handlers::message_handler::{
-    ExchangeRequests, Message, MessageName, MessageRegistry, Pipe, Request,
-};
+use crate::handlers::message_handler::messages;
+use crate::handlers::message_handler::messages::message::{Message, MessageName};
+use crate::handlers::message_handler::{MessageRegistry, Pipe, Request};
 
 #[derive(Debug, Error)]
 pub enum GetNextRecordRequestError {
@@ -82,9 +82,11 @@ impl<'a> GetNextRecordRequest<'a> {
 
     async fn get_next_record(&mut self) -> Result<GetNextRecordResponse> {
         // sent the request message
-        let get_next_msg = Message::new(Box::new(ExchangeRequests::GetNextRecordRequest {
-            operator_id: self.operator_id.clone(),
-        }))
+        let get_next_msg = Message::new(Box::new(
+            messages::exchange::ExchangeRequests::GetNextRecordRequest {
+                operator_id: self.operator_id.clone(),
+            },
+        ))
         .set_route_to_worker_id(self.exchange_worker_id.clone())
         .set_route_to_operation_id(self.exchange_operator_instance_id.clone());
 
@@ -97,9 +99,10 @@ impl<'a> GetNextRecordRequest<'a> {
             })
             .await?;
 
-        let resp_msg_cast: &ExchangeRequests = self.msg_reg.try_cast_msg(&resp_msg)?;
+        let resp_msg_cast: &messages::exchange::ExchangeRequests =
+            self.msg_reg.try_cast_msg(&resp_msg)?;
         match resp_msg_cast {
-            ExchangeRequests::GetNextRecordResponseRecord {
+            messages::exchange::ExchangeRequests::GetNextRecordResponseRecord {
                 record_id,
                 record,
                 table_aliases,
@@ -108,7 +111,9 @@ impl<'a> GetNextRecordRequest<'a> {
                 record: record.to_owned(),
                 table_aliases: table_aliases.to_owned(),
             }),
-            ExchangeRequests::GetNextRecordResponseNoneLeft => Ok(GetNextRecordResponse::NoneLeft),
+            messages::exchange::ExchangeRequests::GetNextRecordResponseNoneLeft => {
+                Ok(GetNextRecordResponse::NoneLeft)
+            }
             _ => Err(GetNextRecordRequestError::ReceivedTheWrongMessageType.into()),
         }
     }
