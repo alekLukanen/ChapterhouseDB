@@ -156,7 +156,17 @@ impl ReadFilesTask {
     }
 
     pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
-        debug!("read_files_task.async_main()");
+        debug!(
+            operator_task = self
+                .operator_instance_config
+                .operator
+                .operator_type
+                .task_name(),
+            operator_id = self.operator_instance_config.operator.id,
+            operator_instance_id = self.operator_instance_config.id,
+            "started task",
+        );
+
         let conn = match &self.read_files_config.connection {
             Some(conn_name) => self.conn_reg.get_operator(conn_name.as_str())?,
             None => self.conn_reg.get_operator("default")?,
@@ -195,8 +205,14 @@ impl ReadFilesTask {
         }
 
         debug!(
-            "closing operator producer for instance {}",
-            self.operator_instance_config.id
+            operator_task = self
+                .operator_instance_config
+                .operator
+                .operator_type
+                .task_name(),
+            operator_id = self.operator_instance_config.operator.id,
+            operator_instance_id = self.operator_instance_config.id,
+            "closed task",
         );
 
         Ok(())

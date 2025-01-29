@@ -67,7 +67,16 @@ impl MaterializeFilesTask {
     }
 
     async fn async_main(&mut self, ct: tokio_util::sync::CancellationToken) -> Result<()> {
-        debug!("materialize_files_task.async_main()");
+        debug!(
+            operator_task = self
+                .operator_instance_config
+                .operator
+                .operator_type
+                .task_name(),
+            operator_id = self.operator_instance_config.operator.id,
+            operator_instance_id = self.operator_instance_config.id,
+            "started task",
+        );
 
         // get the default connection
         let storage_conn = self.conn_reg.get_operator("default")?;
@@ -174,10 +183,21 @@ impl MaterializeFilesTask {
                 }
                 requests::GetNextRecordResponse::NoneLeft => {
                     debug!("complete materialization; read all records from the exchange");
-                    break;
+                    tokio::time::sleep(chrono::Duration::seconds(1).to_std()?).await;
                 }
             }
         }
+
+        debug!(
+            operator_task = self
+                .operator_instance_config
+                .operator
+                .operator_type
+                .task_name(),
+            operator_id = self.operator_instance_config.operator.id,
+            operator_instance_id = self.operator_instance_config.id,
+            "closed task",
+        );
 
         Ok(())
     }
@@ -275,6 +295,8 @@ impl MessageConsumer for MaterializeFilesConsumer {
                     Ok(messages::exchange::ExchangeRequests::GetNextRecordResponseRecord {
                         ..
                     }) => true,
+                    Ok(messages::exchange::ExchangeRequests::GetNextRecordResponseNoneLeft) => true,
+                    Ok(messages::exchange::ExchangeRequests::OperatorCompletedRecordProcessingResponse) => true,
                     Err(err) => {
                         error!("{:?}", err);
                         false

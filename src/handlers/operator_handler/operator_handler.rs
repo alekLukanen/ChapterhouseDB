@@ -19,8 +19,6 @@ use crate::handlers::{
 pub enum OperatorHandlerError {
     #[error("incorrect message: {0}")]
     IncorrectMessage(String),
-    #[error("not implemented: {0}")]
-    NotImplemented(&'static str),
     #[error("timed out waiting for task to close")]
     TimedOutWaitingForTaskToClose,
 }
@@ -32,7 +30,6 @@ pub struct OperatorHandler {
     sender: mpsc::Sender<Message>,
 
     msg_reg: Arc<MessageRegistry>,
-    conn_reg: Arc<operators::ConnectionRegistry>,
     op_builder: operators::OperatorBuilder,
 
     tt: tokio_util::task::TaskTracker,
@@ -47,7 +44,7 @@ impl OperatorHandler {
         allowed_compute: TotalOperatorCompute,
     ) -> OperatorHandler {
         let router_sender = message_router_state.lock().await.sender();
-        let (pipe, sender) = Pipe::new_with_existing_sender(router_sender, 1);
+        let (pipe, sender) = Pipe::new_with_existing_sender(router_sender, 10);
         let op_builder = operators::OperatorBuilder::new(
             op_reg.clone(),
             msg_reg.clone(),
@@ -61,7 +58,6 @@ impl OperatorHandler {
             router_pipe: pipe,
             sender,
             msg_reg,
-            conn_reg,
             op_builder,
             tt: tokio_util::task::TaskTracker::new(),
         };

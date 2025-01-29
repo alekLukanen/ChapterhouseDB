@@ -111,6 +111,12 @@ impl OperatorType {
             Self::Exchange { .. } => "Exchange",
         }
     }
+    pub fn task_name(&self) -> &str {
+        match self {
+            Self::Producer { task, .. } => task.name(),
+            Self::Exchange { task, .. } => task.name(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]

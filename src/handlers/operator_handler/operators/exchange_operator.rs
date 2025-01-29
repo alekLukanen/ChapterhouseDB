@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
 use crate::handlers::message_handler::messages;
+use crate::handlers::message_handler::messages::exchange::ExchangeRequests;
 use crate::handlers::message_handler::messages::message::{Message, MessageName};
 use crate::handlers::message_handler::{MessageRegistry, Pipe};
 use crate::handlers::message_router_handler::{
@@ -43,7 +44,7 @@ impl ExchangeOperator {
         msg_reg: Arc<MessageRegistry>,
     ) -> Result<ExchangeOperator> {
         let router_sender = message_router_state.lock().await.sender();
-        let (mut pipe, sender) = Pipe::new_with_existing_sender(router_sender, 1);
+        let (mut pipe, sender) = Pipe::new_with_existing_sender(router_sender, 10);
         pipe.set_sent_from_query_id(op_in_config.query_id.clone());
         pipe.set_sent_from_operation_id(op_in_config.id.clone());
 
@@ -160,6 +161,7 @@ impl ExchangeOperator {
                         record_id,
                     } => {
                         self.handle_operator_completed_record_processing_request(
+                            msg,
                             operator_id,
                             record_id,
                         )
@@ -175,11 +177,18 @@ impl ExchangeOperator {
 
     async fn handle_operator_completed_record_processing_request(
         &mut self,
+        msg: &Message,
         operator_id: &String,
         record_id: &u64,
     ) -> Result<()> {
         self.record_pool
             .operator_completed_record_processing(operator_id, record_id)?;
+
+        let resp_msg = msg.reply(Box::new(
+            ExchangeRequests::OperatorCompletedRecordProcessingResponse,
+        ));
+        self.router_pipe.send(resp_msg).await?;
+
         Ok(())
     }
 

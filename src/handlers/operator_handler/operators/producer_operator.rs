@@ -45,7 +45,7 @@ impl ProducerOperator {
         msg_reg: Arc<MessageRegistry>,
     ) -> ProducerOperator {
         let router_sender = message_router_state.lock().await.sender();
-        let (mut pipe, sender) = Pipe::new_with_existing_sender(router_sender, 1);
+        let (mut pipe, sender) = Pipe::new_with_existing_sender(router_sender, 10);
         pipe.set_sent_from_query_id(op_in_config.query_id.clone());
         pipe.set_sent_from_operation_id(op_in_config.id.clone());
 
@@ -95,8 +95,14 @@ impl ProducerOperator {
             .context("failed subscribing")?;
 
         debug!(
-            "started the producer operator {} for instance {}",
-            self.operator_instance_config.operator.id, self.operator_instance_config.id
+            operator_task = self
+                .operator_instance_config
+                .operator
+                .operator_type
+                .task_name(),
+            operator_id = self.operator_instance_config.operator.id,
+            operator_instance_id = self.operator_instance_config.id,
+            "started producer operator instance",
         );
 
         loop {
@@ -145,8 +151,14 @@ impl ProducerOperator {
         }
 
         debug!(
-            "closed producer operator for instance {}",
-            self.operator_instance_config.id
+            operator_task = self
+                .operator_instance_config
+                .operator
+                .operator_type
+                .task_name(),
+            operator_id = self.operator_instance_config.operator.id,
+            operator_instance_id = self.operator_instance_config.id,
+            "closed producer operator instance",
         );
 
         Ok(())

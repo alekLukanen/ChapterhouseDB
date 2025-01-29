@@ -36,7 +36,7 @@ impl QueryHandler {
         msg_reg: Arc<MessageRegistry>,
     ) -> QueryHandler {
         let router_sender = message_router_state.lock().await.sender();
-        let (pipe, sender) = Pipe::new_with_existing_sender(router_sender, 1);
+        let (pipe, sender) = Pipe::new_with_existing_sender(router_sender, 10);
 
         let handler = QueryHandler {
             state: QueryHandlerState::new(),

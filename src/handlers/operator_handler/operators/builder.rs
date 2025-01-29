@@ -128,7 +128,7 @@ impl OperatorBuilder {
             }
         };
 
-        let (pipe1, pipe2) = Pipe::new(1);
+        let (pipe1, pipe2) = Pipe::new(10);
         let mut producer_operator = ProducerOperator::new(
             op_in.config.clone(),
             self.message_router_state.clone(),
