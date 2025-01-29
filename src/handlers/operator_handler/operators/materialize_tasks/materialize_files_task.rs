@@ -188,6 +188,7 @@ impl MaterializeFilesTask {
             }
         }
 
+        /*
         debug!(
             operator_task = self
                 .operator_instance_config
@@ -198,8 +199,8 @@ impl MaterializeFilesTask {
             operator_instance_id = self.operator_instance_config.id,
             "closed task",
         );
-
         Ok(())
+        */
     }
 }
 
