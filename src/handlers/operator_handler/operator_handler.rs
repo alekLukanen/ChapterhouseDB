@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{error, info};
 
 use super::operator_handler_state::{OperatorHandlerState, OperatorInstance, TotalOperatorCompute};
 use super::operators;
@@ -144,7 +144,7 @@ impl OperatorHandler {
                 self.router_pipe.send(resp_msg).await?;
             }
             Err(err) => {
-                info!("error: {}", err);
+                error!("error: {}", err);
 
                 let resp_msg = msg.reply(Box::new(
                     messages::query::OperatorInstanceAssignment::AssignRejectedResponse {
@@ -173,20 +173,18 @@ impl OperatorHandler {
             }
         }
 
-        let ref mut allowed_compute = self.state.get_allowed_compute();
-        allowed_compute.subtract(&self.state.total_operator_compute());
+        let comp_avail = self.state.compute_available();
 
-        info!("allowed_compute: {:?}", allowed_compute);
-        if allowed_compute.instances <= 0
-            || allowed_compute.memory_in_mib <= 0
-            || allowed_compute.cpu_in_thousandths <= 0
+        if comp_avail.instances <= 0
+            || comp_avail.memory_in_mib <= 0
+            || comp_avail.cpu_in_thousandths <= 0
         {
             return Ok(());
         }
 
         let resp = msg.reply(Box::new(
             messages::query::OperatorInstanceAvailable::NotificationResponse {
-                can_accept_up_to: allowed_compute.clone(),
+                can_accept_up_to: comp_avail,
             },
         ));
         self.router_pipe.send(resp).await?;

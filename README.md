@@ -1,5 +1,5 @@
 # ChapterhouseQE
-An SQL based query engine for analytics workloads.
+A parallel SQL based query engine for analytics queries on Parquet files. 
 
 ## Running the Base System
 
@@ -17,36 +17,34 @@ The workers will each form a TCP connection with one the other worker and
 begin transmitting messages back and forth in preparation for processing 
 queries.
 
-## Query Stages
+## Architecture
 
-### Parsing
+The system is built upon a set of distributed actors that communicate through
+messages. Each worker can communicate with all other workers connected to it
+and any worker can accept and manage queries. Queries create operators, a type of actor
+capable of performing the tasks necessary to compute a query result. For example, the query:
+```
+select * from read_files('simple/*.parquet')
+  where value2 > 10.0;
+```
 
-In this stage the system will parse the SQL by first tokenizing the SQL text.
-Then it will construct a parse tree of the SQL query to validate that the 
-SQL is syntactically correct. This parse tree will also be used to generate the
-query plan later on. After the parse tree has been created the system will
-validate that the use of certain variables is correct given the schema information
-present, if any. It's likely that no schema will be available since the query
-engine is intended to be run on arbitrary files in object storage. Certain 
-uses can be validated such as values defined within the query itself.
+will produce these operators
 
-### Code Generation
+```
+[read files operator] -> [exchange operator] -> [filter operator] -> [exchange operator] -> [materialize operator] -> [exchange operator]
+```
 
-Given the parse tree from the parsing stage the system will generate a set of instructions
-defining the core processes needed to execute a query. This code will be interpreted 
-by a virtual machine designed to execute it. For example, if you have a query like the following
+Each of the operators in this query can also have individual instances of themselves so that
+its task can be computed in parallel. These operators perform some operation
+on an Apache Arrow record batch. The read files operator reads records from the parquet
+files and pushes them to the exchange operator. Then the filter operator pulls the next
+available record from that exchange operator and produces a record containing only
+the data matching the "where" expression. And so on until the DAG of operators has completed. By 
+structuring the operators in this way it makes it relatively easy to create new operators
+as each operator either pulls data from an exchange or an external source, and pushes
+data to an exchanges.
 
-### Execution
-
-The code is sent to a virtual machine which can interpret the code. 
-The machine that accepts this code is known as the query coordinator and
-is responsible for managing the processing of the query across a set of worker
-machines. The worker machines are capable of executing top level steps and reporting
-back to the coordinator when done. Both of these machines connect to a central object
-storage to share data. It might also be necessary to include a key-value database
-to ensure that transactional operations are performant.
-
-# Rust Notes
+## Rust Notes
 
 To enable backtraces you can run commands with the following environment variable like
 the following
@@ -54,7 +52,7 @@ the following
 RUST_BACKTRACE=1 cargo run 
 ```
 
-# External Links
+## External Links
 
 1. SQL grammar for H2 embedded database system: http://www.h2database.com/html/commands.html#select
 2. SQL grammar for phoenix an SQL layer over the HBase database system: https://forcedotcom.github.io/phoenix/

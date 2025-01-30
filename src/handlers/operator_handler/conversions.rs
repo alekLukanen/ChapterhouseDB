@@ -23,7 +23,7 @@ impl TryFrom<&messages::query::OperatorInstanceAssignment> for OperatorInstance 
                 pipeline_id,
                 operator,
             } => Ok(OperatorInstance {
-                status: Status::Queued,
+                status: Status::Running,
                 ct: CancellationToken::new(),
                 config: OperatorInstanceConfig {
                     id: op_instance_id.clone(),

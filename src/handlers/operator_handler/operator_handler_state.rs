@@ -1,12 +1,19 @@
 use anyhow::Result;
+use clap::builder::Str;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
 use crate::planner::{self, OperatorCompute};
 
+#[derive(Debug, Error)]
+pub enum OperatorHandlerStateError {
+    #[error("operator instance {0} not found")]
+    OperatorInstanceNotFound(u128),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Status {
-    Queued,
     Running,
     Complete,
     Error(String),
@@ -117,6 +124,38 @@ impl OperatorHandlerState {
         Ok(())
     }
 
+    pub fn operator_instance_complete(&mut self, op_in_id: &u128) -> Result<()> {
+        let instance = self
+            .operator_instances
+            .iter_mut()
+            .find(|instance| instance.config.id == *op_in_id);
+        if let Some(instance) = instance {
+            instance.status = Status::Complete;
+            Ok(())
+        } else {
+            Err(OperatorHandlerStateError::OperatorInstanceNotFound(op_in_id.clone()).into())
+        }
+    }
+
+    pub fn operator_instance_error(&mut self, op_in_id: &u128, error_txt: String) -> Result<()> {
+        let instance = self
+            .operator_instances
+            .iter_mut()
+            .find(|instance| instance.config.id == *op_in_id);
+        if let Some(instance) = instance {
+            instance.status = Status::Error(error_txt);
+            Ok(())
+        } else {
+            Err(OperatorHandlerStateError::OperatorInstanceNotFound(op_in_id.clone()).into())
+        }
+    }
+
+    pub fn compute_available(&self) -> TotalOperatorCompute {
+        let ref mut comp = self.get_allowed_compute();
+        comp.subtract(&self.total_operator_compute());
+        comp.clone()
+    }
+
     pub fn total_operator_compute(&self) -> TotalOperatorCompute {
         let mut total_compute = TotalOperatorCompute {
             instances: 0,
@@ -124,9 +163,11 @@ impl OperatorHandlerState {
             cpu_in_thousandths: 0,
         };
         for op in &self.operator_instances {
-            let mut op_com = op.config.operator.compute.clone();
-            op_com.instances = 1;
-            total_compute.add_single_operator_compute(&op_com);
+            if op.status == Status::Running {
+                let mut op_com = op.config.operator.compute.clone();
+                op_com.instances = 1;
+                total_compute.add_single_operator_compute(&op_com);
+            }
         }
 
         total_compute
