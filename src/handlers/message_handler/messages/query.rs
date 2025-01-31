@@ -10,8 +10,15 @@ use super::message::{GenericMessage, MessageName, SendableMessage};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OperatorInstanceStatusChange {
-    Complete { operator_id: u128 },
-    Error { operator_id: u128, error: String },
+    Complete {
+        query_id: u128,
+        operator_instance_id: u128,
+    },
+    Error {
+        query_id: u128,
+        operator_instance_id: u128,
+        error: String,
+    },
 }
 
 impl GenericMessage for OperatorInstanceStatusChange {

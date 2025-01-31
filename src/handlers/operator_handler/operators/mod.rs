@@ -7,7 +7,7 @@ mod operator_task_registry;
 mod operator_task_trackers;
 mod producer_operator;
 mod record_utils;
-mod requests;
+pub mod requests;
 mod table_func_tasks;
 mod traits;
 

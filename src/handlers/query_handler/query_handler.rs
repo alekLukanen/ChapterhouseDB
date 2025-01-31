@@ -1,12 +1,13 @@
+use std::iter;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{debug, info};
 
-use super::query_handler_state::{self, QueryHandlerState, Status};
+use super::query_handler_state::{self, QueryHandlerState, QueryHandlerStateError, Status};
 use crate::handlers::message_handler::messages;
 use crate::handlers::message_handler::messages::message::{Message, MessageName};
 use crate::handlers::message_handler::{MessageRegistry, Pipe};
@@ -65,7 +66,14 @@ impl QueryHandler {
         loop {
             tokio::select! {
                 Some(msg) = self.router_pipe.recv() => {
-                    self.handle_message(msg).await?;
+                    let res = self.handle_message(msg).await;
+                    if let Err(err) = res {
+                        if let Some(err_state) = err.downcast_ref::<QueryHandlerStateError>() {
+                            debug!("state error: {:?}", err_state);
+                        } else {
+                            return Err(err);
+                        }
+                    }
                 }
                 _ = ct.cancelled() => {
                     break;
@@ -97,10 +105,61 @@ impl QueryHandler {
                 .handle_query_handler_request_list_operator_instances(&msg)
                 .await
                 .context("failed handling the query handler request")?,
+            MessageName::QueryOperatorInstanceStatusChange => self
+                .handle_operator_instance_status_change(&msg)
+                .await
+                .context("failed handling the operator instance status change")?,
             _ => {
                 info!("unknown message received: {:?}", msg);
             }
         }
+        Ok(())
+    }
+
+    async fn handle_operator_instance_status_change(&mut self, msg: &Message) -> Result<()> {
+        let cast_msg: &messages::query::OperatorInstanceStatusChange =
+            self.msg_reg.try_cast_msg(msg)?;
+
+        // send response early since any state errors can't be handled by the
+        // operator handler
+        let resp_msg = msg.reply(Box::new(messages::common::GenericResponse::Ok));
+        self.router_pipe.send(resp_msg).await?;
+
+        // update the operator instance status
+        let (query_id, op_in_id) = match cast_msg {
+            messages::query::OperatorInstanceStatusChange::Complete {
+                query_id,
+                operator_instance_id,
+            } => {
+                self.state.update_operator_instance_status(
+                    query_id,
+                    operator_instance_id,
+                    Status::Complete,
+                )?;
+                (query_id, operator_instance_id)
+            }
+            messages::query::OperatorInstanceStatusChange::Error {
+                query_id,
+                operator_instance_id,
+                error,
+            } => {
+                self.state.update_operator_instance_status(
+                    query_id,
+                    operator_instance_id,
+                    Status::Error(error.clone()),
+                )?;
+                (query_id, operator_instance_id)
+            }
+        };
+
+        // notify downstream exchange operators if the producer operator is complete
+        if self
+            .state
+            .operator_instance_is_producer(query_id, op_in_id)?
+        {
+            // TODO: add that here
+        }
+
         Ok(())
     }
 
@@ -115,9 +174,7 @@ impl QueryHandler {
                 query_id,
                 operator_id,
             } => {
-                let op_instances = self
-                    .state
-                    .get_operator_instances(query_id.clone(), operator_id.clone())?;
+                let op_instances = self.state.get_operator_instances(query_id, operator_id)?;
                 let resp_msg = msg.reply(Box::new(
                     messages::query::QueryHandlerRequests::ListOperatorInstancesResponse {
                         op_instance_ids: op_instances.iter().map(|item| item.id).collect(),
@@ -148,13 +205,12 @@ impl QueryHandler {
                     "assign accepted response: query_id={}, op_in_id={}",
                     query_id, op_instance_id
                 );
-                if self.state.find_query(query_id.clone())?.status == Status::Queued {
-                    self.state
-                        .update_query_status(query_id.clone(), Status::Running)?;
+                if self.state.find_query(query_id)?.status == Status::Queued {
+                    self.state.update_query_status(query_id, Status::Running)?;
                 }
                 self.state.update_operator_instance_status(
-                    query_id.clone(),
-                    op_instance_id.clone(),
+                    query_id,
+                    op_instance_id,
                     Status::Running,
                 )?;
             }
@@ -169,10 +225,10 @@ impl QueryHandler {
                     query_id, op_instance_id
                 );
                 self.state
-                    .update_query_status(query_id.clone(), Status::Error(error.clone()))?;
+                    .update_query_status(query_id, Status::Error(error.clone()))?;
                 self.state.update_operator_instance_status(
-                    query_id.clone(),
-                    op_instance_id.clone(),
+                    query_id,
+                    op_instance_id,
                     Status::Error(error.clone()),
                 )?;
             }
@@ -322,6 +378,7 @@ impl MessageConsumer for QueryHandlerSubscriber {
                     Err(_) => false,
                 }
             }
+            MessageName::QueryOperatorInstanceStatusChange => true,
             _ => false,
         }
     }

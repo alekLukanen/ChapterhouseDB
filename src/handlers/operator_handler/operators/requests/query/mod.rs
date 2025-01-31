@@ -1,0 +1,3 @@
+mod operator_instance_status_change;
+
+pub use operator_instance_status_change::OperatorInstanceStatusChangeRequest;

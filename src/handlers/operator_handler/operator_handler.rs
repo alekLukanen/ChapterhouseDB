@@ -14,6 +14,7 @@ use crate::handlers::{
     message_handler::{MessageRegistry, Pipe},
     message_router_handler::{MessageConsumer, MessageReceiver, MessageRouterState, Subscriber},
 };
+use operators::requests;
 
 #[derive(Debug, Error)]
 pub enum OperatorHandlerError {
@@ -23,6 +24,8 @@ pub enum OperatorHandlerError {
     TimedOutWaitingForTaskToClose,
     #[error("message missing operator instance id")]
     MessageMissingOperatorInstanceId,
+    #[error("message missing query id")]
+    MessageMissingQueryId,
 }
 
 pub struct OperatorHandler {
@@ -138,6 +141,12 @@ impl OperatorHandler {
             return Err(OperatorHandlerError::MessageMissingOperatorInstanceId.into());
         };
 
+        let op_query_id = if let Some(id) = &msg.sent_from_query_id {
+            id
+        } else {
+            return Err(OperatorHandlerError::MessageMissingQueryId.into());
+        };
+
         let status_change: &messages::operator::OperatorInstanceStatusChange =
             self.msg_reg.try_cast_msg(&msg)?;
 
@@ -156,7 +165,29 @@ impl OperatorHandler {
         let resp_msg = msg.reply(Box::new(messages::common::GenericResponse::Ok));
         self.router_pipe.send(resp_msg).await?;
 
-        // TODO: request to the query handler
+        // request to the query handler
+        let ref mut pipe = self.router_pipe;
+        match status_change {
+            messages::operator::OperatorInstanceStatusChange::Complete => {
+                requests::query::OperatorInstanceStatusChangeRequest::completed_request(
+                    op_query_id.clone(),
+                    op_in_id.clone(),
+                    pipe,
+                    self.msg_reg.clone(),
+                )
+                .await?;
+            }
+            messages::operator::OperatorInstanceStatusChange::Error(err) => {
+                requests::query::OperatorInstanceStatusChangeRequest::errored_request(
+                    op_query_id.clone(),
+                    op_in_id.clone(),
+                    err.clone(),
+                    pipe,
+                    self.msg_reg.clone(),
+                )
+                .await?;
+            }
+        }
 
         Ok(())
     }

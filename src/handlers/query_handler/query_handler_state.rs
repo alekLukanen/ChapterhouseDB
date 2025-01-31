@@ -17,6 +17,8 @@ pub enum QueryHandlerStateError {
     OperatorInstanceNotFound(u128),
     #[error("operator instance group not found for query_id {0} and instance {1}")]
     OperatorInstanceGroupNotFound(u128, u128),
+    #[error("operator not in phytical plan: {0}")]
+    OperatorNotInPhysicalPlan(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,30 +112,30 @@ impl QueryHandlerState {
         self.queries.push(query.clone());
     }
 
-    pub fn find_query(&self, query_id: u128) -> Result<&Query> {
+    pub fn find_query(&self, query_id: &u128) -> Result<&Query> {
         self.queries
             .iter()
-            .find(|item| item.id == query_id)
-            .ok_or(QueryHandlerStateError::QueryNotFound(query_id).into())
+            .find(|item| item.id == *query_id)
+            .ok_or(QueryHandlerStateError::QueryNotFound(query_id.clone()).into())
     }
 
-    pub fn find_query_mut(&mut self, query_id: u128) -> Result<&mut Query> {
+    pub fn find_query_mut(&mut self, query_id: &u128) -> Result<&mut Query> {
         self.queries
             .iter_mut()
-            .find(|item| item.id == query_id)
-            .ok_or(QueryHandlerStateError::QueryNotFound(query_id).into())
+            .find(|item| item.id == *query_id)
+            .ok_or(QueryHandlerStateError::QueryNotFound(query_id.clone()).into())
     }
 
     pub fn find_operator_instance<'a>(
         &'a self,
         query: &'a Query,
-        op_instance_id: u128,
+        op_instance_id: &u128,
     ) -> Result<&'a OperatorInstance> {
         query
             .operator_instances
             .iter()
-            .find(|item| item.id == op_instance_id.clone())
-            .ok_or(QueryHandlerStateError::OperatorInstanceNotFound(op_instance_id).into())
+            .find(|item| item.id == *op_instance_id)
+            .ok_or(QueryHandlerStateError::OperatorInstanceNotFound(op_instance_id.clone()).into())
     }
 
     pub fn find_operator_instance_mut<'a>(
@@ -150,8 +152,8 @@ impl QueryHandlerState {
 
     pub fn get_operator_instance(
         &self,
-        query_id: u128,
-        op_instance_id: u128,
+        query_id: &u128,
+        op_instance_id: &u128,
     ) -> Result<OperatorInstance> {
         let query = self.find_query(query_id)?;
         let op_in = self.find_operator_instance(query, op_instance_id)?;
@@ -160,14 +162,14 @@ impl QueryHandlerState {
 
     pub fn get_operator_instances(
         &self,
-        query_id: u128,
-        op_id: String,
+        query_id: &u128,
+        op_id: &String,
     ) -> Result<Vec<OperatorInstance>> {
         let query = self.find_query(query_id)?;
         let op_instances: Vec<OperatorInstance> = query
             .operator_instances
             .iter()
-            .filter(|item| item.operator_id == op_id)
+            .filter(|item| item.operator_id == *op_id)
             .map(|item| item.clone())
             .collect();
         Ok(op_instances)
@@ -175,34 +177,70 @@ impl QueryHandlerState {
 
     pub fn update_operator_instance_status(
         &mut self,
-        query_id: u128,
-        op_instance_id: u128,
+        query_id: &u128,
+        op_instance_id: &u128,
         status: Status,
     ) -> Result<()> {
         for query in &mut self.queries {
-            if query.id != query_id {
+            if query.id != *query_id {
                 continue;
             }
             for op_in in &mut query.operator_instances {
-                if op_in.id != op_instance_id {
+                if op_in.id != *op_instance_id {
                     continue;
                 }
                 op_in.status = status;
                 return Ok(());
             }
         }
-        Err(QueryHandlerStateError::OperatorInstanceNotFound(op_instance_id).into())
+        Err(QueryHandlerStateError::OperatorInstanceNotFound(op_instance_id.clone()).into())
     }
 
-    pub fn update_query_status(&mut self, query_id: u128, status: Status) -> Result<()> {
+    pub fn update_query_status(&mut self, query_id: &u128, status: Status) -> Result<()> {
         for query in &mut self.queries {
-            if query.id != query_id {
+            if query.id != *query_id {
                 continue;
             }
             query.status = status;
             return Ok(());
         }
-        Err(QueryHandlerStateError::QueryNotFound(query_id).into())
+        Err(QueryHandlerStateError::QueryNotFound(query_id.clone()).into())
+    }
+
+    pub fn operator_instance_is_producer(&self, query_id: &u128, op_in_id: &u128) -> Result<bool> {
+        let query = self.find_query(query_id)?;
+        let op_in = self.find_operator_instance(query, op_in_id)?;
+
+        let op = query
+            .physical_plan
+            .get_operator(op_in.pipeline_id.clone(), op_in.operator_id.clone());
+        match op {
+            Some(op) => match op.operator_type {
+                planner::OperatorType::Producer { .. } => Ok(true),
+                planner::OperatorType::Exchange { .. } => Ok(false),
+            },
+            None => Err(QueryHandlerStateError::OperatorNotInPhysicalPlan(
+                op_in.operator_id.clone(),
+            )
+            .into()),
+        }
+    }
+
+    pub fn all_operator_instances_complete(
+        &mut self,
+        query_id: &u128,
+        op_in_id: &u128,
+    ) -> Result<bool> {
+        let query = self.find_query(query_id)?;
+        let op_in = self.find_operator_instance(query, op_in_id)?;
+        let any_not_complete = query
+            .operator_instances
+            .iter()
+            .find(|op_in_item| {
+                op_in_item.operator_id == op_in.operator_id && op_in_item.status != Status::Complete
+            })
+            .is_some();
+        Ok(!any_not_complete)
     }
 
     pub fn claim_operator_instances_up_to_compute_available(
