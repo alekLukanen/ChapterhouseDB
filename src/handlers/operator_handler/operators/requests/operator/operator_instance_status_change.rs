@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use thiserror::Error;
+use tracing::debug;
 
 use crate::handlers::message_handler::{
     messages::{
@@ -18,37 +19,27 @@ pub enum OperatorInstanceStatusChangeRequestError {
 }
 
 pub struct OperatorInstanceStatusChangeRequest<'a> {
-    operator_instance_id: u128,
     pipe: &'a mut Pipe,
     msg_reg: Arc<MessageRegistry>,
 }
 
 impl<'a> OperatorInstanceStatusChangeRequest<'a> {
     pub async fn completed_request(
-        operator_instance_id: u128,
         pipe: &'a mut Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> Result<()> {
-        let mut req = OperatorInstanceStatusChangeRequest {
-            operator_instance_id,
-            pipe,
-            msg_reg,
-        };
+        debug!("request");
+        let mut req = OperatorInstanceStatusChangeRequest { pipe, msg_reg };
         req.inner_completed_request().await?;
         Ok(())
     }
 
     pub async fn errored_request(
-        operator_instance_id: u128,
         err: String,
         pipe: &'a mut Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> Result<()> {
-        let mut req = OperatorInstanceStatusChangeRequest {
-            operator_instance_id,
-            pipe,
-            msg_reg,
-        };
+        let mut req = OperatorInstanceStatusChangeRequest { pipe, msg_reg };
         req.inner_errored_request(err).await?;
         Ok(())
     }

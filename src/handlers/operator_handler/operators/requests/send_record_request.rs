@@ -37,6 +37,13 @@ impl<'a> SendRecordRequest<'a> {
         pipe: &'a mut Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> Result<()> {
+        debug!(
+            record_id = record_id,
+            exchange_operator_instance_id = exchange_operator_instance_id,
+            exchange_worker_id = exchange_worker_id,
+            "request"
+        );
+
         let mut req = SendRecordRequest {
             record_id,
             record: Arc::new(record),

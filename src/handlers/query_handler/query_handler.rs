@@ -13,6 +13,7 @@ use crate::handlers::message_handler::{MessageRegistry, Pipe};
 use crate::handlers::message_router_handler::{
     MessageConsumer, MessageReceiver, MessageRouterState, Subscriber,
 };
+use crate::handlers::operator_handler::operators::requests;
 use crate::planner::{self, LogicalPlanner, PhysicalPlanner};
 
 #[derive(Debug, Error)]
@@ -159,7 +160,19 @@ impl QueryHandler {
                 .state
                 .all_operator_instances_complete(query_id, op_in_id)?
         {
+            debug!("all producer operator instances complete");
             let exchange_id = self.state.get_outbound_exchange_id(query_id, op_in_id)?;
+            let exchange_instances = self.state.get_operator_instances(query_id, &exchange_id)?;
+            let ref mut pipe = self.router_pipe;
+            for exchange_instance in exchange_instances {
+                requests::exchange::OperatorStatusChangeRequest::completed_request(
+                    exchange_instance.id.clone(),
+                    exchange_id.clone(),
+                    pipe,
+                    self.msg_reg.clone(),
+                )
+                .await?;
+            }
         }
 
         Ok(())

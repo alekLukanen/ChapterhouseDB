@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use thiserror::Error;
+use tracing::debug;
 
 use crate::handlers::message_handler::{
     messages::{
@@ -31,6 +32,11 @@ impl<'a> OperatorInstanceStatusChangeRequest<'a> {
         pipe: &'a mut Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> Result<()> {
+        debug!(
+            query_id = query_id,
+            operator_instance_id = operator_instance_id,
+            "request",
+        );
         let mut req = OperatorInstanceStatusChangeRequest {
             query_id,
             operator_instance_id,

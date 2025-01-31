@@ -49,7 +49,6 @@ impl<'a> IdentifyExchangeRequest<'a> {
         pipe: &'a mut Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> Result<IdentifyExchangeResponse> {
-        debug!("request outbound exchange");
         let exchange_id = match &op_in_config.operator.operator_type {
             crate::planner::OperatorType::Producer {
                 outbound_exchange_id,
@@ -119,6 +118,8 @@ impl<'a> IdentifyExchangeRequest<'a> {
         pipe: &mut Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> Result<IdentifyExchangeResponse> {
+        debug!(query_id = query_id, exchange_id = exchange_id, "request");
+
         let mut res = IdentifyExchangeRequest {
             exchange_operator_instance_id: None,
             exchange_worker_id: None,

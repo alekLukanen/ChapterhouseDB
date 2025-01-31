@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::sync::Arc;
 use thiserror::Error;
+use tracing::debug;
 
 use crate::handlers::message_handler::messages;
 use crate::handlers::message_handler::messages::message::{Message, MessageName};
@@ -31,6 +32,13 @@ impl<'a> OperatorCompletedRecordProcessingRequest<'a> {
         pipe: &'a mut Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> Result<()> {
+        debug!(
+            operator_id = operator_id,
+            record_id = record_id,
+            exchange_operator_instance_id = exchange_operator_instance_id,
+            exchange_worker_id = exchange_worker_id,
+            "request",
+        );
         let mut req = OperatorCompletedRecordProcessingRequest {
             exchange_operator_instance_id,
             exchange_worker_id,

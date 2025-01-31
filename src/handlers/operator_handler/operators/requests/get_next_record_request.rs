@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use thiserror::Error;
+use tracing::debug;
 
 use crate::handlers::message_handler::messages;
 use crate::handlers::message_handler::messages::message::{Message, MessageName};
@@ -39,6 +40,12 @@ impl<'a> GetNextRecordRequest<'a> {
         pipe: &'a mut Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> Result<GetNextRecordResponse> {
+        debug!(
+            operator_id = operator_id,
+            exchange_operator_instance_id = exchange_operator_instance_id,
+            exchange_worker_id = exchange_worker_id,
+            "request",
+        );
         let mut req = GetNextRecordRequest {
             operator_id,
             exchange_operator_instance_id,

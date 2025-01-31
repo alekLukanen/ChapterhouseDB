@@ -136,12 +136,12 @@ impl ProducerOperator {
                     match res_err {
                         Ok(None) => {
                             requests::operator::OperatorInstanceStatusChangeRequest::completed_request(
-                                self.operator_instance_config.id, pipe, self.msg_reg.clone()
+                                pipe, self.msg_reg.clone()
                             ).await?;
                         }
                         Ok(Some(res_err)) => {
                             requests::operator::OperatorInstanceStatusChangeRequest::errored_request(
-                                self.operator_instance_config.id, res_err.to_string(), pipe, self.msg_reg.clone()
+                                res_err.to_string(), pipe, self.msg_reg.clone()
                             ).await?;
                         }
                         Err(err) => {
