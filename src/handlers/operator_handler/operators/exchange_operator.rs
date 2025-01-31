@@ -26,7 +26,7 @@ pub enum ExchangeOperatorError {
     OperationInstanceIdNotSetOnMessage,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum Status {
     Complete,
     Running,
@@ -197,6 +197,32 @@ impl ExchangeOperator {
                     _ => Ok(false),
                 }
             }
+            MessageName::ExchangeOperatorStatusChange => {
+                let cast_msg: &messages::exchange::OperatorStatusChange =
+                    msg_reg.try_cast_msg(msg)?;
+
+                // reply early
+                let resp_msg = msg.reply(Box::new(messages::common::GenericResponse::Ok));
+                self.router_pipe.send(resp_msg).await?;
+
+                match cast_msg {
+                    messages::exchange::OperatorStatusChange::Complete { operator_id } => {
+                        self.inbound_producer_operator_states
+                            .iter_mut()
+                            .filter(|item| item.operator_id == *operator_id)
+                            .for_each(|item| item.status = Status::Complete);
+                        if !self
+                            .inbound_producer_operator_states
+                            .iter()
+                            .find(|item| item.status != Status::Complete)
+                            .is_some()
+                        {
+                            self.received_all_data_from_producers = true;
+                        }
+                    }
+                }
+                Ok(true)
+            }
             _ => Ok(false),
         }
     }
@@ -331,6 +357,7 @@ impl MessageConsumer for ExchangeOperatorSubscriber {
                     _ => false,
                 }
             }
+            MessageName::ExchangeOperatorStatusChange => true,
             _ => false,
         }
     }

@@ -70,4 +70,9 @@ router from sending the next message until there is room. This could cause a dea
 2. In the `producer_operator.rs` file the `async_main` needs to call an `async_main_inner` function
 so that if there is an error the task can be cancelled before the operator exits. Since rust
 doesn't have a defer this is one way to handle it. Look for other cases like this.
+3. Handle the special case where a producer operator starts and completes before the 
+exchange starts. This can happen when producer doesn't produce any results. The producer
+should wait for the exchange to boot up before trying to produce data. Make this generic
+by putting the logic in the `producer_operator.rs` file instead of in each of the individual
+tasks.
 
