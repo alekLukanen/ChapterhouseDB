@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Error, Result};
 use futures::StreamExt;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
@@ -325,7 +325,10 @@ impl TaskBuilder for ReadFilesTaskBuilder {
         conn_reg: Arc<ConnectionRegistry>,
         tt: &mut RestrictedOperatorTaskTracker,
         ct: CancellationToken,
-    ) -> Result<(tokio::sync::oneshot::Receiver<()>, Box<dyn MessageConsumer>)> {
+    ) -> Result<(
+        tokio::sync::oneshot::Receiver<Option<Error>>,
+        Box<dyn MessageConsumer>,
+    )> {
         let table_func_config = TableFuncConfig::try_from(&op_in_config)?;
         let read_files_config = ReadFilesConfig::parse_config(&table_func_config)?;
         let mut op = ReadFilesTask::new(
@@ -342,9 +345,13 @@ impl TaskBuilder for ReadFilesTaskBuilder {
         tt.spawn(async move {
             if let Err(err) = op.async_main(ct).await {
                 error!("{:?}", err);
-            }
-            if let Err(err) = tx.send(()) {
-                error!("{:?}", err);
+                if let Err(err_send) = tx.send(Some(err)) {
+                    error!("{:?}", err_send);
+                }
+            } else {
+                if let Err(err_send) = tx.send(None) {
+                    error!("{:?}", err_send);
+                }
             }
         })?;
 

@@ -1,7 +1,7 @@
 use core::fmt;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Error, Result};
 use tokio_util::sync::CancellationToken;
 
 use crate::handlers::{
@@ -27,7 +27,10 @@ pub trait TaskBuilder: fmt::Debug + Send + Sync {
         conn_reg: Arc<ConnectionRegistry>,
         tt: &mut RestrictedOperatorTaskTracker,
         ct: CancellationToken,
-    ) -> Result<(tokio::sync::oneshot::Receiver<()>, Box<dyn MessageConsumer>)>;
+    ) -> Result<(
+        tokio::sync::oneshot::Receiver<Option<Error>>,
+        Box<dyn MessageConsumer>,
+    )>;
 }
 
 //////////////////////////////////////////////////////////

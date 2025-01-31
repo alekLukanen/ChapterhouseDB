@@ -40,3 +40,22 @@ impl GenericMessage for Ping {
         Ok(Box::new(msg))
     }
 }
+
+/////////////////////////////////////////////////////////////
+//
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GenericResponse {
+    Ok,
+    Error(String),
+}
+
+impl GenericMessage for GenericResponse {
+    fn msg_name() -> MessageName {
+        MessageName::CommonGenericResponse
+    }
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: GenericResponse = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
+    }
+}

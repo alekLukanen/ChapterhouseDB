@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Error, Result};
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
@@ -86,7 +86,7 @@ impl ProducerOperator {
     pub async fn async_main(
         &mut self,
         ct: CancellationToken,
-        mut task_res: tokio::sync::oneshot::Receiver<()>,
+        mut task_res: tokio::sync::oneshot::Receiver<Option<Error>>,
     ) -> Result<()> {
         self.message_router_state
             .lock()

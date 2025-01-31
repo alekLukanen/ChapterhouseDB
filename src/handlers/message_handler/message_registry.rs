@@ -38,12 +38,18 @@ impl MessageRegistry {
     }
 
     fn register_messages(&mut self) {
+        // common
         self.add(Box::new(
             GenericMessageParser::<messages::common::Ping>::new(),
         ));
         self.add(Box::new(
             GenericMessageParser::<messages::common::Identify>::new(),
         ));
+        self.add(Box::new(GenericMessageParser::<
+            messages::common::GenericResponse,
+        >::new()));
+
+        // query
         self.add(Box::new(
             GenericMessageParser::<messages::query::RunQuery>::new(),
         ));
@@ -59,6 +65,16 @@ impl MessageRegistry {
         self.add(Box::new(GenericMessageParser::<
             messages::query::QueryHandlerRequests,
         >::new()));
+        self.add(Box::new(GenericMessageParser::<
+            messages::query::OperatorInstanceStatusChange,
+        >::new()));
+
+        // operator
+        self.add(Box::new(GenericMessageParser::<
+            messages::operator::OperatorInstanceStatusChange,
+        >::new()));
+
+        // exchange
         self.add(Box::new(messages::exchange::ExchangeRequestsParser::new()));
     }
 

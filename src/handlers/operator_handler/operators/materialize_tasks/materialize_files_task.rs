@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Error, Result};
 use std::{path::PathBuf, sync::Arc};
 use thiserror::Error;
 use tracing::{debug, error};
@@ -225,7 +225,10 @@ impl TaskBuilder for MaterializeFilesTaskBuilder {
         conn_reg: Arc<ConnectionRegistry>,
         tt: &mut RestrictedOperatorTaskTracker,
         ct: tokio_util::sync::CancellationToken,
-    ) -> Result<(tokio::sync::oneshot::Receiver<()>, Box<dyn MessageConsumer>)> {
+    ) -> Result<(
+        tokio::sync::oneshot::Receiver<Option<Error>>,
+        Box<dyn MessageConsumer>,
+    )> {
         let mat_files_config = MaterializeFilesConfig::try_from(&op_in_config)?;
         let mut op = MaterializeFilesTask::new(
             op_in_config,
@@ -241,9 +244,13 @@ impl TaskBuilder for MaterializeFilesTaskBuilder {
         tt.spawn(async move {
             if let Err(err) = op.async_main(ct).await {
                 error!("{:?}", err);
-            }
-            if let Err(err) = tx.send(()) {
-                error!("{:?}", err);
+                if let Err(err_send) = tx.send(Some(err)) {
+                    error!("{:?}", err_send);
+                }
+            } else {
+                if let Err(err_send) = tx.send(None) {
+                    error!("{:?}", err_send);
+                }
             }
         })?;
 

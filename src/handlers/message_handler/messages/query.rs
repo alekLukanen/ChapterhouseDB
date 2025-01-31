@@ -9,6 +9,25 @@ use super::message::{GenericMessage, MessageName, SendableMessage};
 //
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum OperatorInstanceStatusChange {
+    Complete { operator_id: u128 },
+    Error { operator_id: u128, error: String },
+}
+
+impl GenericMessage for OperatorInstanceStatusChange {
+    fn msg_name() -> MessageName {
+        MessageName::QueryOperatorInstanceStatusChange
+    }
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: OperatorInstanceStatusChange = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
+    }
+}
+
+////////////////////////////////////////////////////////////
+//
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunQuery {
     pub query: String,
 }

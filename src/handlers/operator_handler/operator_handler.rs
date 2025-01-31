@@ -224,6 +224,7 @@ impl MessageConsumer for OperatorHandlerSubscriber {
                     _ => false,
                 }
             }
+            MessageName::OperatorOperatorInstanceStatusChange => true,
             _ => false,
         }
     }
