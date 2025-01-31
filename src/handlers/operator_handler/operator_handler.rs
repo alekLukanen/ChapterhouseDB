@@ -21,6 +21,8 @@ pub enum OperatorHandlerError {
     IncorrectMessage(String),
     #[error("timed out waiting for task to close")]
     TimedOutWaitingForTaskToClose,
+    #[error("message missing operator instance id")]
+    MessageMissingOperatorInstanceId,
 }
 
 pub struct OperatorHandler {
@@ -118,10 +120,44 @@ impl OperatorHandler {
                 .handle_operator_instance_assignment(msg)
                 .await
                 .context("failed handling operator instance assignment message")?,
+            MessageName::OperatorOperatorInstanceStatusChange => self
+                .handle_operator_instance_status_change(msg)
+                .await
+                .context("failed handling operator instance status change")?,
             _ => {
                 info!("unknown message received: {:?}", msg);
             }
         }
+        Ok(())
+    }
+
+    async fn handle_operator_instance_status_change(&mut self, msg: Message) -> Result<()> {
+        let op_in_id = if let Some(id) = &msg.sent_from_operation_id {
+            id
+        } else {
+            return Err(OperatorHandlerError::MessageMissingOperatorInstanceId.into());
+        };
+
+        let status_change: &messages::operator::OperatorInstanceStatusChange =
+            self.msg_reg.try_cast_msg(&msg)?;
+
+        // update the operator state
+        match status_change {
+            messages::operator::OperatorInstanceStatusChange::Complete => {
+                self.state.operator_instance_complete(op_in_id)?;
+            }
+            messages::operator::OperatorInstanceStatusChange::Error(err_msg) => {
+                self.state
+                    .operator_instance_error(op_in_id, err_msg.clone())?;
+            }
+        }
+
+        // response for the operator instance
+        let resp_msg = msg.reply(Box::new(messages::common::GenericResponse::Ok));
+        self.router_pipe.send(resp_msg).await?;
+
+        // TODO: request to the query handler
+
         Ok(())
     }
 

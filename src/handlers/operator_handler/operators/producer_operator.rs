@@ -5,7 +5,7 @@ use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
-use tracing::debug;
+use tracing::{debug, error};
 
 use crate::handlers::message_handler::messages;
 use crate::handlers::message_handler::messages::message::{Message, MessageName};
@@ -15,6 +15,7 @@ use crate::handlers::message_router_handler::{
 };
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
 use crate::handlers::operator_handler::operators::common_message_handlers::handle_ping_message;
+use crate::handlers::operator_handler::operators::requests;
 
 use super::operator_task_trackers::RestrictedOperatorTaskTracker;
 
@@ -129,8 +130,24 @@ impl ProducerOperator {
                 Some(msg) = self.task_pipe.recv() => {
                     self.router_pipe.send(msg).await?;
                 }
-                _ = &mut task_res => {
+                res_err = &mut task_res => {
                     debug!("task future terminated");
+                    let ref mut pipe = self.router_pipe;
+                    match res_err {
+                        Ok(None) => {
+                            requests::operator::OperatorInstanceStatusChangeRequest::completed_request(
+                                self.operator_instance_config.id, pipe, self.msg_reg.clone()
+                            ).await?;
+                        }
+                        Ok(Some(res_err)) => {
+                            requests::operator::OperatorInstanceStatusChangeRequest::errored_request(
+                                self.operator_instance_config.id, res_err.to_string(), pipe, self.msg_reg.clone()
+                            ).await?;
+                        }
+                        Err(err) => {
+                            error!("{:?}", err);
+                        }
+                    }
                     break;
                 }
                 _ = ct.cancelled() => {

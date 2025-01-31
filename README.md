@@ -31,7 +31,7 @@ select * from read_files('simple/*.parquet')
 will produce these operators
 
 ```
-[read files operator] -> [exchange operator] -> [filter operator] -> [exchange operator] -> [materialize operator] -> [exchange operator]
+[read files] -> [exchange] -> [filter] -> [exchange] -> [materialize] -> [exchange]
 ```
 
 Each of the operators in this query can also have individual instances of themselves so that
@@ -60,4 +60,14 @@ RUST_BACKTRACE=1 cargo run
 4. Rayon and Tokio methods for blocking code: https://ryhl.io/blog/async-what-is-blocking/
 5. Globset crate: https://docs.rs/globset/latest/globset/
 6. Arrow IPC format: https://arrow.apache.org/docs/format/Columnar.html#serialization-and-interprocess-communication-ipc
+
+## TODO
+
+1. Implement message shedding so that a slow consumer doesn't block the message router from
+reading or sending messages. Since each consumer has a cap on the number of messages that
+can be queued it's possible that a slow consumer's queue could get filled up and block the
+router from sending the next message until there is room. This could cause a deadlock.
+2. In the `producer_operator.rs` file the `async_main` needs to call an `async_main_inner` function
+so that if there is an error the task can be cancelled before the operator exits. Since rust
+doesn't have a defer this is one way to handle it. Look for other cases like this.
 

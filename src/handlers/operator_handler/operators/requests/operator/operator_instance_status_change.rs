@@ -38,9 +38,32 @@ impl<'a> OperatorInstanceStatusChangeRequest<'a> {
         Ok(())
     }
 
+    pub async fn errored_request(
+        operator_instance_id: u128,
+        err: String,
+        pipe: &'a mut Pipe,
+        msg_reg: Arc<MessageRegistry>,
+    ) -> Result<()> {
+        let mut req = OperatorInstanceStatusChangeRequest {
+            operator_instance_id,
+            pipe,
+            msg_reg,
+        };
+        req.inner_errored_request(err).await?;
+        Ok(())
+    }
+
     async fn inner_completed_request(&mut self) -> Result<()> {
         self.operator_instance_status_change_with_retry(
             messages::operator::OperatorInstanceStatusChange::Complete,
+            3,
+        )
+        .await
+    }
+
+    async fn inner_errored_request(&mut self, err: String) -> Result<()> {
+        self.operator_instance_status_change_with_retry(
+            messages::operator::OperatorInstanceStatusChange::Error(err),
             3,
         )
         .await
