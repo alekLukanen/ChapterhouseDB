@@ -19,6 +19,8 @@ pub enum QueryHandlerStateError {
     OperatorInstanceGroupNotFound(u128, u128),
     #[error("operator not in phytical plan: {0}")]
     OperatorNotInPhysicalPlan(String),
+    #[error("expected producer operator type")]
+    ExpectedProducerOperatorType,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -205,6 +207,27 @@ impl QueryHandlerState {
             return Ok(());
         }
         Err(QueryHandlerStateError::QueryNotFound(query_id.clone()).into())
+    }
+
+    pub fn get_outbound_exchange_id(&self, query_id: &u128, op_in_id: &u128) -> Result<String> {
+        let query = self.find_query(query_id)?;
+        let op_in = self.find_operator_instance(query, op_in_id)?;
+        if let Some(op) = query
+            .physical_plan
+            .get_operator(op_in.pipeline_id.clone(), op_in.operator_id.clone())
+        {
+            match &op.operator_type {
+                planner::OperatorType::Producer {
+                    outbound_exchange_id,
+                    ..
+                } => Ok(outbound_exchange_id.clone()),
+                planner::OperatorType::Exchange { .. } => {
+                    Err(QueryHandlerStateError::ExpectedProducerOperatorType.into())
+                }
+            }
+        } else {
+            Err(QueryHandlerStateError::OperatorNotInPhysicalPlan(op_in.operator_id.clone()).into())
+        }
     }
 
     pub fn operator_instance_is_producer(&self, query_id: &u128, op_in_id: &u128) -> Result<bool> {

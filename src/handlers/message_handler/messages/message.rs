@@ -550,6 +550,7 @@ pub enum MessageName {
     OperatorOperatorInstanceStatusChange,
     CommonGenericResponse,
     QueryOperatorInstanceStatusChange,
+    ExchangeOperatorStatusChange,
 }
 
 impl MessageName {
@@ -566,6 +567,7 @@ impl MessageName {
             Self::OperatorOperatorInstanceStatusChange => "OperatorOperatorInstanceStatusChange",
             Self::CommonGenericResponse => "CommonGenericResponse",
             Self::QueryOperatorInstanceStatusChange => "QueryOperatorInstanceStatusChange",
+            Self::ExchangeOperatorStatusChange => "ExchangeOperatorStatusChange",
         }
     }
     pub fn as_u16(&self) -> u16 {
@@ -581,6 +583,7 @@ impl MessageName {
             Self::OperatorOperatorInstanceStatusChange => 8,
             Self::CommonGenericResponse => 9,
             Self::QueryOperatorInstanceStatusChange => 10,
+            Self::ExchangeOperatorStatusChange => 11,
         }
     }
 }

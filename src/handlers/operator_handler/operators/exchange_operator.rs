@@ -27,8 +27,22 @@ pub enum ExchangeOperatorError {
 }
 
 #[derive(Debug)]
+enum Status {
+    Complete,
+    Running,
+}
+
+#[derive(Debug)]
+struct ProducerOperatorStatus {
+    operator_id: String,
+    status: Status,
+}
+
+#[derive(Debug)]
 pub struct ExchangeOperator {
     record_pool: RecordPool,
+    inbound_producer_operator_states: Vec<ProducerOperatorStatus>,
+    received_all_data_from_producers: bool,
 
     operator_instance_config: OperatorInstanceConfig,
     message_router_state: Arc<Mutex<MessageRouterState>>,
@@ -48,28 +62,40 @@ impl ExchangeOperator {
         pipe.set_sent_from_query_id(op_in_config.query_id.clone());
         pipe.set_sent_from_operation_id(op_in_config.id.clone());
 
-        let operator_ids = match &op_in_config.operator.operator_type {
-            planner::OperatorType::Exchange {
-                outbound_producer_ids,
-                ..
-            } => outbound_producer_ids.clone(),
-            planner::OperatorType::Producer { .. } => {
-                return Err(ExchangeOperatorError::InvalidOperatorType(
-                    op_in_config.operator.operator_type.name().to_string(),
-                )
-                .into());
-            }
-        };
+        let (outbound_producer_ids, inbound_producer_ids) =
+            match &op_in_config.operator.operator_type {
+                planner::OperatorType::Exchange {
+                    outbound_producer_ids,
+                    inbound_producer_ids,
+                    ..
+                } => (outbound_producer_ids.clone(), inbound_producer_ids.clone()),
+                planner::OperatorType::Producer { .. } => {
+                    return Err(ExchangeOperatorError::InvalidOperatorType(
+                        op_in_config.operator.operator_type.name().to_string(),
+                    )
+                    .into());
+                }
+            };
 
         let record_pool = RecordPool::new(
-            operator_ids,
+            outbound_producer_ids,
             RecordPoolConfig {
                 max_heartbeat_interval: chrono::Duration::seconds(10),
             },
         );
 
+        let operator_statuses: Vec<ProducerOperatorStatus> = inbound_producer_ids
+            .iter()
+            .map(|producer_id| ProducerOperatorStatus {
+                operator_id: producer_id.clone(),
+                status: Status::Running,
+            })
+            .collect();
+
         Ok(ExchangeOperator {
             record_pool,
+            inbound_producer_operator_states: operator_statuses,
+            received_all_data_from_producers: false,
             operator_instance_config: op_in_config,
             message_router_state,
             router_pipe: pipe,
@@ -241,10 +267,17 @@ impl ExchangeOperator {
                 self.router_pipe.send(resp_msg).await?;
             }
             None => {
-                let resp_msg = msg.reply(Box::new(
-                    messages::exchange::ExchangeRequests::GetNextRecordResponseNoneLeft,
-                ));
-                self.router_pipe.send(resp_msg).await?;
+                if self.received_all_data_from_producers {
+                    let resp_msg = msg.reply(Box::new(
+                        messages::exchange::ExchangeRequests::GetNextRecordResponseNoneLeft,
+                    ));
+                    self.router_pipe.send(resp_msg).await?;
+                } else {
+                    let resp_msg = msg.reply(Box::new(
+                        messages::exchange::ExchangeRequests::GetNextRecordResponseNoneAvailable,
+                    ));
+                    self.router_pipe.send(resp_msg).await?;
+                }
             }
         }
 

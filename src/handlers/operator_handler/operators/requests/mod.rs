@@ -1,3 +1,4 @@
+pub mod exchange;
 mod get_next_record_request;
 mod identify_exchange_requests;
 pub mod operator;

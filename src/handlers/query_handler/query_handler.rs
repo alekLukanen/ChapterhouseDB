@@ -1,4 +1,3 @@
-use std::iter;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -14,7 +13,7 @@ use crate::handlers::message_handler::{MessageRegistry, Pipe};
 use crate::handlers::message_router_handler::{
     MessageConsumer, MessageReceiver, MessageRouterState, Subscriber,
 };
-use crate::planner::{LogicalPlanner, PhysicalPlanner};
+use crate::planner::{self, LogicalPlanner, PhysicalPlanner};
 
 #[derive(Debug, Error)]
 pub enum QueryHandlerError {
@@ -156,8 +155,11 @@ impl QueryHandler {
         if self
             .state
             .operator_instance_is_producer(query_id, op_in_id)?
+            && self
+                .state
+                .all_operator_instances_complete(query_id, op_in_id)?
         {
-            // TODO: add that here
+            let exchange_id = self.state.get_outbound_exchange_id(query_id, op_in_id)?;
         }
 
         Ok(())

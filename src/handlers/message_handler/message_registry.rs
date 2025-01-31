@@ -76,6 +76,9 @@ impl MessageRegistry {
 
         // exchange
         self.add(Box::new(messages::exchange::ExchangeRequestsParser::new()));
+        self.add(Box::new(GenericMessageParser::<
+            messages::exchange::OperatorStatusChange,
+        >::new()));
     }
 
     pub fn build_msg(&self, buf: &mut BytesMut) -> Result<Option<Message>> {

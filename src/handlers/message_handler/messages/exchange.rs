@@ -6,7 +6,27 @@ use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Read};
 use thiserror::Error;
 
-use super::message::{Message, MessageName, MessageParser, SendableMessage, SerializedMessage};
+use super::message::{
+    GenericMessage, Message, MessageName, MessageParser, SendableMessage, SerializedMessage,
+};
+
+////////////////////////////////////////////////////////////
+//
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum OperatorStatusChange {
+    Complete { operator_id: String },
+}
+
+impl GenericMessage for OperatorStatusChange {
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: OperatorStatusChange = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
+    }
+    fn msg_name() -> MessageName {
+        MessageName::ExchangeOperatorStatusChange
+    }
+}
 
 ////////////////////////////////////////////////////////////
 //
@@ -33,6 +53,7 @@ pub enum ExchangeRequests {
         table_aliases: Vec<Vec<String>>, // [["tableName", "tableAlias"], ...]
     },
     GetNextRecordResponseNoneLeft,
+    GetNextRecordResponseNoneAvailable,
     SendRecordRequest {
         record_id: u64,
         #[serde(skip_serializing)]
@@ -55,10 +76,11 @@ impl ExchangeRequests {
             Self::GetNextRecordRequest { .. } => 0,
             Self::GetNextRecordResponseRecord { .. } => 1,
             Self::GetNextRecordResponseNoneLeft => 2,
-            Self::SendRecordRequest { .. } => 3,
-            Self::SendRecordResponse { .. } => 4,
-            Self::OperatorCompletedRecordProcessingRequest { .. } => 5,
-            Self::OperatorCompletedRecordProcessingResponse => 6,
+            Self::GetNextRecordResponseNoneAvailable => 3,
+            Self::SendRecordRequest { .. } => 4,
+            Self::SendRecordResponse { .. } => 5,
+            Self::OperatorCompletedRecordProcessingRequest { .. } => 6,
+            Self::OperatorCompletedRecordProcessingResponse => 7,
         }
     }
 }
@@ -71,6 +93,9 @@ struct ExchangeRequestsGetNextRecordResponseRecord {
 
 #[derive(Debug, Deserialize)]
 struct ExchangeRequestsGetNextRecordResponseNoneLeft {}
+
+#[derive(Debug, Deserialize)]
+struct ExchangeRequestsGetNextRecordResponseNoneAvailable {}
 
 #[derive(Debug, Deserialize)]
 struct ExchangeRequestsGetNextRecordRequest {
@@ -128,6 +153,14 @@ impl SendableMessage for ExchangeRequests {
                 return Ok(buf.to_vec());
             }
             Self::GetNextRecordResponseNoneLeft => {
+                let meta_data = serde_json::to_vec(self)?;
+                let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len());
+                buf.put_u8(self.msg_id());
+                buf.put_u64(meta_data.len() as u64);
+                buf.put(&meta_data[..]);
+                return Ok(buf.to_vec());
+            }
+            Self::GetNextRecordResponseNoneAvailable => {
                 let meta_data = serde_json::to_vec(self)?;
                 let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len());
                 buf.put_u8(self.msg_id());
@@ -304,6 +337,22 @@ impl MessageParser for ExchangeRequestsParser {
                 Err(_) => return Err(ExchangeRequestsError::ReadExactFailed.into()),
                 _ => (),
             }
+            let _: ExchangeRequestsGetNextRecordResponseNoneAvailable =
+                serde_json::from_slice(&meta_data[..])?;
+
+            let msg = ExchangeRequests::GetNextRecordResponseNoneAvailable;
+
+            Ok(Message::build_from_serialized_message(
+                ser_msg,
+                Box::new(msg),
+            ))
+        } else if msg_id == 4 {
+            let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
+            meta_data.resize(meta_data_len as usize, 0);
+            match buf.read_exact(&mut meta_data) {
+                Err(_) => return Err(ExchangeRequestsError::ReadExactFailed.into()),
+                _ => (),
+            }
             let meta: ExchangeRequestsSendRecordRequest = serde_json::from_slice(&meta_data[..])?;
 
             let record = self.parse_record(&mut buf)?;
@@ -317,7 +366,7 @@ impl MessageParser for ExchangeRequestsParser {
                 ser_msg,
                 Box::new(msg),
             ))
-        } else if msg_id == 4 {
+        } else if msg_id == 5 {
             let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
             meta_data.resize(meta_data_len as usize, 0);
             match buf.read_exact(&mut meta_data) {
@@ -334,7 +383,7 @@ impl MessageParser for ExchangeRequestsParser {
                 ser_msg,
                 Box::new(msg),
             ))
-        } else if msg_id == 5 {
+        } else if msg_id == 6 {
             let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
             meta_data.resize(meta_data_len as usize, 0);
             match buf.read_exact(&mut meta_data) {
@@ -353,7 +402,7 @@ impl MessageParser for ExchangeRequestsParser {
                 ser_msg,
                 Box::new(msg),
             ))
-        } else if msg_id == 6 {
+        } else if msg_id == 7 {
             let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
             meta_data.resize(meta_data_len as usize, 0);
             match buf.read_exact(&mut meta_data) {

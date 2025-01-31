@@ -304,6 +304,7 @@ impl MessageConsumer for MaterializeFilesConsumer {
                         ..
                     }) => true,
                     Ok(messages::exchange::ExchangeRequests::GetNextRecordResponseNoneLeft) => true,
+                    Ok(messages::exchange::ExchangeRequests::GetNextRecordResponseNoneAvailable) => true,
                     Ok(messages::exchange::ExchangeRequests::OperatorCompletedRecordProcessingResponse) => true,
                     Err(err) => {
                         error!("{:?}", err);
