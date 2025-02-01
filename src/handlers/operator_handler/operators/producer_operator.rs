@@ -92,7 +92,7 @@ impl ProducerOperator {
         self.message_router_state
             .lock()
             .await
-            .add_internal_subscriber(self.subscriber())
+            .add_internal_subscriber(self.subscriber(), self.operator_instance_config.id.clone())
             .context("failed subscribing")?;
 
         debug!(

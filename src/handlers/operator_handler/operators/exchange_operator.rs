@@ -117,7 +117,7 @@ impl ExchangeOperator {
         self.message_router_state
             .lock()
             .await
-            .add_internal_subscriber(self.subscriber())
+            .add_internal_subscriber(self.subscriber(), self.operator_instance_config.id.clone())
             .context("failed subscribing")?;
 
         debug!(
@@ -198,33 +198,47 @@ impl ExchangeOperator {
                 }
             }
             MessageName::ExchangeOperatorStatusChange => {
-                let cast_msg: &messages::exchange::OperatorStatusChange =
-                    msg_reg.try_cast_msg(msg)?;
-
-                // reply early
-                let resp_msg = msg.reply(Box::new(messages::common::GenericResponse::Ok));
-                self.router_pipe.send(resp_msg).await?;
-
-                match cast_msg {
-                    messages::exchange::OperatorStatusChange::Complete { operator_id } => {
-                        self.inbound_producer_operator_states
-                            .iter_mut()
-                            .filter(|item| item.operator_id == *operator_id)
-                            .for_each(|item| item.status = Status::Complete);
-                        if !self
-                            .inbound_producer_operator_states
-                            .iter()
-                            .find(|item| item.status != Status::Complete)
-                            .is_some()
-                        {
-                            self.received_all_data_from_producers = true;
-                        }
-                    }
-                }
+                self.handle_operator_status_change(msg).await?;
                 Ok(true)
             }
             _ => Ok(false),
         }
+    }
+
+    async fn handle_operator_status_change(&mut self, msg: &Message) -> Result<()> {
+        let cast_msg: &messages::exchange::OperatorStatusChange = self.msg_reg.try_cast_msg(msg)?;
+
+        // reply early
+        let resp_msg = msg.reply(Box::new(messages::common::GenericResponse::Ok));
+        self.router_pipe.send(resp_msg).await?;
+
+        match cast_msg {
+            messages::exchange::OperatorStatusChange::Complete { operator_id } => {
+                debug!("operator_id: {}", operator_id);
+                debug!(
+                    "operator states: {:?}",
+                    self.inbound_producer_operator_states
+                );
+                self.inbound_producer_operator_states
+                    .iter_mut()
+                    .filter(|item| item.operator_id == *operator_id)
+                    .for_each(|item| item.status = Status::Complete);
+                debug!(
+                    "operator states: {:?}",
+                    self.inbound_producer_operator_states
+                );
+                if !self
+                    .inbound_producer_operator_states
+                    .iter()
+                    .find(|item| item.status != Status::Complete)
+                    .is_some()
+                {
+                    self.received_all_data_from_producers = true;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     async fn handle_operator_completed_record_processing_request(

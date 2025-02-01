@@ -25,7 +25,7 @@ pub enum QueryHandlerError {
 
 #[derive(Debug)]
 pub struct QueryHandler {
-    operation_id: u128,
+    operator_id: u128,
     state: QueryHandlerState,
     message_router_state: Arc<Mutex<MessageRouterState>>,
     router_pipe: Pipe,
@@ -38,14 +38,14 @@ impl QueryHandler {
         message_router_state: Arc<Mutex<MessageRouterState>>,
         msg_reg: Arc<MessageRegistry>,
     ) -> QueryHandler {
-        let operation_id = Uuid::new_v4().as_u128();
+        let operator_id = Uuid::new_v4().as_u128();
 
         let router_sender = message_router_state.lock().await.sender();
         let (mut pipe, sender) = Pipe::new_with_existing_sender(router_sender, 10);
-        pipe.set_sent_from_operation_id(operation_id);
+        pipe.set_sent_from_operation_id(operator_id);
 
         let handler = QueryHandler {
-            operation_id,
+            operator_id,
             state: QueryHandlerState::new(),
             message_router_state,
             router_pipe: pipe,
@@ -58,7 +58,7 @@ impl QueryHandler {
 
     pub fn subscriber(&self) -> Box<dyn Subscriber> {
         Box::new(QueryHandlerSubscriber {
-            operation_id: self.operation_id.clone(),
+            operator_id: self.operator_id.clone(),
             sender: self.sender.clone(),
             msg_reg: self.msg_reg.clone(),
         })
@@ -68,7 +68,7 @@ impl QueryHandler {
         self.message_router_state
             .lock()
             .await
-            .add_internal_subscriber(self.subscriber())?;
+            .add_internal_subscriber(self.subscriber(), self.operator_id)?;
 
         loop {
             tokio::select! {
@@ -168,13 +168,15 @@ impl QueryHandler {
                 .state
                 .all_operator_instances_complete(query_id, op_in_id)?
         {
+            let query = self.state.find_query(query_id)?;
+            let op = self.state.find_operator_instance(query, op_in_id)?;
             let exchange_id = self.state.get_outbound_exchange_id(query_id, op_in_id)?;
             let exchange_instances = self.state.get_operator_instances(query_id, &exchange_id)?;
             let ref mut pipe = self.router_pipe;
             for exchange_instance in exchange_instances {
                 requests::exchange::OperatorStatusChangeRequest::completed_request(
                     exchange_instance.id.clone(),
-                    exchange_id.clone(),
+                    op.operator_id.clone(),
                     pipe,
                     self.msg_reg.clone(),
                 )
@@ -351,7 +353,7 @@ impl QueryHandler {
 // Message subscriber for the query handler
 #[derive(Debug)]
 pub struct QueryHandlerSubscriber {
-    operation_id: u128,
+    operator_id: u128,
     sender: mpsc::Sender<Message>,
     msg_reg: Arc<MessageRegistry>,
 }
@@ -409,7 +411,7 @@ impl MessageConsumer for QueryHandlerSubscriber {
         // only accpet other messages intended for this operator
         if msg.sent_from_connection_id.is_none()
             && (msg.route_to_connection_id.is_some()
-                || msg.route_to_operation_id != Some(self.operation_id))
+                || msg.route_to_operation_id != Some(self.operator_id))
         {
             return false;
         }

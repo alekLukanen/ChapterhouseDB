@@ -17,11 +17,20 @@ pub trait Subscriber: MessageConsumer + MessageReceiver {}
 pub struct InternalSubscriber {
     pub sub: Box<dyn Subscriber>,
     pub sender: Sender<Message>,
+    pub operator_id: u128,
 }
 
 impl InternalSubscriber {
-    pub fn new(sub: Box<dyn Subscriber>, sender: Sender<Message>) -> InternalSubscriber {
-        InternalSubscriber { sub, sender }
+    pub fn new(
+        sub: Box<dyn Subscriber>,
+        sender: Sender<Message>,
+        operator_id: u128,
+    ) -> InternalSubscriber {
+        InternalSubscriber {
+            sub,
+            sender,
+            operator_id,
+        }
     }
 }
 

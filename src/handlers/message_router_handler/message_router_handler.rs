@@ -38,9 +38,13 @@ impl MessageRouterState {
         }
     }
 
-    pub fn add_internal_subscriber(&mut self, sub: Box<dyn Subscriber>) -> Result<()> {
+    pub fn add_internal_subscriber(
+        &mut self,
+        sub: Box<dyn Subscriber>,
+        operator_id: u128,
+    ) -> Result<()> {
         let sub_sender = sub.sender();
-        let msg_sub = InternalSubscriber::new(sub, sub_sender);
+        let msg_sub = InternalSubscriber::new(sub, sub_sender, operator_id);
         self.internal_subscribers.push(msg_sub);
         Ok(())
     }
@@ -281,10 +285,15 @@ impl MessageRouterHandler {
         }
 
         let state = self.state.lock().await;
-        let subs = state
-            .internal_subscribers
-            .iter()
-            .filter(|&item| item.sub.consumes_message(&msg));
+        let subs = state.internal_subscribers.iter().filter(|&item| {
+            // is the message being sent to the operator
+            (Some(item.operator_id) == msg.route_to_operation_id
+                || msg.route_to_operation_id.is_none())
+                // was the message sent from this operator
+                && (Some(item.operator_id) != msg.sent_from_operation_id)
+                // does the operator consume the message
+                && item.sub.consumes_message(&msg)
+        });
 
         let mut sent = false;
         for sub in subs {

@@ -30,7 +30,7 @@ pub enum OperatorHandlerError {
 }
 
 pub struct OperatorHandler {
-    operation_id: u128,
+    operator_id: u128,
 
     state: OperatorHandlerState,
     message_router_state: Arc<Mutex<MessageRouterState>>,
@@ -51,11 +51,11 @@ impl OperatorHandler {
         conn_reg: Arc<operators::ConnectionRegistry>,
         allowed_compute: TotalOperatorCompute,
     ) -> OperatorHandler {
-        let operation_id = Uuid::new_v4().as_u128();
+        let operator_id = Uuid::new_v4().as_u128();
 
         let router_sender = message_router_state.lock().await.sender();
         let (mut pipe, sender) = Pipe::new_with_existing_sender(router_sender, 10);
-        pipe.set_sent_from_operation_id(operation_id);
+        pipe.set_sent_from_operation_id(operator_id);
 
         let op_builder = operators::OperatorBuilder::new(
             op_reg.clone(),
@@ -65,7 +65,7 @@ impl OperatorHandler {
         );
 
         let handler = OperatorHandler {
-            operation_id,
+            operator_id,
             state: OperatorHandlerState::new(allowed_compute),
             message_router_state,
             router_pipe: pipe,
@@ -80,7 +80,7 @@ impl OperatorHandler {
 
     pub fn subscriber(&self) -> Box<dyn Subscriber> {
         Box::new(OperatorHandlerSubscriber {
-            operation_id: self.operation_id.clone(),
+            operator_id: self.operator_id.clone(),
             sender: self.sender.clone(),
             msg_reg: self.msg_reg.clone(),
         })
@@ -90,7 +90,7 @@ impl OperatorHandler {
         self.message_router_state
             .lock()
             .await
-            .add_internal_subscriber(self.subscriber())
+            .add_internal_subscriber(self.subscriber(), self.operator_id)
             .context("failed subscribing")?;
 
         loop {
@@ -273,7 +273,7 @@ impl OperatorHandler {
 // Message subscriber for the operator handler
 #[derive(Debug)]
 pub struct OperatorHandlerSubscriber {
-    operation_id: u128,
+    operator_id: u128,
     sender: mpsc::Sender<Message>,
     msg_reg: Arc<MessageRegistry>,
 }
@@ -310,7 +310,7 @@ impl MessageConsumer for OperatorHandlerSubscriber {
 
         // only accpet other messages intended for this operator
         if msg.route_to_connection_id.is_some()
-            || msg.route_to_operation_id != Some(self.operation_id)
+            || msg.route_to_operation_id != Some(self.operator_id)
         {
             return false;
         }
