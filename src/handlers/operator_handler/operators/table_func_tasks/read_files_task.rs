@@ -409,6 +409,7 @@ impl MessageConsumer for ReadFilesConsumer {
                     }
                 }
             }
+            MessageName::CommonGenericResponse => true,
             _ => false,
         }
     }

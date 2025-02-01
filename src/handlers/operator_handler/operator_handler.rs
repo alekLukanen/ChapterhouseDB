@@ -87,9 +87,9 @@ impl OperatorHandler {
         loop {
             tokio::select! {
                 Some(msg) = self.router_pipe.recv() => {
-                    info!("operator handler received message");
+                    info!("received message: {}", msg);
                     if let Err(err) = self.handle_message(msg).await {
-                        info!("error: {:?}", err);
+                        error!("{:?}", err);
                     }
                 }
                 _ = ct.cancelled() => {
@@ -292,6 +292,7 @@ impl MessageConsumer for OperatorHandlerSubscriber {
                 }
             }
             MessageName::OperatorOperatorInstanceStatusChange => true,
+            MessageName::CommonGenericResponse => true,
             _ => false,
         }
     }

@@ -326,7 +326,9 @@ impl Subscriber for ExchangeOperatorSubscriber {}
 
 impl MessageConsumer for ExchangeOperatorSubscriber {
     fn consumes_message(&self, msg: &Message) -> bool {
-        if (msg.route_to_operation_id.is_some()
+        if msg.route_to_operation_id.is_none() && msg.sent_from_query_id.is_none() {
+            return false;
+        } else if (msg.route_to_operation_id.is_some()
             && msg.route_to_operation_id != Some(self.operator_instance_id))
             || (msg.sent_from_query_id.is_some() && msg.sent_from_query_id != Some(self.query_id))
         {

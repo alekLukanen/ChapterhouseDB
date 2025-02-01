@@ -183,12 +183,15 @@ impl MaterializeFilesTask {
                 }
                 requests::GetNextRecordResponse::NoneLeft => {
                     debug!("complete materialization; read all records from the exchange");
+                    break;
+                }
+                requests::GetNextRecordResponse::NoneAvailable => {
+                    debug!("exchange does not have any record available; waiting 1 second");
                     tokio::time::sleep(chrono::Duration::seconds(1).to_std()?).await;
                 }
             }
         }
 
-        /*
         debug!(
             operator_task = self
                 .operator_instance_config
@@ -200,7 +203,6 @@ impl MaterializeFilesTask {
             "closed task",
         );
         Ok(())
-        */
     }
 }
 

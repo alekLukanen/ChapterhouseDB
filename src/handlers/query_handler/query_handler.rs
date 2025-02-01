@@ -66,6 +66,7 @@ impl QueryHandler {
         loop {
             tokio::select! {
                 Some(msg) = self.router_pipe.recv() => {
+                    debug!("recieved message: {}", msg);
                     let res = self.handle_message(msg).await;
                     if let Err(err) = res {
                         if let Some(err_state) = err.downcast_ref::<QueryHandlerStateError>() {
@@ -160,7 +161,6 @@ impl QueryHandler {
                 .state
                 .all_operator_instances_complete(query_id, op_in_id)?
         {
-            debug!("all producer operator instances complete");
             let exchange_id = self.state.get_outbound_exchange_id(query_id, op_in_id)?;
             let exchange_instances = self.state.get_operator_instances(query_id, &exchange_id)?;
             let ref mut pipe = self.router_pipe;
@@ -394,6 +394,7 @@ impl MessageConsumer for QueryHandlerSubscriber {
                 }
             }
             MessageName::QueryOperatorInstanceStatusChange => true,
+            MessageName::CommonGenericResponse => true,
             _ => false,
         }
     }

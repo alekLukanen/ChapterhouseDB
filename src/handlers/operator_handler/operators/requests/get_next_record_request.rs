@@ -14,6 +14,7 @@ pub enum GetNextRecordRequestError {
     ReceivedTheWrongMessageType,
 }
 
+#[derive(PartialEq)]
 pub enum GetNextRecordResponse {
     Record {
         record_id: u64,
@@ -21,6 +22,7 @@ pub enum GetNextRecordResponse {
         table_aliases: Vec<Vec<String>>,
     },
     NoneLeft,
+    NoneAvailable,
 }
 
 pub struct GetNextRecordRequest<'a> {
@@ -120,6 +122,9 @@ impl<'a> GetNextRecordRequest<'a> {
             }),
             messages::exchange::ExchangeRequests::GetNextRecordResponseNoneLeft => {
                 Ok(GetNextRecordResponse::NoneLeft)
+            }
+            messages::exchange::ExchangeRequests::GetNextRecordResponseNoneAvailable => {
+                Ok(GetNextRecordResponse::NoneAvailable)
             }
             _ => Err(GetNextRecordRequestError::ReceivedTheWrongMessageType.into()),
         }
