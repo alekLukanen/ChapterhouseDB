@@ -5,6 +5,7 @@ use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
+use uuid::Uuid;
 
 use super::query_handler_state::{self, QueryHandlerState, QueryHandlerStateError, Status};
 use crate::handlers::message_handler::messages;
@@ -24,6 +25,7 @@ pub enum QueryHandlerError {
 
 #[derive(Debug)]
 pub struct QueryHandler {
+    operation_id: u128,
     state: QueryHandlerState,
     message_router_state: Arc<Mutex<MessageRouterState>>,
     router_pipe: Pipe,
@@ -36,10 +38,14 @@ impl QueryHandler {
         message_router_state: Arc<Mutex<MessageRouterState>>,
         msg_reg: Arc<MessageRegistry>,
     ) -> QueryHandler {
+        let operation_id = Uuid::new_v4().as_u128();
+
         let router_sender = message_router_state.lock().await.sender();
-        let (pipe, sender) = Pipe::new_with_existing_sender(router_sender, 10);
+        let (mut pipe, sender) = Pipe::new_with_existing_sender(router_sender, 10);
+        pipe.set_sent_from_operation_id(operation_id);
 
         let handler = QueryHandler {
+            operation_id,
             state: QueryHandlerState::new(),
             message_router_state,
             router_pipe: pipe,
@@ -52,6 +58,7 @@ impl QueryHandler {
 
     pub fn subscriber(&self) -> Box<dyn Subscriber> {
         Box::new(QueryHandlerSubscriber {
+            operation_id: self.operation_id.clone(),
             sender: self.sender.clone(),
             msg_reg: self.msg_reg.clone(),
         })
@@ -344,6 +351,7 @@ impl QueryHandler {
 // Message subscriber for the query handler
 #[derive(Debug)]
 pub struct QueryHandlerSubscriber {
+    operation_id: u128,
     sender: mpsc::Sender<Message>,
     msg_reg: Arc<MessageRegistry>,
 }
@@ -352,8 +360,9 @@ impl Subscriber for QueryHandlerSubscriber {}
 
 impl MessageConsumer for QueryHandlerSubscriber {
     fn consumes_message(&self, msg: &Message) -> bool {
+        // always accept these messages
         match msg.msg.msg_name() {
-            MessageName::RunQuery => true,
+            MessageName::RunQuery => return true,
             MessageName::OperatorInstanceAvailable => {
                 match self
                     .msg_reg
@@ -361,8 +370,8 @@ impl MessageConsumer for QueryHandlerSubscriber {
                 {
                     Ok(messages::query::OperatorInstanceAvailable::NotificationResponse {
                         ..
-                    }) => true,
-                    _ => false,
+                    }) => return true,
+                    _ => return false,
                 }
             }
             MessageName::OperatorInstanceAssignment => {
@@ -372,11 +381,11 @@ impl MessageConsumer for QueryHandlerSubscriber {
                 {
                     Ok(messages::query::OperatorInstanceAssignment::AssignAcceptedResponse {
                         ..
-                    }) => true,
+                    }) => return true,
                     Ok(messages::query::OperatorInstanceAssignment::AssignRejectedResponse {
                         ..
-                    }) => true,
-                    _ => false,
+                    }) => return true,
+                    _ => return false,
                 }
             }
             MessageName::QueryHandlerRequests => {
@@ -386,14 +395,26 @@ impl MessageConsumer for QueryHandlerSubscriber {
                 {
                     Ok(messages::query::QueryHandlerRequests::ListOperatorInstancesRequest {
                         ..
-                    }) => true,
+                    }) => return true,
                     Ok(messages::query::QueryHandlerRequests::ListOperatorInstancesResponse {
                         ..
-                    }) => false,
-                    Err(_) => false,
+                    }) => return false,
+                    Err(_) => return false,
                 }
             }
-            MessageName::QueryOperatorInstanceStatusChange => true,
+            MessageName::QueryOperatorInstanceStatusChange => return true,
+            _ => (),
+        }
+
+        // only accpet other messages intended for this operator
+        if msg.sent_from_connection_id.is_none()
+            && (msg.route_to_connection_id.is_some()
+                || msg.route_to_operation_id != Some(self.operation_id))
+        {
+            return false;
+        }
+
+        match msg.msg.msg_name() {
             MessageName::CommonGenericResponse => true,
             _ => false,
         }

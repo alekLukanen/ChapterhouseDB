@@ -5,6 +5,7 @@ use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
+use uuid::Uuid;
 
 use super::operator_handler_state::{OperatorHandlerState, OperatorInstance, TotalOperatorCompute};
 use super::operators;
@@ -29,6 +30,8 @@ pub enum OperatorHandlerError {
 }
 
 pub struct OperatorHandler {
+    operation_id: u128,
+
     state: OperatorHandlerState,
     message_router_state: Arc<Mutex<MessageRouterState>>,
     router_pipe: Pipe,
@@ -48,8 +51,12 @@ impl OperatorHandler {
         conn_reg: Arc<operators::ConnectionRegistry>,
         allowed_compute: TotalOperatorCompute,
     ) -> OperatorHandler {
+        let operation_id = Uuid::new_v4().as_u128();
+
         let router_sender = message_router_state.lock().await.sender();
-        let (pipe, sender) = Pipe::new_with_existing_sender(router_sender, 10);
+        let (mut pipe, sender) = Pipe::new_with_existing_sender(router_sender, 10);
+        pipe.set_sent_from_operation_id(operation_id);
+
         let op_builder = operators::OperatorBuilder::new(
             op_reg.clone(),
             msg_reg.clone(),
@@ -58,6 +65,7 @@ impl OperatorHandler {
         );
 
         let handler = OperatorHandler {
+            operation_id,
             state: OperatorHandlerState::new(allowed_compute),
             message_router_state,
             router_pipe: pipe,
@@ -72,6 +80,7 @@ impl OperatorHandler {
 
     pub fn subscriber(&self) -> Box<dyn Subscriber> {
         Box::new(OperatorHandlerSubscriber {
+            operation_id: self.operation_id.clone(),
             sender: self.sender.clone(),
             msg_reg: self.msg_reg.clone(),
         })
@@ -264,6 +273,7 @@ impl OperatorHandler {
 // Message subscriber for the operator handler
 #[derive(Debug)]
 pub struct OperatorHandlerSubscriber {
+    operation_id: u128,
     sender: mpsc::Sender<Message>,
     msg_reg: Arc<MessageRegistry>,
 }
@@ -272,14 +282,17 @@ impl Subscriber for OperatorHandlerSubscriber {}
 
 impl MessageConsumer for OperatorHandlerSubscriber {
     fn consumes_message(&self, msg: &Message) -> bool {
+        // accept these messages from anywhere
         match msg.msg.msg_name() {
             MessageName::OperatorInstanceAvailable => {
                 match self
                     .msg_reg
                     .try_cast_msg::<messages::query::OperatorInstanceAvailable>(msg)
                 {
-                    Ok(messages::query::OperatorInstanceAvailable::Notification { .. }) => true,
-                    _ => false,
+                    Ok(messages::query::OperatorInstanceAvailable::Notification { .. }) => {
+                        return true;
+                    }
+                    _ => return false,
                 }
             }
             MessageName::OperatorInstanceAssignment => {
@@ -287,11 +300,22 @@ impl MessageConsumer for OperatorHandlerSubscriber {
                     .msg_reg
                     .try_cast_msg::<messages::query::OperatorInstanceAssignment>(msg)
                 {
-                    Ok(messages::query::OperatorInstanceAssignment::Assign { .. }) => true,
-                    _ => false,
+                    Ok(messages::query::OperatorInstanceAssignment::Assign { .. }) => return true,
+                    _ => return false,
                 }
             }
-            MessageName::OperatorOperatorInstanceStatusChange => true,
+            MessageName::OperatorOperatorInstanceStatusChange => return true,
+            _ => (),
+        }
+
+        // only accpet other messages intended for this operator
+        if msg.route_to_connection_id.is_some()
+            || msg.route_to_operation_id != Some(self.operation_id)
+        {
+            return false;
+        }
+
+        match msg.msg.msg_name() {
             MessageName::CommonGenericResponse => true,
             _ => false,
         }

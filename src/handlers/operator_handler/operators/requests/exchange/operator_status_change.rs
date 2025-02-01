@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use thiserror::Error;
-use tracing::debug;
+use tracing::{debug, error};
 
 use crate::handlers::message_handler::{
     messages::{
@@ -70,6 +70,7 @@ impl<'a> OperatorStatusChangeRequest<'a> {
                     return Ok(val);
                 }
                 Err(err) => {
+                    error!("{:?}", err);
                     last_err = Some(err);
 
                     tokio::time::sleep(std::time::Duration::from_secs(std::cmp::min(

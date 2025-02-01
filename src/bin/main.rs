@@ -19,7 +19,7 @@ struct Args {
     port: u32,
 
     // Addresses to connect to
-    #[arg(short, long, default_value = "127.0.0.1:7001")]
+    #[arg(short, long)]
     connect_to_addresses: Vec<String>,
 }
 

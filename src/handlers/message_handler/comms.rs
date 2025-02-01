@@ -18,8 +18,8 @@ pub enum PipeError {
     QueueHasReachedMaxCapacity(usize),
     #[error("channel closed")]
     ChannelClosed,
-    #[error("request received unexpected message name: {0}")]
-    RequestReceivedUnexpectedMessageName(MessageName),
+    #[error("request expected message name {0} but received message name {1}")]
+    RequestReceivedUnexpectedMessageName(MessageName, MessageName),
 }
 
 #[derive(Debug)]
@@ -100,10 +100,11 @@ impl Pipe {
             if msg.msg.msg_name() == req.expect_response_msg_name {
                 Ok(msg)
             } else {
-                Err(
-                    PipeError::RequestReceivedUnexpectedMessageName(req.expect_response_msg_name)
-                        .into(),
+                Err(PipeError::RequestReceivedUnexpectedMessageName(
+                    msg.msg.msg_name(),
+                    req.expect_response_msg_name,
                 )
+                .into())
             }
         } else {
             Err(PipeError::ChannelClosed.into())
