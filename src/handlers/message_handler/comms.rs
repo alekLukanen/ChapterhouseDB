@@ -101,8 +101,8 @@ impl Pipe {
                 Ok(msg)
             } else {
                 Err(PipeError::RequestReceivedUnexpectedMessageName(
-                    msg.msg.msg_name(),
                     req.expect_response_msg_name,
+                    msg.msg.msg_name(),
                 )
                 .into())
             }
