@@ -28,6 +28,7 @@ pub enum Status {
     Queued,
     SendingToWorker,
     Running,
+    SentShutdown(chrono::DateTime<chrono::Utc>),
     Complete,
     Error(String),
 }
@@ -221,6 +222,31 @@ impl QueryHandlerState {
                     outbound_exchange_id,
                     ..
                 } => Ok(outbound_exchange_id.clone()),
+                planner::OperatorType::Exchange { .. } => {
+                    Err(QueryHandlerStateError::ExpectedProducerOperatorType.into())
+                }
+            }
+        } else {
+            Err(QueryHandlerStateError::OperatorNotInPhysicalPlan(op_in.operator_id.clone()).into())
+        }
+    }
+
+    pub fn get_inbound_exchange_ids(
+        &self,
+        query_id: &u128,
+        op_in_id: &u128,
+    ) -> Result<Vec<String>> {
+        let query = self.find_query(query_id)?;
+        let op_in = self.find_operator_instance(query, op_in_id)?;
+        if let Some(op) = query
+            .physical_plan
+            .get_operator(op_in.pipeline_id.clone(), op_in.operator_id.clone())
+        {
+            match &op.operator_type {
+                planner::OperatorType::Producer {
+                    inbound_exchange_ids,
+                    ..
+                } => Ok(inbound_exchange_ids.clone()),
                 planner::OperatorType::Exchange { .. } => {
                     Err(QueryHandlerStateError::ExpectedProducerOperatorType.into())
                 }

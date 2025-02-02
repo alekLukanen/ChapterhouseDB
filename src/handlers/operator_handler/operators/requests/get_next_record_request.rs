@@ -2,11 +2,13 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use thiserror::Error;
-use tracing::debug;
+use tracing::{debug, error};
 
 use crate::handlers::message_handler::messages;
 use crate::handlers::message_handler::messages::message::{Message, MessageName};
 use crate::handlers::message_handler::{MessageRegistry, Pipe, Request};
+
+use super::retry;
 
 #[derive(Debug, Error)]
 pub enum GetNextRecordRequestError {
@@ -59,34 +61,7 @@ impl<'a> GetNextRecordRequest<'a> {
     }
 
     async fn process_request(&mut self) -> Result<GetNextRecordResponse> {
-        self.get_next_record_with_retry(10).await
-    }
-
-    async fn get_next_record_with_retry(
-        &mut self,
-        num_retries: u8,
-    ) -> Result<GetNextRecordResponse> {
-        let mut last_err: Option<anyhow::Error> = None;
-        for retry_idx in 0..(num_retries + 1) {
-            match self.get_next_record().await {
-                Ok(val) => {
-                    return Ok(val);
-                }
-                Err(err) => {
-                    last_err = Some(err);
-
-                    tokio::time::sleep(std::time::Duration::from_secs(std::cmp::min(
-                        retry_idx as u64 + 1,
-                        5,
-                    )))
-                    .await;
-                    continue;
-                }
-            }
-        }
-        return Err(last_err
-            .unwrap()
-            .context("failed to get the record from the exchange"));
+        retry::retry_request!(self.get_next_record(), 3, 10)
     }
 
     async fn get_next_record(&mut self) -> Result<GetNextRecordResponse> {

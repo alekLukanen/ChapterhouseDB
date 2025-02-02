@@ -73,6 +73,9 @@ impl MessageRegistry {
         self.add(Box::new(GenericMessageParser::<
             messages::operator::OperatorInstanceStatusChange,
         >::new()));
+        self.add(Box::new(
+            GenericMessageParser::<messages::operator::Shutdown>::new(),
+        ));
 
         // exchange
         self.add(Box::new(messages::exchange::ExchangeRequestsParser::new()));

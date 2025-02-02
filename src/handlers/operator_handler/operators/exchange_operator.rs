@@ -137,6 +137,10 @@ impl ExchangeOperator {
                             continue;
                         }
                     }
+                    if msg.msg.msg_name() == MessageName::OperatorShutdown {
+                        self.handle_operator_shutdown(&msg).await?;
+                        break;
+                    }
 
                     let routed = self.route_msg(&msg).await?;
                     if !routed {
@@ -201,8 +205,23 @@ impl ExchangeOperator {
                 self.handle_operator_status_change(msg).await?;
                 Ok(true)
             }
+            MessageName::OperatorShutdown => {
+                self.handle_operator_shutdown(msg).await?;
+                Ok(true)
+            }
             _ => Ok(false),
         }
+    }
+
+    async fn handle_operator_shutdown(&mut self, msg: &Message) -> Result<()> {
+        let _: &messages::operator::Shutdown = self.msg_reg.try_cast_msg(msg)?;
+
+        // reply early
+        let resp_msg = msg.reply(Box::new(messages::common::GenericResponse::Ok));
+        self.router_pipe.send(resp_msg).await?;
+
+        // TODO: do some cleanup here...
+        Ok(())
     }
 
     async fn handle_operator_status_change(&mut self, msg: &Message) -> Result<()> {
@@ -374,6 +393,7 @@ impl MessageConsumer for ExchangeOperatorSubscriber {
                 }
             }
             MessageName::ExchangeOperatorStatusChange => true,
+            MessageName::OperatorShutdown => true,
             _ => false,
         }
     }

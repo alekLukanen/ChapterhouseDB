@@ -160,7 +160,7 @@ impl QueryHandler {
             }
         };
 
-        // notify downstream exchange operators if the producer operator is complete
+        // notify the exchanges of the producer status change
         if self
             .state
             .operator_instance_is_producer(query_id, op_in_id)?
@@ -168,19 +168,65 @@ impl QueryHandler {
                 .state
                 .all_operator_instances_complete(query_id, op_in_id)?
         {
-            let query = self.state.find_query(query_id)?;
-            let op = self.state.find_operator_instance(query, op_in_id)?;
-            let exchange_id = self.state.get_outbound_exchange_id(query_id, op_in_id)?;
-            let exchange_instances = self.state.get_operator_instances(query_id, &exchange_id)?;
             let ref mut pipe = self.router_pipe;
-            for exchange_instance in exchange_instances {
+            let query = self.state.find_query(query_id)?;
+            let op_id = self
+                .state
+                .find_operator_instance(query, op_in_id)?
+                .operator_id
+                .clone();
+
+            // notify downstream exchange operators if the producer operator is complete
+            let outbound_exchange_id = self.state.get_outbound_exchange_id(query_id, op_in_id)?;
+            let outbound_exchange_instances = self
+                .state
+                .get_operator_instances(query_id, &outbound_exchange_id)?;
+
+            debug!(
+                outbound_exchange = outbound_exchange_id,
+                "sending shutdown request to exchange operator"
+            );
+            for exchange_instance in outbound_exchange_instances {
                 requests::exchange::OperatorStatusChangeRequest::completed_request(
                     exchange_instance.id.clone(),
-                    op.operator_id.clone(),
+                    op_id.clone(),
                     pipe,
                     self.msg_reg.clone(),
                 )
                 .await?;
+
+                self.state.update_operator_instance_status(
+                    query_id,
+                    &exchange_instance.id,
+                    Status::SentShutdown(chrono::Utc::now()),
+                )?;
+            }
+
+            // notify the upstream exchange to shutdown if the producer operator is complete
+            let inbound_exchange_ids = self.state.get_inbound_exchange_ids(query_id, op_in_id)?;
+            for inbound_exchange_id in inbound_exchange_ids {
+                debug!(
+                    inbound_exchange = inbound_exchange_id,
+                    "sending shutdown request to exchange operator",
+                );
+
+                let outbound_exchange_instances = self
+                    .state
+                    .get_operator_instances(query_id, &outbound_exchange_id)?;
+                for exchange_instance in outbound_exchange_instances {
+                    requests::operator::ShutdownRequest::shutdown_immediate_request(
+                        exchange_instance.id.clone(),
+                        pipe,
+                        self.msg_reg.clone(),
+                    )
+                    .await?;
+
+                    self.state.update_operator_instance_status(
+                        query_id,
+                        &exchange_instance.id,
+                        Status::SentShutdown(chrono::Utc::now()),
+                    )?;
+                }
             }
         }
 
