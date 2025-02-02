@@ -1,11 +1,13 @@
 use anyhow::Result;
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::debug;
+use tracing::{debug, error};
 
 use crate::handlers::message_handler::messages;
 use crate::handlers::message_handler::messages::message::{Message, MessageName};
 use crate::handlers::message_handler::{MessageRegistry, Pipe, Request};
+
+use super::retry;
 
 #[derive(Debug, Error)]
 pub enum OperatorCompletedRecordProcessingRequestError {
@@ -52,36 +54,7 @@ impl<'a> OperatorCompletedRecordProcessingRequest<'a> {
     }
 
     async fn inner_request(&mut self) -> Result<()> {
-        self.operator_completed_record_processing_with_retry(10)
-            .await?;
-        Ok(())
-    }
-
-    async fn operator_completed_record_processing_with_retry(
-        &mut self,
-        num_retries: u8,
-    ) -> Result<()> {
-        let mut last_err: Option<anyhow::Error> = None;
-        for retry_idx in 0..(num_retries + 1) {
-            match self.operator_completed_record_processing().await {
-                Ok(val) => {
-                    return Ok(val);
-                }
-                Err(err) => {
-                    last_err = Some(err);
-
-                    tokio::time::sleep(std::time::Duration::from_secs(std::cmp::min(
-                        retry_idx as u64 + 1,
-                        5,
-                    )))
-                    .await;
-                    continue;
-                }
-            }
-        }
-        return Err(last_err
-            .unwrap()
-            .context("failed to tell the exchange that the record has completed processing"));
+        retry::retry_request!(self.operator_completed_record_processing(), 3, 10)
     }
 
     async fn operator_completed_record_processing(&mut self) -> Result<()> {

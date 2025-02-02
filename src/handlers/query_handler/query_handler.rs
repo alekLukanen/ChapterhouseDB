@@ -196,9 +196,8 @@ impl QueryHandler {
                 .await?;
             }
 
-            // notify the upstream exchange to shutdown if the producer operator is complete
-            // TODO: send shutdown requsts to all exchanges that are effected by the status change
-            // and have outbound producers which are complete
+            // notify the exchanges to shutdown if all inbound and outbound producer
+            // operators linked to it are complete
             let exchange_ids = self
                 .state
                 .get_exchange_ids_without_any_consumers(query_id)?;

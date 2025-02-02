@@ -75,4 +75,4 @@ exchange starts. This can happen when producer doesn't produce any results. The 
 should wait for the exchange to boot up before trying to produce data. Make this generic
 by putting the logic in the `producer_operator.rs` file instead of in each of the individual
 tasks.
-
+4. Need to remove subscribers from the messages router state when they exit.

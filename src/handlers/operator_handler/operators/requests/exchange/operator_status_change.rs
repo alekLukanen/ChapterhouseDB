@@ -4,12 +4,15 @@ use anyhow::Result;
 use thiserror::Error;
 use tracing::{debug, error};
 
-use crate::handlers::message_handler::{
-    messages::{
-        self,
-        message::{Message, MessageName},
+use crate::handlers::{
+    message_handler::{
+        messages::{
+            self,
+            message::{Message, MessageName},
+        },
+        MessageRegistry, Pipe, Request,
     },
-    MessageRegistry, Pipe, Request,
+    operator_handler::operators::requests::retry,
 };
 
 #[derive(Debug, Error)]
@@ -49,49 +52,17 @@ impl<'a> OperatorStatusChangeRequest<'a> {
     }
 
     async fn inner_completed_request(&mut self) -> Result<()> {
-        self.operator_status_change_with_retry(
-            messages::exchange::OperatorStatusChange::Complete {
-                operator_id: self.operator_id.clone(),
-            },
-            3,
-        )
-        .await
-    }
-
-    async fn operator_status_change_with_retry(
-        &mut self,
-        msg: messages::exchange::OperatorStatusChange,
-        num_retries: u8,
-    ) -> Result<()> {
-        let mut last_err: Option<anyhow::Error> = None;
-        for retry_idx in 0..(num_retries + 1) {
-            match self.operator_status_change(msg.clone()).await {
-                Ok(val) => {
-                    return Ok(val);
-                }
-                Err(err) => {
-                    error!("{:?}", err);
-                    last_err = Some(err);
-
-                    tokio::time::sleep(std::time::Duration::from_secs(std::cmp::min(
-                        retry_idx as u64 + 1,
-                        5,
-                    )))
-                    .await;
-                    continue;
-                }
-            }
-        }
-        return Err(last_err
-            .unwrap()
-            .context("failed to communicate status change to the operator handler"));
+        let msg = messages::exchange::OperatorStatusChange::Complete {
+            operator_id: self.operator_id.clone(),
+        };
+        retry::retry_request!(self.operator_status_change(&msg), 3, 10)
     }
 
     async fn operator_status_change(
         &mut self,
-        msg: messages::exchange::OperatorStatusChange,
+        msg: &messages::exchange::OperatorStatusChange,
     ) -> Result<()> {
-        let msg = Message::new(Box::new(msg))
+        let msg = Message::new(Box::new(msg.clone()))
             .set_route_to_operation_id(self.route_to_operator_instance_id.clone());
 
         let resp_msg = self

@@ -49,6 +49,20 @@ impl MessageRouterState {
         Ok(())
     }
 
+    pub fn remove_internal_subscriber(&mut self, operator_id: &u128) -> Result<bool> {
+        let item = self
+            .internal_subscribers
+            .iter()
+            .enumerate()
+            .find(|(_, item)| item.operator_id == *operator_id);
+        if let Some((idx, _)) = item {
+            self.internal_subscribers.remove(idx);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     pub fn add_external_subscriber(&mut self, sub: ExternalSubscriber) -> Result<()> {
         self.external_subscribers.retain(|item| *item != sub);
         self.external_subscribers.push(sub);
