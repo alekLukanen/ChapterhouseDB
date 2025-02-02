@@ -184,7 +184,7 @@ impl QueryHandler {
 
             debug!(
                 outbound_exchange = outbound_exchange_id,
-                "sending shutdown request to exchange operator"
+                "sending operator status change to exchange operator"
             );
             for exchange_instance in outbound_exchange_instances {
                 requests::exchange::OperatorStatusChangeRequest::completed_request(
@@ -194,15 +194,11 @@ impl QueryHandler {
                     self.msg_reg.clone(),
                 )
                 .await?;
-
-                self.state.update_operator_instance_status(
-                    query_id,
-                    &exchange_instance.id,
-                    Status::SentShutdown(chrono::Utc::now()),
-                )?;
             }
 
             // notify the upstream exchange to shutdown if the producer operator is complete
+            // TODO: send shutdown requsts to all exchanges that are effected by the status change
+            // and have outbound producers which are complete
             let inbound_exchange_ids = self.state.get_inbound_exchange_ids(query_id, op_in_id)?;
             for inbound_exchange_id in inbound_exchange_ids {
                 debug!(
@@ -212,7 +208,7 @@ impl QueryHandler {
 
                 let outbound_exchange_instances = self
                     .state
-                    .get_operator_instances(query_id, &outbound_exchange_id)?;
+                    .get_operator_instances(query_id, &inbound_exchange_id)?;
                 for exchange_instance in outbound_exchange_instances {
                     requests::operator::ShutdownRequest::shutdown_immediate_request(
                         exchange_instance.id.clone(),

@@ -121,8 +121,14 @@ impl ExchangeOperator {
             .context("failed subscribing")?;
 
         debug!(
-            "started the exchange operator {} for instance id {}",
-            self.operator_instance_config.operator.id, self.operator_instance_config.id
+            operator_task = self
+                .operator_instance_config
+                .operator
+                .operator_type
+                .task_name(),
+            operator_id = self.operator_instance_config.operator.id,
+            operator_instance_id = self.operator_instance_config.id,
+            "started exchange operator instance",
         );
 
         loop {
@@ -136,8 +142,8 @@ impl ExchangeOperator {
                             self.router_pipe.send(pong_msg).await?;
                             continue;
                         }
-                    }
-                    if msg.msg.msg_name() == MessageName::OperatorShutdown {
+                    } else if msg.msg.msg_name() == MessageName::OperatorShutdown {
+                        debug!("exchange shutting down");
                         self.handle_operator_shutdown(&msg).await?;
                         break;
                     }
@@ -154,8 +160,14 @@ impl ExchangeOperator {
         }
 
         debug!(
-            "closed exchange operator for instance {}",
-            self.operator_instance_config.id
+            operator_task = self
+                .operator_instance_config
+                .operator
+                .operator_type
+                .task_name(),
+            operator_id = self.operator_instance_config.operator.id,
+            operator_instance_id = self.operator_instance_config.id,
+            "closed exchange operator instance",
         );
 
         Ok(())
@@ -203,10 +215,6 @@ impl ExchangeOperator {
             }
             MessageName::ExchangeOperatorStatusChange => {
                 self.handle_operator_status_change(msg).await?;
-                Ok(true)
-            }
-            MessageName::OperatorShutdown => {
-                self.handle_operator_shutdown(msg).await?;
                 Ok(true)
             }
             _ => Ok(false),
