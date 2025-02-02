@@ -233,18 +233,14 @@ impl ExchangeOperator {
 
         match cast_msg {
             messages::exchange::OperatorStatusChange::Complete { operator_id } => {
-                debug!("operator_id: {}", operator_id);
-                debug!(
-                    "operator states: {:?}",
-                    self.inbound_producer_operator_states
-                );
                 self.inbound_producer_operator_states
                     .iter_mut()
                     .filter(|item| item.operator_id == *operator_id)
                     .for_each(|item| item.status = Status::Complete);
                 debug!(
-                    "operator states: {:?}",
-                    self.inbound_producer_operator_states
+                    operator_id = operator_id,
+                    states = format!("{:?}", self.inbound_producer_operator_states),
+                    "operator state updated",
                 );
                 if !self
                     .inbound_producer_operator_states
