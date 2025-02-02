@@ -292,6 +292,52 @@ impl QueryHandlerState {
         Ok(!any_not_complete)
     }
 
+    pub fn get_exchange_ids_without_any_consumers(&self, query_id: &u128) -> Result<Vec<String>> {
+        let query = self.find_query(query_id)?;
+
+        let mut exchange_ids: Vec<String> = Vec::new();
+        for pipeline in query.physical_plan.get_pipelines_ref() {
+            'op_loop: for op in pipeline.get_operators_ref() {
+                match &op.operator_type {
+                    planner::OperatorType::Exchange {
+                        outbound_producer_ids,
+                        inbound_producer_ids,
+                        ..
+                    } => {
+                        for op_id in outbound_producer_ids {
+                            if self
+                                .get_operator_instances(query_id, op_id)?
+                                .iter()
+                                .find(|op_in| op_in.status != Status::Complete)
+                                .is_some()
+                            {
+                                continue 'op_loop;
+                            }
+                        }
+
+                        for op_id in inbound_producer_ids {
+                            if self
+                                .get_operator_instances(query_id, op_id)?
+                                .iter()
+                                .find(|op_in| op_in.status != Status::Complete)
+                                .is_some()
+                            {
+                                continue 'op_loop;
+                            }
+                        }
+
+                        exchange_ids.push(op.id.clone());
+                    }
+                    planner::OperatorType::Producer { .. } => {
+                        continue;
+                    }
+                }
+            }
+        }
+
+        Ok(exchange_ids)
+    }
+
     pub fn claim_operator_instances_up_to_compute_available(
         &mut self,
         available_compute: &TotalOperatorCompute,
