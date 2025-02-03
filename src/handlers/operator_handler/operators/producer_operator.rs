@@ -87,7 +87,7 @@ impl ProducerOperator {
     pub async fn async_main(
         &mut self,
         ct: CancellationToken,
-        mut task_res: tokio::sync::oneshot::Receiver<Option<Error>>,
+        task_res: tokio::sync::oneshot::Receiver<Option<Error>>,
     ) -> Result<()> {
         self.message_router_state
             .lock()
@@ -95,6 +95,56 @@ impl ProducerOperator {
             .add_internal_subscriber(self.subscriber(), self.operator_instance_config.id.clone())
             .context("failed subscribing")?;
 
+        debug!(
+            operator_task = self
+                .operator_instance_config
+                .operator
+                .operator_type
+                .task_name(),
+            operator_id = self.operator_instance_config.operator.id,
+            operator_instance_id = self.operator_instance_config.id,
+            "started producer operator instance",
+        );
+
+        let res = self.inner_async_main(ct, task_res).await;
+        if let Err(err) = res {
+            error!("{:?}", err);
+        }
+
+        self.message_router_state
+            .lock()
+            .await
+            .remove_internal_subscriber(&self.operator_instance_config.id)
+            .context("failed un-subscribing")?;
+
+        self.task_ct.cancel();
+        self.tt.close();
+        tokio::select! {
+            _ = self.tt.wait() => {},
+            _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
+                return Err(ProducerOperatorError::TimedOutWaitingForTaskToClose.into());
+            }
+        }
+
+        debug!(
+            operator_task = self
+                .operator_instance_config
+                .operator
+                .operator_type
+                .task_name(),
+            operator_id = self.operator_instance_config.operator.id,
+            operator_instance_id = self.operator_instance_config.id,
+            "closed producer operator instance",
+        );
+
+        Ok(())
+    }
+
+    pub async fn inner_async_main(
+        &mut self,
+        ct: CancellationToken,
+        mut task_res: tokio::sync::oneshot::Receiver<Option<Error>>,
+    ) -> Result<()> {
         debug!(
             operator_task = self
                 .operator_instance_config
@@ -155,29 +205,6 @@ impl ProducerOperator {
                 }
             }
         }
-
-        debug!("closing the task tracker");
-
-        self.task_ct.cancel();
-        self.tt.close();
-        tokio::select! {
-            _ = self.tt.wait() => {},
-            _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
-                return Err(ProducerOperatorError::TimedOutWaitingForTaskToClose.into());
-            }
-        }
-
-        debug!(
-            operator_task = self
-                .operator_instance_config
-                .operator
-                .operator_type
-                .task_name(),
-            operator_id = self.operator_instance_config.operator.id,
-            operator_instance_id = self.operator_instance_config.id,
-            "closed producer operator instance",
-        );
-
         Ok(())
     }
 }

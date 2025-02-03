@@ -131,6 +131,29 @@ impl ExchangeOperator {
             "started exchange operator instance",
         );
 
+        self.inner_async_main(ct).await?;
+
+        self.message_router_state
+            .lock()
+            .await
+            .remove_internal_subscriber(&self.operator_instance_config.id)
+            .context("failed un-subscribing")?;
+
+        debug!(
+            operator_task = self
+                .operator_instance_config
+                .operator
+                .operator_type
+                .task_name(),
+            operator_id = self.operator_instance_config.operator.id,
+            operator_instance_id = self.operator_instance_config.id,
+            "closed exchange operator instance",
+        );
+
+        Ok(())
+    }
+
+    async fn inner_async_main(&mut self, ct: CancellationToken) -> Result<()> {
         loop {
             tokio::select! {
                 Some(msg) = self.router_pipe.recv() => {
@@ -158,18 +181,6 @@ impl ExchangeOperator {
                 }
             }
         }
-
-        debug!(
-            operator_task = self
-                .operator_instance_config
-                .operator
-                .operator_type
-                .task_name(),
-            operator_id = self.operator_instance_config.operator.id,
-            operator_instance_id = self.operator_instance_config.id,
-            "closed exchange operator instance",
-        );
-
         Ok(())
     }
 
