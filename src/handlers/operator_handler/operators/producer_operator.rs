@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Context, Error, Result};
+use anyhow::{Error, Result};
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
@@ -92,8 +92,7 @@ impl ProducerOperator {
         self.message_router_state
             .lock()
             .await
-            .add_internal_subscriber(self.subscriber(), self.operator_instance_config.id.clone())
-            .context("failed subscribing")?;
+            .add_internal_subscriber(self.subscriber(), self.operator_instance_config.id.clone());
 
         debug!(
             operator_task = self
@@ -114,8 +113,7 @@ impl ProducerOperator {
         self.message_router_state
             .lock()
             .await
-            .remove_internal_subscriber(&self.operator_instance_config.id)
-            .context("failed un-subscribing")?;
+            .remove_internal_subscriber(&self.operator_instance_config.id);
 
         self.task_ct.cancel();
         self.tt.close();

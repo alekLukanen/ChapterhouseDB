@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::u64;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
@@ -117,8 +117,7 @@ impl ExchangeOperator {
         self.message_router_state
             .lock()
             .await
-            .add_internal_subscriber(self.subscriber(), self.operator_instance_config.id.clone())
-            .context("failed subscribing")?;
+            .add_internal_subscriber(self.subscriber(), self.operator_instance_config.id.clone());
 
         debug!(
             operator_task = self
@@ -136,8 +135,7 @@ impl ExchangeOperator {
         self.message_router_state
             .lock()
             .await
-            .remove_internal_subscriber(&self.operator_instance_config.id)
-            .context("failed un-subscribing")?;
+            .remove_internal_subscriber(&self.operator_instance_config.id);
 
         debug!(
             operator_task = self

@@ -61,18 +61,33 @@ RUST_BACKTRACE=1 cargo run
 5. Globset crate: https://docs.rs/globset/latest/globset/
 6. Arrow IPC format: https://arrow.apache.org/docs/format/Columnar.html#serialization-and-interprocess-communication-ipc
 
+## Next work
+
+1. Implement computation of the where filter and project expressions. For each Arrow record
+you will apply the expression to it. The result will either be a projection or a filter 
+of rows. Only implement numeric and string operations. The Arrow module should have all of 
+the functionality necessary to perform basic math and string operations.
+  * Arrow compute module: https://arrow.apache.org/rust/arrow/compute/index.html
+  * Arrow compute kernels module: https://arrow.apache.org/rust/arrow/compute/kernels/index.html
+
 ## TODO
 
 1. Implement message shedding so that a slow consumer doesn't block the message router from
 reading or sending messages. Since each consumer has a cap on the number of messages that
 can be queued it's possible that a slow consumer's queue could get filled up and block the
 router from sending the next message until there is room. This could cause a deadlock.
-2. In the `producer_operator.rs` file the `async_main` needs to call an `async_main_inner` function
-so that if there is an error the task can be cancelled before the operator exits. Since rust
-doesn't have a defer this is one way to handle it. Look for other cases like this.
-3. Handle the special case where a producer operator starts and completes before the 
-exchange starts. This can happen when producer doesn't produce any results. The producer
+2. Handle the special case where a producer operator starts and completes before the 
+exchange starts. This can happen when the producer doesn't produce any results. The producer
 should wait for the exchange to boot up before trying to produce data. Make this generic
 by putting the logic in the `producer_operator.rs` file instead of in each of the individual
-tasks.
-4. Need to remove subscribers from the messages router state when they exit.
+tasks. The materialize files task already has this to some extent but not fully.
+3. When assigning operator to workers store the assignment in the state object and only 
+send out producer operator assignments when a worker has claimed all dependencies for the operator.
+So an exchange doesn't have any dependencies so those can be assigned immediately, but producers
+should only assigned after all of its inbound and outbound exchanges have been assigned and
+are running on a worker.
+4. The exchange operator should re-queue records that haven't taken too long to process
+since their last heartbeat. Might also need to handle the case were only one producer operator
+is left and all others have completed. This last producer operator might be slow. Will probably
+need to integrate with the query handler so that it can initiate another producer operator
+instance.

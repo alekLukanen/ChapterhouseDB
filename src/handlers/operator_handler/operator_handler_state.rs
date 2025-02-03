@@ -1,5 +1,4 @@
 use anyhow::Result;
-use clap::builder::Str;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;

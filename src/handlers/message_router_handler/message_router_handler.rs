@@ -38,18 +38,13 @@ impl MessageRouterState {
         }
     }
 
-    pub fn add_internal_subscriber(
-        &mut self,
-        sub: Box<dyn Subscriber>,
-        operator_id: u128,
-    ) -> Result<()> {
+    pub fn add_internal_subscriber(&mut self, sub: Box<dyn Subscriber>, operator_id: u128) {
         let sub_sender = sub.sender();
         let msg_sub = InternalSubscriber::new(sub, sub_sender, operator_id);
         self.internal_subscribers.push(msg_sub);
-        Ok(())
     }
 
-    pub fn remove_internal_subscriber(&mut self, operator_id: &u128) -> Result<bool> {
+    pub fn remove_internal_subscriber(&mut self, operator_id: &u128) -> bool {
         let item = self
             .internal_subscribers
             .iter()
@@ -57,9 +52,9 @@ impl MessageRouterState {
             .find(|(_, item)| item.operator_id == *operator_id);
         if let Some((idx, _)) = item {
             self.internal_subscribers.remove(idx);
-            Ok(true)
+            true
         } else {
-            Ok(false)
+            false
         }
     }
 
@@ -140,13 +135,16 @@ impl MessageRouterHandler {
         loop {
             tokio::select! {
                 Some(msg) = self.connection_pipe.recv() => {
+                    debug!(msg = format!("{}", msg), source="connection", "route message");
+
                     let routed = self.route_msg(&msg).await?;
                     if !routed {
                         debug!("message ignored: {}", msg);
                     }
                 }
                 Some(mut msg) = self.internal_sub_receiver.recv() => {
-                    debug!("route message: {}", msg);
+                    debug!(msg = format!("{}", msg), source="internal", "route message");
+
                     msg = msg.set_sent_from_worker_id(self.worker_id.clone());
 
                     if msg.inbound_stream_id.is_some() || msg.outbound_stream_id.is_some() {
@@ -204,15 +202,13 @@ impl MessageRouterHandler {
 
                     } else if msg.route_to_worker_id.is_none() && msg.route_to_operation_id.is_none() && msg.route_to_connection_id.is_none() {
                         // broadcast to any subscriber
-                        debug!("broadcasting message: {}", msg);
-                        let routed = self.route_msg(&msg).await?;
-                        if !routed {
-                            debug!("message not routed internally; sending to outbound streams/workers");
-                            let outbound_stream_ids = self.state.lock().await.get_all_outbound_streams();
-                            for out_id in outbound_stream_ids {
-                                let msg = msg.clone().set_outbound_stream(out_id);
-                                self.connection_pipe.send(msg).await?;
-                            }
+                        debug!("broadcasting message internally and externally: {}", msg);
+                        self.route_msg(&msg).await?;
+
+                        let outbound_stream_ids = self.state.lock().await.get_all_outbound_streams();
+                        for out_id in outbound_stream_ids {
+                            let msg = msg.clone().set_outbound_stream(out_id);
+                            self.connection_pipe.send(msg).await?;
                         }
 
                     } else {

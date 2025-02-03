@@ -15,7 +15,7 @@ use crate::handlers::message_router_handler::{
     MessageConsumer, MessageReceiver, MessageRouterState, Subscriber,
 };
 use crate::handlers::operator_handler::operators::requests;
-use crate::planner::{self, LogicalPlanner, PhysicalPlanner};
+use crate::planner;
 
 #[derive(Debug, Error)]
 pub enum QueryHandlerError {
@@ -68,7 +68,7 @@ impl QueryHandler {
         self.message_router_state
             .lock()
             .await
-            .add_internal_subscriber(self.subscriber(), self.operator_id)?;
+            .add_internal_subscriber(self.subscriber(), self.operator_id);
 
         loop {
             tokio::select! {
@@ -88,6 +88,11 @@ impl QueryHandler {
                 }
             }
         }
+
+        self.message_router_state
+            .lock()
+            .await
+            .remove_internal_subscriber(&self.operator_id);
 
         info!("closing the query handler...");
         self.router_pipe.close_receiver();
@@ -346,15 +351,13 @@ impl QueryHandler {
             .collect();
         self.router_pipe.send_all(msgs).await?;
 
-        info!("state: {:?}", self.state);
-
         Ok(())
     }
 
     async fn handle_run_query(&mut self, msg: &Message) -> Result<()> {
         let run_query: &messages::query::RunQuery = self.msg_reg.try_cast_msg(&msg)?;
 
-        let logical_plan = match LogicalPlanner::new(run_query.query.clone()).build() {
+        let logical_plan = match planner::LogicalPlanner::new(run_query.query.clone()).build() {
             Ok(plan) => plan,
             Err(err) => {
                 info!("error: {}", err);
@@ -364,7 +367,7 @@ impl QueryHandler {
                 return Ok(());
             }
         };
-        let physical_plan = match PhysicalPlanner::new(logical_plan).build() {
+        let physical_plan = match planner::PhysicalPlanner::new(logical_plan).build() {
             Ok(plan) => plan,
             Err(err) => {
                 info!("error: {}", err);
@@ -384,8 +387,6 @@ impl QueryHandler {
 
         self.state.add_query(query);
         self.router_pipe.send(run_query_resp).await?;
-
-        info!("added a new query");
 
         let in_avail_msg = Message::new(Box::new(
             messages::query::OperatorInstanceAvailable::Notification,

@@ -90,8 +90,7 @@ impl OperatorHandler {
         self.message_router_state
             .lock()
             .await
-            .add_internal_subscriber(self.subscriber(), self.operator_id)
-            .context("failed subscribing")?;
+            .add_internal_subscriber(self.subscriber(), self.operator_id);
 
         loop {
             tokio::select! {
@@ -106,6 +105,11 @@ impl OperatorHandler {
                 }
             }
         }
+
+        self.message_router_state
+            .lock()
+            .await
+            .remove_internal_subscriber(&self.operator_id);
 
         self.state.close()?;
         self.tt.close();
