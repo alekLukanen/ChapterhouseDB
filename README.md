@@ -63,12 +63,23 @@ RUST_BACKTRACE=1 cargo run
 
 ## Next work
 
-1. Implement computation of the where filter and project expressions. For each Arrow record
+1. Implement computation of the where filter and projection expressions. For each Arrow record
 you will apply the expression to it. The result will either be a projection or a filter 
 of rows. Only implement numeric and string operations. The Arrow module should have all of 
 the functionality necessary to perform basic math and string operations.
   * Arrow compute module: https://arrow.apache.org/rust/arrow/compute/index.html
   * Arrow compute kernels module: https://arrow.apache.org/rust/arrow/compute/kernels/index.html
+  * Support these `BinaryOperator`'s: Plus, Minus, Multiply, Divide, Modulo, Gt, Lt, GtEq, LtEq,
+  Eq, NotEq, And, Or. For strings support only the Eq operator.
+2. The client should be able to request records from the query result iteratively. The client
+should be able to request one record at a time, where each record to one row group from a 
+parquet file.
+3. Materializing files should be be able to compact the records into a larger parquet file
+with a max number of row groups and rows in each group. The task should be
+able to take many records from the exchange until it has enough to fit into a row group,
+then write that to the row group and continue on until the max number of row groups
+have been reached or there is no more data left.
+4. Test out on large dataset stored in S3 or Minio.
 
 ## TODO
 
@@ -91,3 +102,18 @@ since their last heartbeat. Might also need to handle the case were only one pro
 is left and all others have completed. This last producer operator might be slow. Will probably
 need to integrate with the query handler so that it can initiate another producer operator
 instance.
+5. (not likely to be needed) The materialization task should send the file locations to 
+the exchange. This will be through a means other than Arrow records. The exchange will 
+accept these record locations and load load the files into memory as requested by the next producer.
+6. Create a re-partition producer operator which takes the records from an exchange and
+re-partitions them into equal size records. This is helpful for reducing IO operations
+when requesting and sending records. This will result in some issue with record numbering.
+Currently records number from 0 to infinity. But now that probably won't be possible if this
+operator is run in parallel. I want to preserve ordering though. An alternative approach
+could be to implement a feature on the exchange which allows operators to request multiple
+sequential records (record 0, 1, 2, etc...) which do not exceed a certain size. So if
+records 0 and 1 are less then X rows I would get both. I would get a message for record
+0 first which tells the request that it will receive another message for record 1. Then
+when I am finished with both records I send back a single confirmation message that I processed
+both records. And when I push the result to the next exchange I use the lowest record
+number as the record new record number.
