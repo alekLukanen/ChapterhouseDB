@@ -67,8 +67,10 @@ RUST_BACKTRACE=1 cargo run
 you will apply the expression to it. The result will either be a projection or a filter 
 of rows. Only implement numeric and string operations. The Arrow module should have all of 
 the functionality necessary to perform basic math and string operations.
-  * Arrow compute module: https://arrow.apache.org/rust/arrow/compute/index.html
-  * Arrow compute kernels module: https://arrow.apache.org/rust/arrow/compute/kernels/index.html
+  * Compute module: https://arrow.apache.org/rust/arrow/compute/index.html
+  * Compute kernels module: https://arrow.apache.org/rust/arrow/compute/kernels/index.html
+  * Datum trait for single values: https://arrow.apache.org/rust/arrow/array/trait.Datum.html
+  * Scalar type which implements Datum trait: https://arrow.apache.org/rust/arrow/array/struct.Scalar.html
   * Support these `BinaryOperator`'s: Plus, Minus, Multiply, Divide, Modulo, Gt, Lt, GtEq, LtEq,
   Eq, NotEq, And, Or. For strings support only the Eq operator.
 2. The client should be able to request records from the query result iteratively. The client
@@ -117,3 +119,11 @@ records 0 and 1 are less then X rows I would get both. I would get a message for
 when I am finished with both records I send back a single confirmation message that I processed
 both records. And when I push the result to the next exchange I use the lowest record
 number as the record new record number.
+7. In the exchange add slicing across records so that more or fewer rows can be requested.
+This will require that the record number be re-indexed though. That might make it
+difficult to keep record ordering. I think that the exchange could start keeping
+track of slices of these records and those slices would become a new logical record
+with their own record id. Each time a producer requests the next set of tuples the
+exchange would create a new slice with a new record id, sequentially counting up 
+from zero. This would ensure that the ordering of data is maintained. And since the
+exchange operates on Arrow records I can slice to whatever granularity I need.
