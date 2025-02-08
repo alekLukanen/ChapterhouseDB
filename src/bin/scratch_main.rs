@@ -29,7 +29,7 @@ impl MyTrait for MyStruct {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    // sql_parser_examples()
+    sql_parser_examples();
 
     // client_examples()?;
 
@@ -91,7 +91,7 @@ fn sql_parser_examples() {
 
     let query0 = "
         select * from bike 
-        where id = 42 and value > 90.0 and name = '🥵';";
+        where bike.id = 42 and value > 90 and name = '🥵';";
     let ast0 = match Parser::parse_sql(&dialect, query0) {
         Ok(res) => res,
         Err(err) => {
