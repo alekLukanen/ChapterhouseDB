@@ -125,7 +125,7 @@ fn test_complex_expression() -> Result<()> {
     let dialect = sqlparser::dialect::GenericDialect {};
     let sql_text = "
     select * from abc
-        where a+1/(2+c)*b
+        where a+1.0/(2.0+c)*b
     ";
     let ast = match sqlparser::parser::Parser::parse_sql(&dialect, sql_text) {
         Ok(res) => res,
@@ -147,7 +147,7 @@ fn test_complex_expression() -> Result<()> {
 
     // build the record
     let a = Float32Array::from(vec![0., 1., 2., 3.]);
-    let b = Float32Array::from(vec![1., 1., 2., 2.]);
+    let b = Float32Array::from(vec![1., 1., 3., 2.]);
     let c = Float32Array::from(vec![0., 0., 1., 2.]);
     let schema = Schema::new(vec![
         Field::new("a", DataType::Float32, false),
@@ -162,8 +162,9 @@ fn test_complex_expression() -> Result<()> {
     .unwrap();
 
     let res = compute_value(Arc::new(rec), Box::new(expr))?;
+    let expected_res = Float32Array::from(vec![0.5, 1.5, 3.0, 3.5]);
 
-    println!("{:?}", res.get().0);
+    assert!(res.get().0.eq(&expected_res));
 
     Ok(())
 }

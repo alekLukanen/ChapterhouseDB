@@ -58,6 +58,7 @@ pub fn compute_value(
     expr: Box<sqlparser::ast::Expr>,
 ) -> Result<Arc<dyn Datum>> {
     match *expr {
+        sqlparser::ast::Expr::Nested(expr_val) => compute_value(rec.clone(), expr_val),
         sqlparser::ast::Expr::BinaryOp { left, op, right } => {
             let left_array = compute_value(rec.clone(), left)?;
             let right_array = compute_value(rec.clone(), right)?;
@@ -105,6 +106,26 @@ pub fn compute_value(
                     let left_array = &*left_array;
                     let right_array = &*right_array;
                     let res_array = compute::kernels::numeric::add(left_array, right_array)?;
+                    Ok(Arc::new(ArrayDatum::new_binary_op(
+                        left_array,
+                        right_array,
+                        res_array,
+                    )))
+                }
+                sqlparser::ast::BinaryOperator::Divide => {
+                    let left_array = &*left_array;
+                    let right_array = &*right_array;
+                    let res_array = compute::kernels::numeric::div(left_array, right_array)?;
+                    Ok(Arc::new(ArrayDatum::new_binary_op(
+                        left_array,
+                        right_array,
+                        res_array,
+                    )))
+                }
+                sqlparser::ast::BinaryOperator::Multiply => {
+                    let left_array = &*left_array;
+                    let right_array = &*right_array;
+                    let res_array = compute::kernels::numeric::mul(left_array, right_array)?;
                     Ok(Arc::new(ArrayDatum::new_binary_op(
                         left_array,
                         right_array,
