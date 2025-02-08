@@ -127,3 +127,4 @@ with their own record id. Each time a producer requests the next set of tuples t
 exchange would create a new slice with a new record id, sequentially counting up 
 from zero. This would ensure that the ordering of data is maintained. And since the
 exchange operates on Arrow records I can slice to whatever granularity I need.
+8. Add SIMD instructions for compute kernels: https://arrow.apache.org/rust/arrow/compute/kernels/cmp/index.html

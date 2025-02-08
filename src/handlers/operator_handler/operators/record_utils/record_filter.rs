@@ -39,17 +39,24 @@ pub enum ComputeValueError {
 
 struct ArrayDatum {
     array: Arc<dyn Array>,
+    is_scalar: bool,
 }
 
 impl ArrayDatum {
-    fn new(array: Arc<dyn Array>) -> ArrayDatum {
-        ArrayDatum { array }
+    fn new(array: Arc<dyn Array>, is_scalar: bool) -> ArrayDatum {
+        ArrayDatum { array, is_scalar }
+    }
+    fn new_binary_op(left: &dyn Datum, right: &dyn Datum, array: Arc<dyn Array>) -> ArrayDatum {
+        ArrayDatum {
+            array,
+            is_scalar: left.get().1 && right.get().1,
+        }
     }
 }
 
 impl Datum for ArrayDatum {
     fn get(&self) -> (&dyn Array, bool) {
-        (&*self.array, false)
+        (&*self.array, self.is_scalar)
     }
 }
 
@@ -110,7 +117,21 @@ fn compute_value(rec: Arc<RecordBatch>, expr: Box<sqlparser::ast::Expr>) -> Resu
                     let left_array = &*left_array;
                     let right_array = &*right_array;
                     let res_array = compute::kernels::numeric::add(left_array, right_array)?;
-                    Ok(Arc::new(ArrayDatum::new(res_array)))
+                    Ok(Arc::new(ArrayDatum::new_binary_op(
+                        left_array,
+                        right_array,
+                        res_array,
+                    )))
+                }
+                sqlparser::ast::BinaryOperator::Eq => {
+                    let left_array = &*left_array;
+                    let right_array = &*right_array;
+                    let res_array = compute::kernels::cmp::eq(left_array, right_array)?;
+                    Ok(Arc::new(ArrayDatum::new_binary_op(
+                        left_array,
+                        right_array,
+                        Arc::new(res_array),
+                    )))
                 }
                 _ => {
                     return Err(ComputeValueError::BinaryOperatorNotImplemented(format!(
@@ -169,7 +190,7 @@ fn compute_value(rec: Arc<RecordBatch>, expr: Box<sqlparser::ast::Expr>) -> Resu
             let col_array = rec.column_by_name(&ident.value);
             if let Some(col_array) = col_array {
                 let col_array = col_array.clone();
-                Ok(Arc::new(ArrayDatum::new(col_array)))
+                Ok(Arc::new(ArrayDatum::new(col_array, false)))
             } else {
                 Err(ComputeValueError::ColumnNotFound(ident.value.clone()).into())
             }
