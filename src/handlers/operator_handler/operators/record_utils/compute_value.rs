@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use arrow::array::{
     Array, BooleanArray, Datum, Float32Array, Float64Array, Int32Array, Int64Array, RecordBatch,
+    StringArray,
 };
 use arrow::compute;
 use arrow::datatypes::DataType;
@@ -28,6 +29,8 @@ pub enum ComputeValueError {
     ColumnNotFound(String),
     #[error("cast failed")]
     CastFailed,
+    #[error("identifier not found: {0}")]
+    IdentifierNotFound(String),
 }
 
 struct ArrayDatum {
@@ -239,9 +242,8 @@ pub fn compute_value(
                 Ok(Arc::new(res))
             }
             sqlparser::ast::Value::SingleQuotedString(str_val) => {
-                return Err(
-                    ComputeValueError::ValueTypeNotImplemented(format!("{:?}", val)).into(),
-                );
+                let res = StringArray::new_scalar(str_val);
+                Ok(Arc::new(res))
             }
             _ => {
                 return Err(
@@ -249,13 +251,39 @@ pub fn compute_value(
                 );
             }
         },
-        sqlparser::ast::Expr::Identifier(ident) => {
-            let col_array = rec.column_by_name(&ident.value);
+        sqlparser::ast::Expr::Identifier(col_ident) => {
+            let col_array = rec.column_by_name(&col_ident.value);
             if let Some(col_array) = col_array {
                 let col_array = col_array.clone();
                 Ok(Arc::new(ArrayDatum::new(col_array, false)))
             } else {
-                Err(ComputeValueError::ColumnNotFound(ident.value.clone()).into())
+                Err(ComputeValueError::ColumnNotFound(col_ident.value.clone()).into())
+            }
+        }
+        sqlparser::ast::Expr::CompoundIdentifier(idents) => {
+            if idents.len() == 1 {
+                let col_ident = idents.get(0).expect("expected zero index to exist");
+                let col_array = rec.column_by_name(&col_ident.value);
+                if let Some(col_array) = col_array {
+                    let col_array = col_array.clone();
+                    Ok(Arc::new(ArrayDatum::new(col_array, false)))
+                } else {
+                    Err(ComputeValueError::ColumnNotFound(col_ident.value.clone()).into())
+                }
+            } else if idents.len() == 2 {
+                let alias_ident = idents.get(0).expect("expected 0 index to exist");
+                let col_ident = idents.get(1).expect("expected 1 index to exist");
+                panic!("oops..")
+            } else {
+                return Err(ComputeValueError::IdentifierNotFound(format!(
+                    "{:?}",
+                    idents
+                        .iter()
+                        .map(|item| item.value.clone())
+                        .collect::<Vec<String>>()
+                        .join(".")
+                ))
+                .into());
             }
         }
         _ => {

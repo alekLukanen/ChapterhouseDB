@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use arrow::{
-    array::{BooleanArray, Float32Array, Int32Array, RecordBatch},
+    array::{BooleanArray, Float32Array, Int32Array, RecordBatch, StringArray},
     datatypes::{DataType, Field, Schema},
 };
 
@@ -163,6 +163,56 @@ fn test_complex_expression() -> Result<()> {
 
     let res = compute_value(Arc::new(rec), Box::new(expr))?;
     let expected_res = Float32Array::from(vec![0.5, 1.5, 3.0, 3.5]);
+
+    assert!(res.get().0.eq(&expected_res));
+
+    Ok(())
+}
+
+#[test]
+fn test_string_equals_array_with_scalar() -> Result<()> {
+    let id_array = StringArray::from(vec!["hello", ", ", "world", "!"]);
+    let schema = Schema::new(vec![Field::new("text", DataType::Utf8, false)]);
+
+    let rec = RecordBatch::try_new(Arc::new(schema), vec![Arc::new(id_array)]).unwrap();
+    let expr = sqlparser::ast::Expr::BinaryOp {
+        op: sqlparser::ast::BinaryOperator::Eq,
+        left: Box::new(sqlparser::ast::Expr::Identifier(sqlparser::ast::Ident {
+            value: "text".to_string(),
+            quote_style: None,
+        })),
+        right: Box::new(sqlparser::ast::Expr::Value(
+            sqlparser::ast::Value::SingleQuotedString("world".to_string()),
+        )),
+    };
+
+    let res = compute_value(Arc::new(rec), Box::new(expr))?;
+    let expected_res = BooleanArray::from(vec![false, false, true, false]);
+
+    assert!(res.get().0.eq(&expected_res));
+
+    Ok(())
+}
+
+#[test]
+fn test_string_not_equals_array_with_scalar() -> Result<()> {
+    let text_array = StringArray::from(vec!["hello", ", ", "world", "!"]);
+    let schema = Schema::new(vec![Field::new("text", DataType::Utf8, false)]);
+
+    let rec = RecordBatch::try_new(Arc::new(schema), vec![Arc::new(text_array)]).unwrap();
+    let expr = sqlparser::ast::Expr::BinaryOp {
+        op: sqlparser::ast::BinaryOperator::NotEq,
+        left: Box::new(sqlparser::ast::Expr::Identifier(sqlparser::ast::Ident {
+            value: "text".to_string(),
+            quote_style: None,
+        })),
+        right: Box::new(sqlparser::ast::Expr::Value(
+            sqlparser::ast::Value::SingleQuotedString("world".to_string()),
+        )),
+    };
+
+    let res = compute_value(Arc::new(rec), Box::new(expr))?;
+    let expected_res = BooleanArray::from(vec![true, true, false, true]);
 
     assert!(res.get().0.eq(&expected_res));
 
