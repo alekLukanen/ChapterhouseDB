@@ -58,13 +58,16 @@ impl Datum for ArrayDatum {
 
 pub fn compute_value(
     rec: Arc<RecordBatch>,
+    table_aliases: &Vec<Vec<String>>,
     expr: Box<sqlparser::ast::Expr>,
 ) -> Result<Arc<dyn Datum>> {
     match *expr {
-        sqlparser::ast::Expr::Nested(expr_val) => compute_value(rec.clone(), expr_val),
+        sqlparser::ast::Expr::Nested(expr_val) => {
+            compute_value(rec.clone(), table_aliases, expr_val)
+        }
         sqlparser::ast::Expr::BinaryOp { left, op, right } => {
-            let left_array = compute_value(rec.clone(), left)?;
-            let right_array = compute_value(rec.clone(), right)?;
+            let left_array = compute_value(rec.clone(), table_aliases, left)?;
+            let right_array = compute_value(rec.clone(), table_aliases, right)?;
 
             match op {
                 sqlparser::ast::BinaryOperator::And => {
@@ -273,7 +276,44 @@ pub fn compute_value(
             } else if idents.len() == 2 {
                 let alias_ident = idents.get(0).expect("expected 0 index to exist");
                 let col_ident = idents.get(1).expect("expected 1 index to exist");
-                panic!("oops..")
+
+                let col_idx = rec
+                    .clone()
+                    .schema()
+                    .fields()
+                    .iter()
+                    .enumerate()
+                    .filter(|(idx, field)| {
+                        *field.name() == col_ident.value
+                            && table_aliases
+                                .get(idx.clone())
+                                .expect("table aliases vec has incorrect length")
+                                .iter()
+                                .find(|table_alias| **table_alias == alias_ident.value)
+                                .is_some()
+                    })
+                    .map(|(idx, _)| idx)
+                    .find(|_| true);
+                let col_idx = if let Some(col_idx) = col_idx {
+                    col_idx
+                } else {
+                    return Err(ComputeValueError::IdentifierNotFound(format!(
+                        "{:?}",
+                        idents
+                            .iter()
+                            .map(|item| item.value.clone())
+                            .collect::<Vec<String>>()
+                            .join(".")
+                    ))
+                    .into());
+                };
+
+                if col_idx < rec.num_columns() {
+                    let col_array = rec.column(col_idx);
+                    Ok(Arc::new(ArrayDatum::new(col_array.clone(), false)))
+                } else {
+                    Err(ComputeValueError::ColumnNotFound(col_ident.value.clone()).into())
+                }
             } else {
                 return Err(ComputeValueError::IdentifierNotFound(format!(
                     "{:?}",
