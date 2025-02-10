@@ -228,16 +228,17 @@ fn test_string_not_equals_array_with_scalar() -> Result<()> {
 
 #[test]
 fn test_table_alias() -> Result<()> {
-    let text_array = StringArray::from(vec!["hello", ", ", "world", "!"]);
-    let text2_array = StringArray::from(vec!["a", "b", "c", "d"]);
+    let text_array = Arc::new(StringArray::from(vec!["hello", ", ", "world", "!"]));
+    let text2_array = Arc::new(StringArray::from(vec!["a", "b", "c", "d"]));
     let schema = Schema::new(vec![
+        Field::new("text", DataType::Utf8, false),
         Field::new("text", DataType::Utf8, false),
         Field::new("text", DataType::Utf8, false),
     ]);
 
     let rec = RecordBatch::try_new(
         Arc::new(schema),
-        vec![Arc::new(text_array), Arc::new(text2_array)],
+        vec![text_array.clone(), text2_array.clone(), text_array.clone()],
     )
     .unwrap();
     let expr = sqlparser::ast::Expr::BinaryOp {
@@ -256,7 +257,11 @@ fn test_table_alias() -> Result<()> {
             sqlparser::ast::Value::SingleQuotedString("c".to_string()),
         )),
     };
-    let table_aliases = vec![vec!["table_a".to_string()], vec!["table_b".to_string()]];
+    let table_aliases = vec![
+        vec!["table_a".to_string()],
+        vec!["table_b".to_string()],
+        vec!["table_c".to_string()],
+    ];
 
     let res = compute_value(Arc::new(rec), &table_aliases, Box::new(expr))?;
     let expected_res = BooleanArray::from(vec![false, false, true, false]);
