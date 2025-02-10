@@ -1,9 +1,11 @@
 use anyhow::Result;
-use arrow::array::{Array, RecordBatch};
+use arrow::array::{Array, ArrayRef, RecordBatch};
 use arrow::datatypes::{Field, Schema};
 use sqlparser::ast::SelectItem;
 use std::sync::Arc;
 use thiserror::Error;
+
+use super::compute_value;
 
 #[derive(Debug, Error)]
 pub enum ProjectRecordError {
@@ -16,8 +18,9 @@ pub fn project_record(
     record: Arc<RecordBatch>,
     table_aliases: &Vec<Vec<String>>,
 ) -> Result<RecordBatch> {
+    let mut unnamed_idx: usize = 0;
     let mut proj_fields: Vec<Field> = Vec::new();
-    let mut proj_arrays: Vec<Arc<dyn Array>> = Vec::new();
+    let mut proj_arrays: Vec<ArrayRef> = Vec::new();
 
     for field in fields {
         match field {
@@ -33,7 +36,17 @@ pub fn project_record(
                 )
                 .into());
             }
-            SelectItem::UnnamedExpr(_) => {
+            SelectItem::UnnamedExpr(expr) => {
+                let res = compute_value::compute_value(record.clone(), table_aliases, expr)?;
+                proj_fields.push(Field::new(
+                    format!("unnamed_{}", unnamed_idx),
+                    res.array.data_type().clone(),
+                    res.array.is_nullable(),
+                ));
+                proj_arrays.push(res.array);
+
+                unnamed_idx += 1;
+
                 return Err(ProjectRecordError::NotImplemented(
                     "SelectItem::UnnamedExpr".to_string(),
                 )

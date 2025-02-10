@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use arrow::{
-    array::{BooleanArray, Float32Array, Int32Array, RecordBatch, StringArray},
+    array::{BooleanArray, Datum, Float32Array, Int32Array, RecordBatch, StringArray},
     datatypes::{DataType, Field, Schema},
 };
 
@@ -27,7 +27,7 @@ fn test_add() -> Result<()> {
     };
     let table_aliases = vec![];
 
-    let res = compute_value(Arc::new(rec), &table_aliases, Box::new(expr))?;
+    let res = compute_value(Arc::new(rec), &table_aliases, &expr)?;
     let expected_res = Int32Array::from(vec![17, 27, 37, 47, 57]);
 
     assert!(res.get().0.eq(&expected_res));
@@ -54,7 +54,7 @@ fn test_eq() -> Result<()> {
     };
     let table_aliases = vec![];
 
-    let res = compute_value(Arc::new(rec), &table_aliases, Box::new(expr))?;
+    let res = compute_value(Arc::new(rec), &table_aliases, &expr)?;
     let expected_res = BooleanArray::from(vec![false, true, false, false, false]);
 
     assert!(res.get().0.eq(&expected_res));
@@ -80,7 +80,7 @@ fn test_and_scalar_with_array() -> Result<()> {
     };
     let table_aliases = vec![];
 
-    let res = compute_value(Arc::new(rec), &table_aliases, Box::new(expr))?;
+    let res = compute_value(Arc::new(rec), &table_aliases, &expr)?;
     let expected_res = BooleanArray::from(vec![true, false, true, false, true]);
 
     assert!(res.get().0.eq(&expected_res));
@@ -115,7 +115,7 @@ fn test_and_array_with_array() -> Result<()> {
     };
     let table_aliases = vec![];
 
-    let res = compute_value(Arc::new(rec), &table_aliases, Box::new(expr))?;
+    let res = compute_value(Arc::new(rec), &table_aliases, &expr)?;
     let expected_res = BooleanArray::from(vec![false, false, true, false, false]);
 
     assert!(res.get().0.eq(&expected_res));
@@ -166,7 +166,7 @@ fn test_complex_expression() -> Result<()> {
     .unwrap();
     let table_aliases = vec![];
 
-    let res = compute_value(Arc::new(rec), &table_aliases, Box::new(expr))?;
+    let res = compute_value(Arc::new(rec), &table_aliases, &expr)?;
     let expected_res = Float32Array::from(vec![0.5, 1.5, 3.0, 3.5]);
 
     assert!(res.get().0.eq(&expected_res));
@@ -192,7 +192,7 @@ fn test_string_equals_array_with_scalar() -> Result<()> {
     };
     let table_aliases = vec![];
 
-    let res = compute_value(Arc::new(rec), &table_aliases, Box::new(expr))?;
+    let res = compute_value(Arc::new(rec), &table_aliases, &expr)?;
     let expected_res = BooleanArray::from(vec![false, false, true, false]);
 
     assert!(res.get().0.eq(&expected_res));
@@ -218,7 +218,7 @@ fn test_string_not_equals_array_with_scalar() -> Result<()> {
     };
     let table_aliases = vec![];
 
-    let res = compute_value(Arc::new(rec), &table_aliases, Box::new(expr))?;
+    let res = compute_value(Arc::new(rec), &table_aliases, &expr)?;
     let expected_res = BooleanArray::from(vec![true, true, false, true]);
 
     assert!(res.get().0.eq(&expected_res));
@@ -263,7 +263,7 @@ fn test_table_alias() -> Result<()> {
         vec!["table_c".to_string()],
     ];
 
-    let res = compute_value(Arc::new(rec), &table_aliases, Box::new(expr))?;
+    let res = compute_value(Arc::new(rec), &table_aliases, &expr)?;
     let expected_res = BooleanArray::from(vec![false, false, true, false]);
 
     assert!(res.get().0.eq(&expected_res));
