@@ -128,3 +128,13 @@ exchange would create a new slice with a new record id, sequentially counting up
 from zero. This would ensure that the ordering of data is maintained. And since the
 exchange operates on Arrow records I can slice to whatever granularity I need.
 8. Add SIMD instructions for compute kernels: https://arrow.apache.org/rust/arrow/compute/kernels/cmp/index.html
+9. Use a custom `Record` type for all record functionality. This will
+allow for common operations where the record batch and table aliases are
+needed. It prevents extra code needed to pass both around.
+10. Implement some kind of memory management struct which constrains how much memory
+each utility function is allowed to use when computing values. When calling functions
+which operate on the `Record` type the manager should be passed in and the function
+should reserve space before creating new arrays or records. These arrays and records
+should also store a weak reference in the manager so that the manager can keep track of
+what is still active. The `Record` type should implement the `Drop` trait so that
+when the record is dropped it removes itself from the manager.

@@ -31,7 +31,7 @@ fn create_simple_data(mut base_path: std::path::PathBuf) -> Result<()> {
     let schema = Arc::new(arrow::datatypes::Schema::new(vec![
         arrow::datatypes::Field::new("id", arrow::datatypes::DataType::Int32, false),
         arrow::datatypes::Field::new("value1", arrow::datatypes::DataType::Utf8, false),
-        arrow::datatypes::Field::new("value2", arrow::datatypes::DataType::Float64, false),
+        arrow::datatypes::Field::new("value2", arrow::datatypes::DataType::Float32, false),
     ]));
 
     // Generate data
@@ -47,7 +47,7 @@ fn create_simple_data(mut base_path: std::path::PathBuf) -> Result<()> {
             chars
         })
         .collect();
-    let value2_values: Vec<f64> = (0..100)
+    let value2_values: Vec<f32> = (0..100)
         .map(|_| {
             rng.clone()
                 .sample(rand::distributions::Uniform::new(0.0, 100.0))
@@ -60,7 +60,7 @@ fn create_simple_data(mut base_path: std::path::PathBuf) -> Result<()> {
     let value1_array =
         Arc::new(arrow::array::StringArray::from(value1_values)) as Arc<dyn arrow::array::Array>;
     let value2_array =
-        Arc::new(arrow::array::Float64Array::from(value2_values)) as Arc<dyn arrow::array::Array>;
+        Arc::new(arrow::array::Float32Array::from(value2_values)) as Arc<dyn arrow::array::Array>;
 
     // Create the RecordBatch
     let batch = arrow::array::RecordBatch::try_new(

@@ -46,17 +46,15 @@ pub fn project_record(
                 proj_arrays.push(res.array);
 
                 unnamed_idx += 1;
-
-                return Err(ProjectRecordError::NotImplemented(
-                    "SelectItem::UnnamedExpr".to_string(),
-                )
-                .into());
             }
-            SelectItem::ExprWithAlias { .. } => {
-                return Err(ProjectRecordError::NotImplemented(
-                    "SelectItem::ExprWithAlias".to_string(),
-                )
-                .into());
+            SelectItem::ExprWithAlias { alias, expr } => {
+                let res = compute_value::compute_value(record.clone(), table_aliases, expr)?;
+                proj_fields.push(Field::new(
+                    alias.value.clone(),
+                    res.array.data_type().clone(),
+                    res.array.is_nullable(),
+                ));
+                proj_arrays.push(res.array);
             }
         }
     }
