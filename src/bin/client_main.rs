@@ -10,7 +10,7 @@ async fn main() -> Result<()> {
     let address = "127.0.0.1:7000";
     let client = AsyncQueryClient::new(address.to_string());
 
-    let query = "select id+10, value2/100.0 from read_files('simple/*.parquet');";
+    let query = "select id+10 as id, value2/100.0 as value2 from read_files('simple/*.parquet');";
     let run_query_resp = client
         .run_query(query.to_string())
         .await

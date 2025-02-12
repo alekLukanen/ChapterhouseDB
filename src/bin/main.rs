@@ -35,7 +35,7 @@ fn main() {
     conn_reg.add_connection(
         "default".to_string(),
         opendal::Scheme::Fs,
-        vec![("root".to_string(), "./sample_data".to_string())]
+        vec![("root".to_string(), "./query_data".to_string())]
             .into_iter()
             .collect::<HashMap<String, String>>(),
     );
