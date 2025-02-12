@@ -71,10 +71,16 @@ impl OperatorBuilder {
                     .into())
                 }
                 planner::OperatorTask::Filter { .. } => {
-                    return Err(OperatorBuilderError::NotImplemented(
-                        "filter operator task".to_string(),
-                    )
-                    .into())
+                    match self.build_producer_operator(op_in, tt, task).await {
+                        Ok(_) => {
+                            return Ok(());
+                        }
+                        Err(err) => {
+                            return Err(
+                                err.context(format!("failed building filter producer operator"))
+                            );
+                        }
+                    }
                 }
                 planner::OperatorTask::MaterializeFiles { data_format, .. } => {
                     match self.build_producer_operator(op_in, tt, task).await {

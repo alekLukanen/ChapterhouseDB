@@ -1,7 +1,7 @@
 use crate::planner::{self, DataFormat};
 
 use super::{
-    materialize_tasks, table_func_tasks,
+    filter_tasks, materialize_tasks, table_func_tasks,
     traits::{TableFuncSyntaxValidator, TaskBuilder},
 };
 use anyhow::Result;
@@ -13,6 +13,8 @@ pub enum OperatorTaskRegistryError {
     NotImplemented(String),
     #[error("materialize file task builder already set")]
     MaterializeFileTaskBuilderAlreadySet,
+    #[error("filter task builder already set")]
+    FilterTaskBuilderAlreadySet,
     #[error("task func task builder already added for function: {0}")]
     TaskFuncTaskBuilderAlreadyAddedForFunction(String),
 }
@@ -27,9 +29,14 @@ struct MaterializeFileTaskDef {
     data_formats: Vec<planner::DataFormat>,
 }
 
+struct FilterTaskDef {
+    builder: Box<dyn TaskBuilder>,
+}
+
 pub struct OperatorTaskRegistry {
     table_func_tasks: Vec<TableFuncTaskDef>,
     materialize_files_task: Option<MaterializeFileTaskDef>,
+    filter_task: Option<FilterTaskDef>,
 }
 
 impl OperatorTaskRegistry {
@@ -37,7 +44,16 @@ impl OperatorTaskRegistry {
         OperatorTaskRegistry {
             table_func_tasks: Vec::new(),
             materialize_files_task: None,
+            filter_task: None,
         }
+    }
+
+    pub fn add_filter_task_builder(mut self, builder: Box<dyn TaskBuilder>) -> Result<Self> {
+        if self.filter_task.is_some() {
+            return Err(OperatorTaskRegistryError::FilterTaskBuilderAlreadySet.into());
+        }
+        self.filter_task = Some(FilterTaskDef { builder });
+        Ok(self)
     }
 
     pub fn add_materialize_files_builder(
@@ -89,10 +105,13 @@ impl OperatorTaskRegistry {
                 format!("find task builder for OperatorTask type {}", task.name()),
             )
             .into()),
-            planner::OperatorTask::Filter { .. } => Err(OperatorTaskRegistryError::NotImplemented(
-                format!("find task builder for OperatorTask type {}", task.name()),
-            )
-            .into()),
+            planner::OperatorTask::Filter { .. } => {
+                if let Some(filter_task) = &self.filter_task {
+                    Ok(Some(&filter_task.builder))
+                } else {
+                    Ok(None)
+                }
+            }
             planner::OperatorTask::MaterializeFiles { data_format, .. } => {
                 if let Some(materialize_files_task) = &self.materialize_files_task {
                     if materialize_files_task
@@ -134,6 +153,7 @@ pub fn build_default_operator_task_registry() -> Result<OperatorTaskRegistry> {
             Box::new(table_func_tasks::ReadFilesTaskBuilder::new()),
             Box::new(table_func_tasks::ReadFilesSyntaxValidator::new()),
         )?
+        .add_filter_task_builder(Box::new(filter_tasks::FilterTaskBuilder::new()))?
         .add_materialize_files_builder(
             Box::new(materialize_tasks::MaterializeFilesTaskBuilder::new()),
             vec![DataFormat::Parquet],
