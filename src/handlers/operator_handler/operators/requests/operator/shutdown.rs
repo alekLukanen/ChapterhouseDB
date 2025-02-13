@@ -50,7 +50,7 @@ impl<'a> ShutdownRequest<'a> {
             .send_request(Request {
                 msg,
                 expect_response_msg_name: MessageName::CommonGenericResponse,
-                timeout: chrono::Duration::seconds(3),
+                timeout: chrono::Duration::seconds(10),
             })
             .await?;
 

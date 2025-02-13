@@ -41,6 +41,12 @@ impl Status {
             _ => false,
         }
     }
+    pub fn available(&self) -> bool {
+        match self {
+            Status::Running => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -308,10 +314,7 @@ impl QueryHandlerState {
                             if self
                                 .get_operator_instances(query_id, op_id)?
                                 .iter()
-                                .find(|op_in| {
-                                    op_in.status != Status::Complete
-                                        && !matches!(op_in.status, Status::SentShutdown(_))
-                                })
+                                .find(|op_in| op_in.status != Status::Complete)
                                 .is_some()
                             {
                                 continue 'op_loop;
@@ -322,10 +325,7 @@ impl QueryHandlerState {
                             if self
                                 .get_operator_instances(query_id, op_id)?
                                 .iter()
-                                .find(|op_in| {
-                                    op_in.status != Status::Complete
-                                        && !matches!(op_in.status, Status::SentShutdown(_))
-                                })
+                                .find(|op_in| op_in.status != Status::Complete)
                                 .is_some()
                             {
                                 continue 'op_loop;

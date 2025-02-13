@@ -220,6 +220,12 @@ impl QueryHandler {
                 let outbound_exchange_instances =
                     self.state.get_operator_instances(query_id, &exchange_id)?;
                 for exchange_instance in outbound_exchange_instances {
+                    if !exchange_instance.status.available()
+                        || !matches!(exchange_instance.status, Status::SentShutdown(_))
+                    {
+                        continue;
+                    }
+
                     requests::operator::ShutdownRequest::shutdown_immediate_request(
                         exchange_instance.id.clone(),
                         pipe,
@@ -456,7 +462,7 @@ impl MessageConsumer for QueryHandlerSubscriber {
             _ => (),
         }
 
-        // only accpet other messages intended for this operator
+        // only accept other messages intended for this operator
         if msg.sent_from_connection_id.is_none()
             && (msg.route_to_connection_id.is_some()
                 || msg.route_to_operation_id != Some(self.operator_id))
