@@ -7,6 +7,8 @@ mod record_projection;
 mod test_arrow_compute_behavior;
 #[cfg(test)]
 mod test_compute_value;
+#[cfg(test)]
+mod test_filter_record;
 
 pub use filter_record::filter_record;
 pub use record_aliases::get_record_table_aliases;

@@ -38,11 +38,21 @@ pub fn project_record(
             }
             SelectItem::UnnamedExpr(expr) => {
                 let res = compute_value::compute_value(record.clone(), table_aliases, expr)?;
-                proj_fields.push(Field::new(
-                    format!("unnamed_{}", unnamed_idx),
-                    res.array.data_type().clone(),
-                    res.array.is_nullable(),
-                ));
+                let field = match expr {
+                    sqlparser::ast::Expr::Identifier(sqlparser::ast::Ident { value, .. }) => {
+                        Field::new(
+                            value.clone(),
+                            res.array.data_type().clone(),
+                            res.array.is_nullable(),
+                        )
+                    }
+                    _ => Field::new(
+                        format!("unnamed_{}", unnamed_idx),
+                        res.array.data_type().clone(),
+                        res.array.is_nullable(),
+                    ),
+                };
+                proj_fields.push(field);
                 proj_arrays.push(res.array);
 
                 unnamed_idx += 1;

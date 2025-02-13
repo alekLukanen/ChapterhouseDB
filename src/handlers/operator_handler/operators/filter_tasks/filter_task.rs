@@ -143,8 +143,9 @@ impl FilterTask {
                     requests::OperatorCompletedRecordProcessingRequest::request(
                         self.operator_instance_config.operator.id.clone(),
                         record_id.clone(),
-                        self.inbound_exchange_operator_instance_id.unwrap().clone(),
-                        self.inbound_exchange_worker_id.unwrap().clone(),
+                        self.inbound_exchange_operator_instance_id
+                            .expect("inbound instance id"),
+                        self.inbound_exchange_worker_id.expect("inbound worker id"),
                         operator_pipe,
                         self.msg_reg.clone(),
                     )
@@ -329,6 +330,10 @@ impl MessageConsumer for FilterConsumer {
                     Ok(messages::exchange::ExchangeRequests::GetNextRecordResponseRecord {
                         ..
                     }) => true,
+                    // outbound
+                    Ok(messages::exchange::ExchangeRequests::SendRecordResponse { .. }) => true,
+                    Ok(messages::exchange::ExchangeRequests::SendRecordRequest { .. }) => false,
+                    // inbound
                     Ok(messages::exchange::ExchangeRequests::GetNextRecordResponseNoneLeft) => true,
                     Ok(messages::exchange::ExchangeRequests::GetNextRecordResponseNoneAvailable) => true,
                     Ok(messages::exchange::ExchangeRequests::OperatorCompletedRecordProcessingResponse) => true,

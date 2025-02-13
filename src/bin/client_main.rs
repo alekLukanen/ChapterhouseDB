@@ -16,7 +16,7 @@ async fn main() -> Result<()> {
             id+10 as id_plus_10, 
             value2/100.0 as value2 
         from read_files('simple/*.parquet')
-            where id > 10 and id < 25;";
+            where id < 25;";
     let run_query_resp = client
         .run_query(query.to_string())
         .await
