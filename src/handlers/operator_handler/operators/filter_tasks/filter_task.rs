@@ -113,6 +113,11 @@ impl FilterTask {
                     record,
                     table_aliases,
                 } => {
+                    debug!(
+                        record_id = record_id,
+                        record_num_rows = record.num_rows(),
+                        "received record"
+                    );
                     // filter the record
                     let filtered_rec = record_utils::filter_record(
                         record.clone(),
@@ -146,7 +151,7 @@ impl FilterTask {
                     .await?;
                 }
                 requests::GetNextRecordResponse::NoneLeft => {
-                    debug!("complete materialization; read all records from the exchange");
+                    debug!("read all records from the exchange");
                     break;
                 }
                 requests::GetNextRecordResponse::NoneAvailable => {
@@ -334,7 +339,6 @@ impl MessageConsumer for FilterConsumer {
                     _ => false,
                 }
             }
-
             _ => false,
         }
     }

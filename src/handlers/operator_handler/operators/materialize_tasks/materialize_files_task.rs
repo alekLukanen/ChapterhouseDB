@@ -131,6 +131,11 @@ impl MaterializeFilesTask {
                     record,
                     table_aliases,
                 } => {
+                    debug!(
+                        record_id = record_id,
+                        record_num_rows = record.num_rows(),
+                        "received record"
+                    );
                     // TODO: implement heartbeat for record processing
                     // TODO: use thread-pool for record operations
                     // evalute the expressions for each column and materialize the result

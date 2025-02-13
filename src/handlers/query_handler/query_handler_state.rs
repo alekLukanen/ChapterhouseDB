@@ -308,7 +308,10 @@ impl QueryHandlerState {
                             if self
                                 .get_operator_instances(query_id, op_id)?
                                 .iter()
-                                .find(|op_in| op_in.status != Status::Complete)
+                                .find(|op_in| {
+                                    op_in.status != Status::Complete
+                                        && !matches!(op_in.status, Status::SentShutdown(_))
+                                })
                                 .is_some()
                             {
                                 continue 'op_loop;
@@ -319,7 +322,10 @@ impl QueryHandlerState {
                             if self
                                 .get_operator_instances(query_id, op_id)?
                                 .iter()
-                                .find(|op_in| op_in.status != Status::Complete)
+                                .find(|op_in| {
+                                    op_in.status != Status::Complete
+                                        && !matches!(op_in.status, Status::SentShutdown(_))
+                                })
                                 .is_some()
                             {
                                 continue 'op_loop;

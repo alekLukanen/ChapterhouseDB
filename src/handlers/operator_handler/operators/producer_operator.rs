@@ -143,17 +143,6 @@ impl ProducerOperator {
         ct: CancellationToken,
         mut task_res: tokio::sync::oneshot::Receiver<Option<Error>>,
     ) -> Result<()> {
-        debug!(
-            operator_task = self
-                .operator_instance_config
-                .operator
-                .operator_type
-                .task_name(),
-            operator_id = self.operator_instance_config.operator.id,
-            operator_instance_id = self.operator_instance_config.id,
-            "started producer operator instance",
-        );
-
         loop {
             tokio::select! {
                 Some(msg) = self.router_pipe.recv() => {
