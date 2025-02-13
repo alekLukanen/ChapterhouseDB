@@ -10,7 +10,13 @@ async fn main() -> Result<()> {
     let address = "127.0.0.1:7000";
     let client = AsyncQueryClient::new(address.to_string());
 
-    let query = "select id+10 as id, value2/100.0 as value2 from read_files('simple/*.parquet');";
+    let query = "
+        select 
+            id, 
+            id+10 as id_plus_10, 
+            value2/100.0 as value2 
+        from read_files('simple/*.parquet')
+            where id > 10 and id < 25;";
     let run_query_resp = client
         .run_query(query.to_string())
         .await

@@ -497,24 +497,32 @@ impl RecordPool {
         }
     }
 
+    /// Add a record if it hasn't already been added. Records
+    /// can only be added once in order to prevent duplication
+    /// of work for the same record.
     fn add_record(
         &mut self,
         record_id: u64,
         record: Arc<arrow::array::RecordBatch>,
         table_aliases: Vec<Vec<String>>,
-    ) {
-        self.records.insert(
-            record_id,
-            RecordRef {
-                id: record_id,
-                record,
-                table_aliases,
-                processed_by_operators: Vec::new(),
-            },
-        );
-        self.operator_record_queues.iter_mut().for_each(|item| {
-            item.records_to_process.push_back(record_id.clone());
-        })
+    ) -> bool {
+        if !self.records.contains_key(&record_id) {
+            self.records.insert(
+                record_id,
+                RecordRef {
+                    id: record_id,
+                    record,
+                    table_aliases,
+                    processed_by_operators: Vec::new(),
+                },
+            );
+            self.operator_record_queues.iter_mut().for_each(|item| {
+                item.records_to_process.push_back(record_id.clone());
+            });
+            true
+        } else {
+            false
+        }
     }
 
     fn get_next_record(

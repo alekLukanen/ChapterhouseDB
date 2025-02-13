@@ -5,6 +5,7 @@ use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
+use crate::handlers::operator_handler::operators::record_utils;
 use crate::handlers::{
     message_handler::{
         messages::{
@@ -40,8 +41,11 @@ struct FilterTask {
     msg_reg: Arc<MessageRegistry>,
     conn_reg: Arc<ConnectionRegistry>,
 
-    exchange_worker_id: Option<u128>,
-    exchange_operator_instance_id: Option<u128>,
+    inbound_exchange_worker_id: Option<u128>,
+    inbound_exchange_operator_instance_id: Option<u128>,
+
+    outbound_exchange_worker_id: Option<u128>,
+    outbound_exchange_operator_instance_id: Option<u128>,
 }
 
 impl FilterTask {
@@ -58,8 +62,10 @@ impl FilterTask {
             operator_pipe,
             msg_reg,
             conn_reg,
-            exchange_worker_id: None,
-            exchange_operator_instance_id: None,
+            inbound_exchange_worker_id: None,
+            inbound_exchange_operator_instance_id: None,
+            outbound_exchange_worker_id: None,
+            outbound_exchange_operator_instance_id: None,
         }
     }
 
@@ -81,42 +87,21 @@ impl FilterTask {
             "started task",
         );
 
-        // find the exchange
+        // find the inbound exchange
+        self.find_inbound_exchange(ct.clone()).await?;
+        self.find_outbound_exchange(ct.clone()).await?;
+
+        assert!(self.inbound_exchange_operator_instance_id.is_some());
+        assert!(self.inbound_exchange_worker_id.is_some());
+        assert!(self.outbound_exchange_operator_instance_id.is_some());
+        assert!(self.outbound_exchange_worker_id.is_some());
+
         let ref mut operator_pipe = self.operator_pipe;
-        let req = requests::IdentifyExchangeRequest::request_inbound_exchanges(
-            &self.operator_instance_config,
-            operator_pipe,
-            self.msg_reg.clone(),
-        );
-        tokio::select! {
-            resp = req => {
-                match resp {
-                    Ok(resp) => {
-                        if resp.len() != 1 {
-                            return Err(FilterTaskError::MoreThanOneExchangeIsCurrentlyNotImplemented.into());
-                        }
-                        let resp = resp.get(0).unwrap();
-                        self.exchange_operator_instance_id = Some(resp.exchange_operator_instance_id);
-                        self.exchange_worker_id = Some(resp.exchange_worker_id);
-                    }
-                    Err(err) => {
-                        return Err(err);
-                    }
-                }
-            }
-            _ = ct.cancelled() => {
-                return Ok(());
-            }
-        }
-
-        assert!(self.exchange_operator_instance_id.is_some());
-        assert!(self.exchange_worker_id.is_some());
-
         loop {
             let resp = requests::GetNextRecordRequest::get_next_record_request(
                 self.operator_instance_config.operator.id.clone(),
-                self.exchange_operator_instance_id.unwrap().clone(),
-                self.exchange_worker_id.unwrap().clone(),
+                self.inbound_exchange_operator_instance_id.unwrap().clone(),
+                self.inbound_exchange_worker_id.unwrap().clone(),
                 operator_pipe,
                 self.msg_reg.clone(),
             )
@@ -128,7 +113,37 @@ impl FilterTask {
                     record,
                     table_aliases,
                 } => {
-                    panic!("implement this");
+                    // filter the record
+                    let filtered_rec = record_utils::filter_record(
+                        record.clone(),
+                        table_aliases,
+                        &self.filter_config.expr,
+                    )?;
+
+                    // send the record to the outbound exchange
+                    requests::SendRecordRequest::send_record_request(
+                        record_id.clone(),
+                        filtered_rec,
+                        table_aliases.clone(),
+                        self.outbound_exchange_operator_instance_id
+                            .expect("outbound instance id"),
+                        self.outbound_exchange_worker_id
+                            .expect("outbound worker id"),
+                        operator_pipe,
+                        self.msg_reg.clone(),
+                    )
+                    .await?;
+
+                    // confirm processing of the record with the inbound exchange
+                    requests::OperatorCompletedRecordProcessingRequest::request(
+                        self.operator_instance_config.operator.id.clone(),
+                        record_id.clone(),
+                        self.inbound_exchange_operator_instance_id.unwrap().clone(),
+                        self.inbound_exchange_worker_id.unwrap().clone(),
+                        operator_pipe,
+                        self.msg_reg.clone(),
+                    )
+                    .await?;
                 }
                 requests::GetNextRecordResponse::NoneLeft => {
                     debug!("complete materialization; read all records from the exchange");
@@ -152,6 +167,62 @@ impl FilterTask {
             "closed task",
         );
         Ok(())
+    }
+
+    async fn find_inbound_exchange(&mut self, ct: CancellationToken) -> Result<()> {
+        let ref mut operator_pipe = self.operator_pipe;
+        let req = requests::IdentifyExchangeRequest::request_inbound_exchanges(
+            &self.operator_instance_config,
+            operator_pipe,
+            self.msg_reg.clone(),
+        );
+        tokio::select! {
+            resp = req => {
+                match resp {
+                    Ok(resp) => {
+                        if resp.len() != 1 {
+                            return Err(FilterTaskError::MoreThanOneExchangeIsCurrentlyNotImplemented.into());
+                        }
+                        let resp = resp.get(0).unwrap();
+                        self.inbound_exchange_operator_instance_id = Some(resp.exchange_operator_instance_id);
+                        self.inbound_exchange_worker_id = Some(resp.exchange_worker_id);
+                        Ok(())
+                    }
+                    Err(err) => {
+                        Err(err)
+                    }
+                }
+            }
+            _ = ct.cancelled() => {
+                Ok(())
+            }
+        }
+    }
+
+    async fn find_outbound_exchange(&mut self, ct: CancellationToken) -> Result<()> {
+        let ref mut operator_pipe = self.operator_pipe;
+        let req = requests::IdentifyExchangeRequest::request_outbound_exchange(
+            &self.operator_instance_config,
+            operator_pipe,
+            self.msg_reg.clone(),
+        );
+        tokio::select! {
+            resp = req => {
+                match resp {
+                    Ok(resp) => {
+                        self.outbound_exchange_operator_instance_id = Some(resp.exchange_operator_instance_id);
+                        self.outbound_exchange_worker_id = Some(resp.exchange_worker_id);
+                        Ok(())
+                    }
+                    Err(err) => {
+                        Err(err)
+                    }
+                }
+            }
+            _ = ct.cancelled() => {
+                Ok(())
+            }
+        }
     }
 }
 
