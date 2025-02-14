@@ -212,19 +212,20 @@ impl QueryHandler {
                 "exchanges without any running inbound or outbound producers"
             );
             for exchange_id in exchange_ids {
-                debug!(
-                    exchange = exchange_id,
-                    "sending shutdown request to exchange operator",
-                );
-
                 let outbound_exchange_instances =
                     self.state.get_operator_instances(query_id, &exchange_id)?;
                 for exchange_instance in outbound_exchange_instances {
                     if !exchange_instance.status.available()
-                        || !matches!(exchange_instance.status, Status::SentShutdown(_))
+                        || matches!(exchange_instance.status, Status::SentShutdown(_))
                     {
                         continue;
                     }
+
+                    debug!(
+                        exchange_id = exchange_id,
+                        exchange_instance_id = exchange_instance.id,
+                        "sending shutdown request to exchange operator",
+                    );
 
                     requests::operator::ShutdownRequest::shutdown_immediate_request(
                         exchange_instance.id.clone(),
@@ -240,6 +241,17 @@ impl QueryHandler {
                     )?;
                 }
             }
+        }
+
+        // recompute the query status and exit early if the
+        let query_status = self.state.refresh_query_status(query_id)?;
+        if query_status.terminal() {
+            debug!(
+                query_id = query_id.clone(),
+                status = query_status.to_string(),
+                "query finished"
+            );
+            return Ok(());
         }
 
         Ok(())

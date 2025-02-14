@@ -2,6 +2,7 @@ use std::u128;
 
 use anyhow::Result;
 use thiserror::Error;
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::{
@@ -45,6 +46,16 @@ impl Status {
         match self {
             Status::Running => true,
             _ => false,
+        }
+    }
+    pub fn to_string(&self) -> String {
+        match self {
+            Status::Queued => "Queued".to_string(),
+            Status::SendingToWorker => "SendingToWorker".to_string(),
+            Status::Running => "Running".to_string(),
+            Status::SentShutdown(t) => format!("SentShutdown({})", t),
+            Status::Complete => "Complete".to_string(),
+            Status::Error(_) => "Error(...)".to_string(),
         }
     }
 }
@@ -342,6 +353,69 @@ impl QueryHandlerState {
         }
 
         Ok(exchange_ids)
+    }
+
+    pub fn all_query_operator_intances_have_terminal_status(
+        &self,
+        query_id: &u128,
+    ) -> Result<bool> {
+        let query = self.find_query(query_id)?;
+        for pipeline in query.physical_plan.get_pipelines_ref() {
+            for op in pipeline.get_operators_ref() {
+                let op_ins = self.get_operator_instances(query_id, &op.id)?;
+                if op_ins
+                    .iter()
+                    .find(|op_in| !op_in.status.terminal())
+                    .is_some()
+                {
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(true)
+    }
+
+    pub fn refresh_query_status(&mut self, query_id: &u128) -> Result<Status> {
+        let query = self.find_query(query_id)?;
+
+        if query.status == Status::Queued {
+            return Ok(Status::Queued);
+        } else if query.status.terminal() {
+            return Ok(query.status.clone());
+        }
+
+        let mut status = Status::Complete;
+        let mut any_still_inprogress = false;
+        for pipeline in query.physical_plan.get_pipelines_ref() {
+            for op in pipeline.get_operators_ref() {
+                let op_ins = self.get_operator_instances(query_id, &op.id)?;
+                if op_ins
+                    .iter()
+                    .find(|op_in| !op_in.status.terminal())
+                    .is_some()
+                {
+                    any_still_inprogress = true;
+                    break;
+                } else if op_ins
+                    .iter()
+                    .find(|op_in| matches!(op_in.status, Status::Error(_)))
+                    .is_some()
+                {
+                    status = Status::Error("operator instance error".to_string());
+                } else {
+                    status = Status::Complete;
+                }
+            }
+        }
+
+        let query = self.find_query_mut(query_id)?;
+        if any_still_inprogress {
+            query.status = Status::Running;
+            Ok(Status::Running)
+        } else {
+            query.status = status.clone();
+            Ok(status)
+        }
     }
 
     pub fn claim_operator_instances_up_to_compute_available(

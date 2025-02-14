@@ -16,6 +16,7 @@ use crate::handlers::message_router_handler::{
 };
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
 use crate::handlers::operator_handler::operators::common_message_handlers::handle_ping_message;
+use crate::handlers::operator_handler::operators::requests;
 use crate::planner;
 
 #[derive(Debug, Error)]
@@ -130,7 +131,33 @@ impl ExchangeOperator {
             "started exchange operator instance",
         );
 
-        self.inner_async_main(ct).await?;
+        let res = self.inner_async_main(ct).await;
+
+        let ref mut pipe = self.router_pipe;
+        let status_change_res = match res {
+            Ok(_) => {
+                let req_res =
+                    requests::operator::OperatorInstanceStatusChangeRequest::completed_request(
+                        pipe,
+                        self.msg_reg.clone(),
+                    )
+                    .await;
+                req_res
+            }
+            Err(err) => {
+                let req_res =
+                    requests::operator::OperatorInstanceStatusChangeRequest::errored_request(
+                        err.to_string(),
+                        pipe,
+                        self.msg_reg.clone(),
+                    )
+                    .await;
+                req_res
+            }
+        };
+        if let Err(err) = status_change_res {
+            error!("{:?}", err);
+        }
 
         self.message_router_state
             .lock()
@@ -179,6 +206,7 @@ impl ExchangeOperator {
                 }
             }
         }
+
         Ok(())
     }
 
@@ -407,6 +435,7 @@ impl MessageConsumer for ExchangeOperatorSubscriber {
             }
             MessageName::ExchangeOperatorStatusChange => true,
             MessageName::OperatorShutdown => true,
+            MessageName::CommonGenericResponse => true,
             _ => false,
         }
     }
