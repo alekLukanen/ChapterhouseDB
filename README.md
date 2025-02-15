@@ -1,6 +1,34 @@
 # ChapterhouseQE
 A parallel SQL based query engine for analytics queries on Parquet files. 
 
+## Supported SQL
+
+- [x] Expressions
+  - [X] Numeric types
+  - [X] String type
+  - [ ] Time types
+  - [ ] Decimal types
+  - [X] Basic mathematical operations
+  - [X] AND, OR
+  - [ ] XOR
+  - [ ] String concatenation ||
+  - [ ] LIKE, ILIKE
+- [X] Select statement
+  - [X] Projection
+  - [X] Where clause
+  - [ ] Order by
+  - [ ] Group by
+  - [ ] Having
+  - [ ] Inner join
+  - [ ] Left join
+  - [ ] Right join
+  - [ ] Full join 
+  - [X] Read from files (EX `read_files('simple/*.parquet')`)
+    - [X] Parquet
+    - [ ] CSV
+    - [ ] JSON
+  - [ ] Read from table
+
 ## Running the Base System
 
 First create the sample data by running the following command
