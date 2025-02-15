@@ -3,7 +3,12 @@ A parallel SQL based query engine for analytics queries on Parquet files.
 
 ## Running the Base System
 
-Start first worker
+First create the sample data by running the following command
+```
+cargo run --bin create_sample_data
+```
+
+Now start the workers to form a cluster. Start first worker
 ```
 cargo run --bin main -- -p=7000 -c=127.0.0.1:7001
 ```
@@ -13,9 +18,18 @@ Start second worker
 cargo run --bin main -- -p=7001 -c=127.0.0.1:7000
 ```
 
-The workers will each form a TCP connection with one the other worker and 
+The workers will each form a TCP connection with the other worker and 
 begin transmitting messages back and forth in preparation for processing 
 queries.
+
+To run a simple query you can run the client example
+```
+cargo run --bin client_main
+```
+
+This client will connect to port 7000 and initiate a query. The result
+will show up in the `sample_data/query_results/` directory.
+
 
 ## Architecture
 
@@ -29,7 +43,6 @@ select * from read_files('simple/*.parquet')
 ```
 
 will produce these operators
-
 ```
 [read files] -> [exchange] -> [filter] -> [exchange] -> [materialize] -> [exchange]
 ```
