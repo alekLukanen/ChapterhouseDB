@@ -1,5 +1,7 @@
 # ChapterhouseQE
-A parallel SQL based query engine for analytics queries on Parquet files. 
+A simple SQL query engine capable of distributing work across a set of
+workers. The intent of this project is to allow me to test out various 
+query optimization techniques.
 
 ## Running the Base System
 
@@ -45,7 +47,7 @@ will show up in the `sample_data/query_results/` directory.
   - [ ] LIKE, ILIKE
 - [X] Select statement
   - [X] Projection
-  - [X] Where clause
+  - [X] Where
   - [ ] Order by
   - [ ] Group by
   - [ ] Having
