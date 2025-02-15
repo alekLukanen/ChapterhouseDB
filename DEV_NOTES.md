@@ -1,7 +1,8 @@
 
 ## Next work
+-----------------------
 
-1. Implement computation of the where filter and projection expressions. For each Arrow record
+- [ ] Implement computation of the where filter and projection expressions. For each Arrow record
 you will apply the expression to it. The result will either be a projection or a filter 
 of rows. Only implement numeric and string operations. The Arrow module should have all of 
 the functionality necessary to perform basic math and string operations.
@@ -11,43 +12,44 @@ the functionality necessary to perform basic math and string operations.
   * Scalar type which implements Datum trait: https://arrow.apache.org/rust/arrow/array/struct.Scalar.html
   * Support these `BinaryOperator`'s: Plus, Minus, Multiply, Divide, Modulo, Gt, Lt, GtEq, LtEq,
   Eq, NotEq, And, Or. For strings support only the Eq operator.
-2. When the exchange operator shuts down it should send out a status change message like
+- [X] When the exchange operator shuts down it should send out a status change message like
 the producer operator does.
-3. The client should be able to request records from the query result iteratively. The client
+- [ ] The client should be able to request records from the query result iteratively. The client
 should be able to request one record at a time, where each record to one row group from a 
 parquet file.
-4. Materializing files should be be able to compact the records into a larger parquet file
+- [ ] Materializing files should be be able to compact the records into a larger parquet file
 with a max number of row groups and rows in each group. The task should be
 able to take many records from the exchange until it has enough to fit into a row group,
 then write that to the row group and continue on until the max number of row groups
 have been reached or there is no more data left.
-5. Test out on large dataset stored in S3 or Minio.
-
-## TODO
-
-1. Implement message shedding so that a slow consumer doesn't block the message router from
+- [ ] Test out on large dataset stored in S3 or Minio.
+- [ ] Implement message shedding so that a slow consumer doesn't block the message router from
 reading or sending messages. Since each consumer has a cap on the number of messages that
 can be queued it's possible that a slow consumer's queue could get filled up and block the
 router from sending the next message until there is room. This could cause a deadlock.
-2. Handle the special case where a producer operator starts and completes before the 
+
+## TODO
+-----------------------
+
+- [ ] Handle the special case where a producer operator starts and completes before the 
 exchange starts. This can happen when the producer doesn't produce any results. The producer
 should wait for the exchange to boot up before trying to produce data. Make this generic
 by putting the logic in the `producer_operator.rs` file instead of in each of the individual
 tasks. The materialize files task already has this to some extent but not fully.
-3. When assigning operator to workers store the assignment in the state object and only 
+- [ ] When assigning operator to workers store the assignment in the state object and only 
 send out producer operator assignments when a worker has claimed all dependencies for the operator.
 So an exchange doesn't have any dependencies so those can be assigned immediately, but producers
 should only assigned after all of its inbound and outbound exchanges have been assigned and
 are running on a worker.
-4. The exchange operator should re-queue records that haven't taken too long to process
+- [ ] The exchange operator should re-queue records that haven't taken too long to process
 since their last heartbeat. Might also need to handle the case were only one producer operator
 is left and all others have completed. This last producer operator might be slow. Will probably
 need to integrate with the query handler so that it can initiate another producer operator
 instance.
-5. (not likely to be needed) The materialization task should send the file locations to 
+- [ ] (not likely to be needed) The materialization task should send the file locations to 
 the exchange. This will be through a means other than Arrow records. The exchange will 
 accept these record locations and load load the files into memory as requested by the next producer.
-6. Create a re-partition producer operator which takes the records from an exchange and
+- [ ] Create a re-partition producer operator which takes the records from an exchange and
 re-partitions them into equal size records. This is helpful for reducing IO operations
 when requesting and sending records. This will result in some issue with record numbering.
 Currently records number from 0 to infinity. But now that probably won't be possible if this
@@ -59,7 +61,7 @@ records 0 and 1 are less then X rows I would get both. I would get a message for
 when I am finished with both records I send back a single confirmation message that I processed
 both records. And when I push the result to the next exchange I use the lowest record
 number as the record new record number.
-7. In the exchange add slicing across records so that more or fewer rows can be requested.
+- [ ] In the exchange add slicing across records so that more or fewer rows can be requested.
 This will require that the record number be re-indexed though. That might make it
 difficult to keep record ordering. I think that the exchange could start keeping
 track of slices of these records and those slices would become a new logical record
@@ -67,11 +69,11 @@ with their own record id. Each time a producer requests the next set of tuples t
 exchange would create a new slice with a new record id, sequentially counting up 
 from zero. This would ensure that the ordering of data is maintained. And since the
 exchange operates on Arrow records I can slice to whatever granularity I need.
-8. Add SIMD instructions for compute kernels: https://arrow.apache.org/rust/arrow/compute/kernels/cmp/index.html
-9. Use a custom `Record` type for all record functionality. This will
+- [ ] Add SIMD instructions for compute kernels: https://arrow.apache.org/rust/arrow/compute/kernels/cmp/index.html
+- [ ] Use a custom `Record` type for all record functionality. This will
 allow for common operations where the record batch and table aliases are
 needed. It prevents extra code needed to pass both around.
-10. Implement some kind of memory management struct which constrains how much memory
+- [ ] Implement some kind of memory management struct which constrains how much memory
 each utility function is allowed to use when computing values. When calling functions
 which operate on the `Record` type the manager should be passed in and the function
 should reserve space before creating new arrays or records. These arrays and records
