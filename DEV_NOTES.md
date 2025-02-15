@@ -1,6 +1,5 @@
 
 ## Next work
------------------------
 
 - [ ] Implement computation of the where filter and projection expressions. For each Arrow record
 you will apply the expression to it. The result will either be a projection or a filter 
@@ -29,7 +28,6 @@ can be queued it's possible that a slow consumer's queue could get filled up and
 router from sending the next message until there is room. This could cause a deadlock.
 
 ## TODO
------------------------
 
 - [ ] Handle the special case where a producer operator starts and completes before the 
 exchange starts. This can happen when the producer doesn't produce any results. The producer
