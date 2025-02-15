@@ -1,7 +1,7 @@
 
 ## Next work
 
-- [ ] Implement computation of the where filter and projection expressions. For each Arrow record
+- [X] Implement computation of the where filter and projection expressions. For each Arrow record
 you will apply the expression to it. The result will either be a projection or a filter 
 of rows. Only implement numeric and string operations. The Arrow module should have all of 
 the functionality necessary to perform basic math and string operations.
@@ -16,6 +16,9 @@ the producer operator does.
 - [ ] The client should be able to request records from the query result iteratively. The client
 should be able to request one record at a time, where each record to one row group from a 
 parquet file.
+  * You can use a tuple `(file, row group, row index)` as the cursor. The row group is the 
+  row group number in the file and the row index is the row index within the row group.
+  Files should be sequential starting from `0`.
 - [ ] Materializing files should be be able to compact the records into a larger parquet file
 with a max number of row groups and rows in each group. The task should be
 able to take many records from the exchange until it has enough to fit into a row group,
@@ -26,6 +29,8 @@ have been reached or there is no more data left.
 reading or sending messages. Since each consumer has a cap on the number of messages that
 can be queued it's possible that a slow consumer's queue could get filled up and block the
 router from sending the next message until there is room. This could cause a deadlock.
+- [ ] Support string operations like concatenation, and basic comparisons from 
+the following package: https://arrow.apache.org/rust/arrow/compute/kernels/comparison/index.html
 
 ## TODO
 

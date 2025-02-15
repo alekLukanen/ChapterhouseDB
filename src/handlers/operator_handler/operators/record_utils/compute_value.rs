@@ -146,6 +146,15 @@ pub fn compute_value(
                         Arc::new(res_array),
                     ))
                 }
+                sqlparser::ast::BinaryOperator::Modulo => {
+                    let (left_array, right_array) = cast_to_common_type(&left_array, &right_array)?;
+                    let res_array = compute::kernels::numeric::rem(&left_array, &right_array)?;
+                    Ok(ArrayDatum::new_binary_op(
+                        &left_array,
+                        &right_array,
+                        Arc::new(res_array),
+                    ))
+                }
                 sqlparser::ast::BinaryOperator::Eq => {
                     let (left_array, right_array) = cast_to_common_type(&left_array, &right_array)?;
                     let res_array = Arc::new(compute::kernels::cmp::eq(&left_array, &right_array)?);
