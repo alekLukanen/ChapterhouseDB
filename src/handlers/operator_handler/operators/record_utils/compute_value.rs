@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -31,6 +32,8 @@ pub enum ComputeValueError {
     CastFailed,
     #[error("identifier not found: {0}")]
     IdentifierNotFound(String),
+    #[error("unsupported type coersion for operation between types {0} and {0}")]
+    UnsupportedTypeCoersionForOperationBetweenTypes(DataType, DataType),
 }
 
 pub struct ArrayDatum {
@@ -117,6 +120,7 @@ pub fn compute_value(
                     }
                 }
                 sqlparser::ast::BinaryOperator::Plus => {
+                    let (left_array, right_array) = cast_to_common_type(&left_array, &right_array)?;
                     let res_array = compute::kernels::numeric::add(&left_array, &right_array)?;
                     Ok(ArrayDatum::new_binary_op(
                         &left_array,
@@ -125,6 +129,7 @@ pub fn compute_value(
                     ))
                 }
                 sqlparser::ast::BinaryOperator::Divide => {
+                    let (left_array, right_array) = cast_to_common_type(&left_array, &right_array)?;
                     let res_array = compute::kernels::numeric::div(&left_array, &right_array)?;
                     Ok(ArrayDatum::new_binary_op(
                         &left_array,
@@ -133,6 +138,7 @@ pub fn compute_value(
                     ))
                 }
                 sqlparser::ast::BinaryOperator::Multiply => {
+                    let (left_array, right_array) = cast_to_common_type(&left_array, &right_array)?;
                     let res_array = compute::kernels::numeric::mul(&left_array, &right_array)?;
                     Ok(ArrayDatum::new_binary_op(
                         &left_array,
@@ -141,6 +147,7 @@ pub fn compute_value(
                     ))
                 }
                 sqlparser::ast::BinaryOperator::Eq => {
+                    let (left_array, right_array) = cast_to_common_type(&left_array, &right_array)?;
                     let res_array = Arc::new(compute::kernels::cmp::eq(&left_array, &right_array)?);
                     Ok(ArrayDatum::new_binary_op(
                         &left_array,
@@ -149,6 +156,7 @@ pub fn compute_value(
                     ))
                 }
                 sqlparser::ast::BinaryOperator::NotEq => {
+                    let (left_array, right_array) = cast_to_common_type(&left_array, &right_array)?;
                     let res_array =
                         Arc::new(compute::kernels::cmp::neq(&left_array, &right_array)?);
                     Ok(ArrayDatum::new_binary_op(
@@ -158,6 +166,7 @@ pub fn compute_value(
                     ))
                 }
                 sqlparser::ast::BinaryOperator::Gt => {
+                    let (left_array, right_array) = cast_to_common_type(&left_array, &right_array)?;
                     let res_array = Arc::new(compute::kernels::cmp::gt(&left_array, &right_array)?);
                     Ok(ArrayDatum::new_binary_op(
                         &left_array,
@@ -166,6 +175,7 @@ pub fn compute_value(
                     ))
                 }
                 sqlparser::ast::BinaryOperator::GtEq => {
+                    let (left_array, right_array) = cast_to_common_type(&left_array, &right_array)?;
                     let res_array =
                         Arc::new(compute::kernels::cmp::gt_eq(&left_array, &right_array)?);
                     Ok(ArrayDatum::new_binary_op(
@@ -175,6 +185,7 @@ pub fn compute_value(
                     ))
                 }
                 sqlparser::ast::BinaryOperator::Lt => {
+                    let (left_array, right_array) = cast_to_common_type(&left_array, &right_array)?;
                     let res_array = Arc::new(compute::kernels::cmp::lt(&left_array, &right_array)?);
                     Ok(ArrayDatum::new_binary_op(
                         &left_array,
@@ -183,6 +194,7 @@ pub fn compute_value(
                     ))
                 }
                 sqlparser::ast::BinaryOperator::LtEq => {
+                    let (left_array, right_array) = cast_to_common_type(&left_array, &right_array)?;
                     let res_array =
                         Arc::new(compute::kernels::cmp::lt_eq(&left_array, &right_array)?);
                     Ok(ArrayDatum::new_binary_op(
@@ -325,4 +337,121 @@ pub fn compute_value(
             );
         }
     }
+}
+
+////////////////////////////////////////////////////////////////
+// Type coersion for common data types
+
+/// Determines the common type for two arrays
+fn get_common_type(left: &DataType, right: &DataType) -> Result<DataType> {
+    use DataType::*;
+
+    match (left, right) {
+        // Same types remain unchanged
+        _ if left == right => Ok(left.clone()),
+
+        // Integer widening conversions
+        (Int8, Int16) | (Int16, Int8) => Ok(Int16),
+        (Int8, Int32) | (Int32, Int8) | (Int16, Int32) | (Int32, Int16) => Ok(Int32),
+        (Int8, Int64)
+        | (Int64, Int8)
+        | (Int16, Int64)
+        | (Int64, Int16)
+        | (Int32, Int64)
+        | (Int64, Int32) => Ok(Int64),
+
+        (UInt8, UInt16) | (UInt16, UInt8) => Ok(UInt16),
+        (UInt8, UInt32) | (UInt32, UInt8) | (UInt16, UInt32) | (UInt32, UInt16) => Ok(UInt32),
+        (UInt8, UInt64)
+        | (UInt64, UInt8)
+        | (UInt16, UInt64)
+        | (UInt64, UInt16)
+        | (UInt32, UInt64)
+        | (UInt64, UInt32) => Ok(UInt64),
+
+        // Mixed signed/unsigned conversions (promote to larger signed type)
+        (UInt8, Int16) | (Int16, UInt8) => Ok(Int16),
+        (UInt8, Int32) | (Int32, UInt8) | (UInt16, Int32) | (Int32, UInt16) => Ok(Int32),
+        (UInt8, Int64)
+        | (Int64, UInt8)
+        | (UInt16, Int64)
+        | (Int64, UInt16)
+        | (UInt32, Int64)
+        | (Int64, UInt32) => Ok(Int64),
+
+        // Float widening
+        (Float16, Float32) | (Float32, Float16) => Ok(Float32),
+        (Float16, Float64) | (Float64, Float16) | (Float32, Float64) | (Float64, Float32) => {
+            Ok(Float64)
+        }
+
+        // Integer to float conversions (always upcast to float)
+        (Int8, Float32)
+        | (Float32, Int8)
+        | (Int16, Float32)
+        | (Float32, Int16)
+        | (UInt8, Float32)
+        | (Float32, UInt8)
+        | (UInt16, Float32)
+        | (Float32, UInt16)
+        | (Int32, Float32)
+        | (Float32, Int32)
+        | (UInt32, Float32)
+        | (Float32, UInt32) => Ok(Float32),
+
+        (Int8, Float64)
+        | (Float64, Int8)
+        | (Int16, Float64)
+        | (Float64, Int16)
+        | (UInt8, Float64)
+        | (Float64, UInt8)
+        | (UInt16, Float64)
+        | (Float64, UInt16)
+        | (Int32, Float64)
+        | (Float64, Int32)
+        | (UInt32, Float64)
+        | (Float64, UInt32)
+        | (Int64, Float64)
+        | (Float64, Int64)
+        | (UInt64, Float64)
+        | (Float64, UInt64) => Ok(Float64),
+
+        _ => Err(
+            ComputeValueError::UnsupportedTypeCoersionForOperationBetweenTypes(
+                left.clone(),
+                right.clone(),
+            )
+            .into(),
+        ),
+    }
+}
+
+fn cast_to_common_type(left: &ArrayDatum, right: &ArrayDatum) -> Result<(ArrayDatum, ArrayDatum)> {
+    let left_type = left.array.data_type();
+    let right_type = right.array.data_type();
+
+    let common_type = get_common_type(left_type, right_type)?;
+
+    let left_casted = if *left_type != common_type {
+        compute::cast(&left.array, &common_type)?
+    } else {
+        left.array.clone()
+    };
+
+    let right_casted = if *right_type != common_type {
+        compute::cast(&right.array, &common_type)?
+    } else {
+        right.array.clone()
+    };
+
+    Ok((
+        ArrayDatum {
+            array: left_casted,
+            is_scalar: left.is_scalar,
+        },
+        ArrayDatum {
+            array: right_casted,
+            is_scalar: right.is_scalar,
+        },
+    ))
 }

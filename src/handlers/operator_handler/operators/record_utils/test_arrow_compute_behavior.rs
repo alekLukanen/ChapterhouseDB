@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use arrow::array::{ArrayRef, Datum, Int32Array, RecordBatch, StringArray};
+use arrow::array::{
+    ArrayRef, Datum, Float32Array, Int32Array, RecordBatch, StringArray, UInt16Array, UInt32Array,
+    UInt8Array,
+};
 use arrow::compute;
 use arrow::datatypes::{DataType, Field, Schema};
 
@@ -64,6 +67,36 @@ fn test_arrow_record_duplicate_columns() -> Result<()> {
     let col1 = rec.column(1);
     assert!(col0.eq(&text_array1));
     assert!(col1.eq(&text_array2));
+
+    Ok(())
+}
+
+#[test]
+fn test_array_type_conversion_roundoff_uint32_to_float32() -> Result<()> {
+    let arr = UInt32Array::from(vec![1, 1000, 16_777_216, 16_777_217, 4_294_967_295]);
+
+    let cast_arr = compute::cast(&arr, &DataType::Float32)?;
+    let expected_arr: ArrayRef = Arc::new(Float32Array::from(vec![
+        1.0,
+        1000.0,
+        16777216.0,
+        16777216.0,
+        4294967300.0,
+    ]));
+
+    assert!(cast_arr.eq(&expected_arr));
+
+    Ok(())
+}
+
+#[test]
+fn test_array_type_conversion_roundoff_uint16_to_uint8() -> Result<()> {
+    let arr = UInt16Array::from(vec![1, 2, 3, 2 ^ 8 - 1, 2 ^ 8, 2 ^ 8 + 1]);
+
+    let cast_arr = compute::cast(&arr, &DataType::UInt8)?;
+    let expected_arr: ArrayRef = Arc::new(UInt8Array::from(vec![1, 2, 3, 5, 10, 11]));
+
+    assert!(cast_arr.eq(&expected_arr));
 
     Ok(())
 }

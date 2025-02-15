@@ -13,7 +13,7 @@ async fn main() -> Result<()> {
     let query = "
         select 
             id, 
-            id+10 as id_plus_10, 
+            id+10.0 as id_plus_10, 
             value2/100.0 as value2 
         from read_files('simple/*.parquet')
             where id < 25;";
