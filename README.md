@@ -6,26 +6,33 @@ query optimization techniques.
 ## 🚀 Running the Base System
 
 1. Create the sample data by running the following command
+
   ```bash
   cargo run --bin create_sample_data
   ```
 
 2. Now start the workers to form a cluster. Start first worker
+
   ```bash
   cargo run --bin main -- -p=7000 -c=127.0.0.1:7001
   ```
+
   Start second worker
+
   ```bash
   cargo run --bin main -- -p=7001 -c=127.0.0.1:7000
   ```
+
   The workers will each form a TCP connection with the other worker and 
   begin transmitting messages back and forth in preparation for processing 
   queries.
 
 3. To run a simple query you can run the client example
+
   ```bash
   cargo run --bin client_main
   ```
+
   This client will connect to port 7000 and initiate a query. The result
   will show up in the `sample_data/query_results/` directory.
 

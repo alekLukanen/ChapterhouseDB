@@ -189,8 +189,8 @@ impl MaterializeFilesTask {
                     break;
                 }
                 requests::GetNextRecordResponse::NoneAvailable => {
-                    debug!("exchange does not have any record available; waiting 1 second");
-                    tokio::time::sleep(chrono::Duration::milliseconds(1000).to_std()?).await;
+                    debug!("exchange does not have any record available; waiting 100 ms");
+                    tokio::time::sleep(chrono::Duration::milliseconds(100).to_std()?).await;
                 }
             }
         }

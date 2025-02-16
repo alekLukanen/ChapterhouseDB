@@ -7,7 +7,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::handlers::message_handler::messages;
@@ -103,7 +103,7 @@ impl Connection {
         }
 
         loop {
-            match self.msg_reg.build_msg(&mut self.buf) {
+            match self.msg_reg.build_msg(&mut self.buf).await {
                 Ok(msg) => {
                     if let Some(mut msg) = msg {
                         if self.is_inbound {
@@ -120,7 +120,7 @@ impl Connection {
                     match ser_msg_err {
                         Some(SerializedMessageError::Incomplete) => (),
                         _ => {
-                            info!("error: {}", err);
+                            error!("{:?}", err);
                         }
                     }
                 }

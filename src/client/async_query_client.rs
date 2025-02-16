@@ -85,7 +85,7 @@ impl AsyncQueryClient {
     async fn read_msg(&self, stream: &mut TcpStream) -> Result<Option<messages::message::Message>> {
         let ref mut buf = BytesMut::new();
         loop {
-            if let Ok(msg) = self.msg_reg.build_msg(buf) {
+            if let Ok(msg) = self.msg_reg.build_msg(buf).await {
                 if let Some(msg) = msg {
                     return Ok(Some(msg));
                 }

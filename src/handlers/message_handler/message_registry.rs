@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use bytes::BytesMut;
 use thiserror::Error;
@@ -25,7 +27,7 @@ pub struct RegisteredMessage {
 
 #[derive(Debug)]
 pub struct MessageRegistry {
-    msg_listing: Vec<RegisteredMessage>,
+    msg_listing: Vec<Arc<RegisteredMessage>>,
 }
 
 impl MessageRegistry {
@@ -84,7 +86,7 @@ impl MessageRegistry {
         >::new()));
     }
 
-    pub fn build_msg(&self, buf: &mut BytesMut) -> Result<Option<Message>> {
+    pub async fn build_msg(&self, buf: &mut BytesMut) -> Result<Option<Message>> {
         let reg_msg_id = SerializedMessage::parse_registered_msg_id(buf)?;
 
         let reg_msg = if let Some(reg_msg) = self.find_by_reg_msg_id(reg_msg_id.clone()) {
@@ -95,7 +97,8 @@ impl MessageRegistry {
 
         match SerializedMessage::parse(buf) {
             Ok(ser_msg) => {
-                let msg = reg_msg.msg_parser.to_msg(ser_msg)?;
+                let msg = tokio::task::spawn_blocking(move || reg_msg.msg_parser.to_msg(ser_msg))
+                    .await??;
                 Ok(Some(msg))
             }
             Err(SerializedMessageError::Incomplete) => {
@@ -140,16 +143,17 @@ impl MessageRegistry {
     }
 
     pub fn add(&mut self, msg_parser: Box<dyn MessageParser>) {
-        self.msg_listing.push(RegisteredMessage { msg_parser });
+        self.msg_listing
+            .push(Arc::new(RegisteredMessage { msg_parser }));
     }
 
-    fn find_by_reg_msg_id(&self, reg_msg_id: u16) -> Option<&RegisteredMessage> {
+    fn find_by_reg_msg_id(&self, reg_msg_id: u16) -> Option<Arc<RegisteredMessage>> {
         if let Some(reg_msg) = self
             .msg_listing
             .iter()
             .find(|&item| item.msg_parser.msg_name().as_u16() == reg_msg_id)
         {
-            Some(reg_msg)
+            Some(reg_msg.clone())
         } else {
             None
         }

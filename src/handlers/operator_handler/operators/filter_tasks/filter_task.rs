@@ -156,7 +156,7 @@ impl FilterTask {
                     break;
                 }
                 requests::GetNextRecordResponse::NoneAvailable => {
-                    debug!("exchange does not have any record available; waiting 1 second");
+                    debug!("exchange does not have any record available; waiting 100 ms");
                     tokio::time::sleep(chrono::Duration::milliseconds(100).to_std()?).await;
                 }
             }
