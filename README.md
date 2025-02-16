@@ -85,20 +85,4 @@ structuring the operators in this way it makes it relatively easy to create new 
 as each operator either pulls data from an exchange or an external source, and pushes
 data to an exchanges.
 
-## 📄 Rust Notes
-
-To enable backtraces you can run commands with the following environment variable like
-the following
-```
-RUST_BACKTRACE=1 cargo run 
-```
-
-## 🔗 External Links
-
-1. SQL grammar for H2 embedded database system: http://www.h2database.com/html/commands.html#select
-2. SQL grammar for phoenix an SQL layer over the HBase database system: https://forcedotcom.github.io/phoenix/
-3. Parsing example: http://craftinginterpreters.com/parsing-expressions.html
-4. Rayon and Tokio methods for blocking code: https://ryhl.io/blog/async-what-is-blocking/
-5. Globset crate: https://docs.rs/globset/latest/globset/
-6. Arrow IPC format: https://arrow.apache.org/docs/format/Columnar.html#serialization-and-interprocess-communication-ipc
 

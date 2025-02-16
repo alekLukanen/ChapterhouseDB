@@ -23,7 +23,8 @@ parquet file.
 with a max number of row groups and rows in each group. The task should be
 able to take many records from the exchange until it has enough to fit into a row group,
 then write that to the row group and continue on until the max number of row groups
-have been reached or there is no more data left.
+have been reached or there is no more data left. 
+  * Think about adding record slicing to the exchange, description in TODO item below.
 - [ ] Test out on large dataset stored in S3 or Minio.
 - [ ] Implement message shedding so that a slow consumer doesn't block the message router from
 reading or sending messages. Since each consumer has a cap on the number of messages that
@@ -31,6 +32,14 @@ can be queued it's possible that a slow consumer's queue could get filled up and
 router from sending the next message until there is room. This could cause a deadlock.
 - [ ] Support string operations like concatenation, and basic comparisons from 
 the following package: https://arrow.apache.org/rust/arrow/compute/kernels/comparison/index.html
+- [ ] Implement memory management for the exchange operator. It should be able to keep its
+memory usage under an threshold by writing records to disk which won't or haven't been used
+in awhile. For example, it should keep records that will be used by producers in memory if
+possible but write records that won't be used for awhile to disk. When a record from the front
+of the record stack is no longer needed you can remove it's reference and load into a record
+that will soon be used. Write the records to Arrow files not Parquet files and write these
+records to the "default" connection (file systems, S3, etc...) under folder 
+`/exchange/<query_id>/<exchange_instance_id>/<record_id>.arrow`.
 
 ## TODO
 
@@ -52,18 +61,6 @@ instance.
 - [ ] (not likely to be needed) The materialization task should send the file locations to 
 the exchange. This will be through a means other than Arrow records. The exchange will 
 accept these record locations and load load the files into memory as requested by the next producer.
-- [ ] Create a re-partition producer operator which takes the records from an exchange and
-re-partitions them into equal size records. This is helpful for reducing IO operations
-when requesting and sending records. This will result in some issue with record numbering.
-Currently records number from 0 to infinity. But now that probably won't be possible if this
-operator is run in parallel. I want to preserve ordering though. An alternative approach
-could be to implement a feature on the exchange which allows operators to request multiple
-sequential records (record 0, 1, 2, etc...) which do not exceed a certain size. So if
-records 0 and 1 are less then X rows I would get both. I would get a message for record
-0 first which tells the request that it will receive another message for record 1. Then
-when I am finished with both records I send back a single confirmation message that I processed
-both records. And when I push the result to the next exchange I use the lowest record
-number as the record new record number.
 - [ ] In the exchange add slicing across records so that more or fewer rows can be requested.
 This will require that the record number be re-indexed though. That might make it
 difficult to keep record ordering. I think that the exchange could start keeping
@@ -83,3 +80,21 @@ should reserve space before creating new arrays or records. These arrays and rec
 should also store a weak reference in the manager so that the manager can keep track of
 what is still active. The `Record` type should implement the `Drop` trait so that
 when the record is dropped it removes itself from the manager.
+
+## 📄 Rust Notes
+
+To enable backtraces you can run commands with the following environment variable like
+the following
+```
+RUST_BACKTRACE=1 cargo run 
+```
+
+## 🔗 External Links
+
+1. SQL grammar for H2 embedded database system: http://www.h2database.com/html/commands.html#select
+2. SQL grammar for phoenix an SQL layer over the HBase database system: https://forcedotcom.github.io/phoenix/
+3. Parsing example: http://craftinginterpreters.com/parsing-expressions.html
+4. Rayon and Tokio methods for blocking code: https://ryhl.io/blog/async-what-is-blocking/
+5. Globset crate: https://docs.rs/globset/latest/globset/
+6. Arrow IPC format: https://arrow.apache.org/docs/format/Columnar.html#serialization-and-interprocess-communication-ipc
+
