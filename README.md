@@ -1,38 +1,35 @@
-# ChapterhouseQE
+# 📖 ChapterhouseQE
 A simple SQL query engine capable of distributing work across a set of
 workers. The intent of this project is to allow me to test out various 
 query optimization techniques.
 
-## Running the Base System
+## 🚀 Running the Base System
 
-First create the sample data by running the following command
-```
-cargo run --bin create_sample_data
-```
+1. Create the sample data by running the following command
+  ```bash
+  cargo run --bin create_sample_data
+  ```
 
-Now start the workers to form a cluster. Start first worker
-```
-cargo run --bin main -- -p=7000 -c=127.0.0.1:7001
-```
+2. Now start the workers to form a cluster. Start first worker
+  ```bash
+  cargo run --bin main -- -p=7000 -c=127.0.0.1:7001
+  ```
+  Start second worker
+  ```bash
+  cargo run --bin main -- -p=7001 -c=127.0.0.1:7000
+  ```
+  The workers will each form a TCP connection with the other worker and 
+  begin transmitting messages back and forth in preparation for processing 
+  queries.
 
-Start second worker
-```
-cargo run --bin main -- -p=7001 -c=127.0.0.1:7000
-```
+3. To run a simple query you can run the client example
+  ```bash
+  cargo run --bin client_main
+  ```
+  This client will connect to port 7000 and initiate a query. The result
+  will show up in the `sample_data/query_results/` directory.
 
-The workers will each form a TCP connection with the other worker and 
-begin transmitting messages back and forth in preparation for processing 
-queries.
-
-To run a simple query you can run the client example
-```
-cargo run --bin client_main
-```
-
-This client will connect to port 7000 and initiate a query. The result
-will show up in the `sample_data/query_results/` directory.
-
-## Supported SQL
+## 🛢️ Supported SQL
 
 - [X] Types
   - [X] Numeric types
@@ -62,7 +59,7 @@ will show up in the `sample_data/query_results/` directory.
     - [ ] JSON
   - [ ] Read from table
 
-## Architecture
+## 🛠 Architecture
 
 The system is built upon a set of distributed actors that communicate through
 messages. Each worker can communicate with all other workers connected to it
@@ -88,7 +85,7 @@ structuring the operators in this way it makes it relatively easy to create new 
 as each operator either pulls data from an exchange or an external source, and pushes
 data to an exchanges.
 
-## Rust Notes
+## 📄 Rust Notes
 
 To enable backtraces you can run commands with the following environment variable like
 the following
@@ -96,7 +93,7 @@ the following
 RUST_BACKTRACE=1 cargo run 
 ```
 
-## External Links
+## 🔗 External Links
 
 1. SQL grammar for H2 embedded database system: http://www.h2database.com/html/commands.html#select
 2. SQL grammar for phoenix an SQL layer over the HBase database system: https://forcedotcom.github.io/phoenix/
