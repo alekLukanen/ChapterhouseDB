@@ -13,20 +13,40 @@ async fn main() -> Result<()> {
     base_path.push("./sample_data");
 
     create_simple_data(base_path.clone())?;
+    create_large_simple_data(base_path.clone())?;
 
     Ok(())
 }
 
-fn create_simple_data(mut base_path: std::path::PathBuf) -> Result<()> {
-    base_path.push("simple");
-
+fn create_dir(base_path: &std::path::PathBuf) -> Result<()> {
     if !std::path::Path::new(&base_path).exists() {
         std::fs::create_dir_all(&base_path)?;
         info!("Directory created: {:?}", base_path);
     } else {
         info!("Directory already exists: {:?}", base_path);
     }
+    Ok(())
+}
 
+fn create_large_simple_data(mut base_path: std::path::PathBuf) -> Result<()> {
+    base_path.push("large_simple");
+    create_dir(&base_path)?;
+
+    simple_data(&base_path, 10_000, 1000)?;
+
+    Ok(())
+}
+
+fn create_simple_data(mut base_path: std::path::PathBuf) -> Result<()> {
+    base_path.push("simple");
+    create_dir(&base_path)?;
+
+    simple_data(&base_path, 100, 33)?;
+
+    Ok(())
+}
+
+fn simple_data(base_path: &std::path::PathBuf, size: usize, rows_per_file: usize) -> Result<()> {
     // Create the schema
     let schema = Arc::new(arrow::datatypes::Schema::new(vec![
         arrow::datatypes::Field::new("id", arrow::datatypes::DataType::Int32, false),
@@ -36,8 +56,8 @@ fn create_simple_data(mut base_path: std::path::PathBuf) -> Result<()> {
 
     // Generate data
     let rng = rand::thread_rng();
-    let id_values: Vec<i32> = (0..100).collect();
-    let value1_values: Vec<String> = (0..100)
+    let id_values: Vec<i32> = (0..size as i32).collect();
+    let value1_values: Vec<String> = (0..size)
         .map(|_| {
             let chars: String = rng
                 .clone()
@@ -47,7 +67,7 @@ fn create_simple_data(mut base_path: std::path::PathBuf) -> Result<()> {
             chars
         })
         .collect();
-    let value2_values: Vec<f32> = (0..100)
+    let value2_values: Vec<f32> = (0..size)
         .map(|_| {
             rng.clone()
                 .sample(rand::distributions::Uniform::new(0.0, 100.0))
@@ -68,11 +88,9 @@ fn create_simple_data(mut base_path: std::path::PathBuf) -> Result<()> {
         vec![id_array.clone(), value1_array.clone(), value2_array.clone()],
     )?;
 
-    // Split the RecordBatch into 3 parts and write each to a Parquet file
-    let rows_per_file = 33; // Approximately divide 100 rows into 3 files
-    for i in 0..3 {
+    for i in 0..size.div_ceil(rows_per_file) {
         let start = i * rows_per_file;
-        let end = if i == 2 { 100 } else { (i + 1) * rows_per_file };
+        let end = std::cmp::min((i + 1) * rows_per_file, size);
 
         let sliced_batch = batch.slice(start, end - start);
 
