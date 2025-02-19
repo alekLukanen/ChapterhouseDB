@@ -38,7 +38,7 @@ query optimization techniques.
 
 ## 🛢️ Supported SQL
 
-- [✅] Types
+- [:white_check_mark:] Types
   - [X] Numeric types
   - [X] String type
   - [ ] Time types
