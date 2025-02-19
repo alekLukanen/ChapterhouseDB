@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use super::operator_handler_state::{OperatorHandlerState, OperatorInstance, TotalOperatorCompute};
@@ -95,7 +95,7 @@ impl OperatorHandler {
         loop {
             tokio::select! {
                 Some(msg) = self.router_pipe.recv() => {
-                    info!("received message: {}", msg);
+                    debug!("received message: {}", msg);
                     if let Err(err) = self.handle_message(msg).await {
                         error!("{:?}", err);
                     }
@@ -141,7 +141,7 @@ impl OperatorHandler {
                 .await
                 .context("failed handling operator instance status change")?,
             _ => {
-                info!("unknown message received: {:?}", msg);
+                debug!("unknown message received: {:?}", msg);
             }
         }
         Ok(())

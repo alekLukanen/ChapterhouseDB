@@ -108,6 +108,11 @@ impl MessageRegistry {
         }
     }
 
+    pub async fn build_msg_bytes(&self, msg: Message) -> Result<Vec<u8>> {
+        let data = tokio::task::spawn_blocking(move || msg.to_bytes()).await??;
+        Ok(data)
+    }
+
     pub fn cast_msg<'a, T: SendableMessage>(&'a self, msg: &'a Message) -> &'a T
     where
         T: 'static + SendableMessage,

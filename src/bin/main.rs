@@ -18,17 +18,33 @@ struct Args {
     #[arg(short, long, default_value_t = 7000)]
     port: u32,
 
-    // Addresses to connect to
+    /// Addresses to connect to
     #[arg(short, long)]
     connect_to_addresses: Vec<String>,
+
+    /// The logging level (debug, info, warning, error)
+    #[arg(short, long, default_value_t = String::from("info"))]
+    log_level: String,
 }
 
 fn main() {
     let args = Args::parse();
 
+    let log_level = if args.log_level.to_lowercase() == "info" {
+        tracing::Level::INFO
+    } else if args.log_level.to_lowercase() == "debug" {
+        tracing::Level::DEBUG
+    } else if args.log_level.to_lowercase() == "warning" {
+        tracing::Level::WARN
+    } else if args.log_level.to_lowercase() == "error" {
+        tracing::Level::ERROR
+    } else {
+        panic!("unknown log level")
+    };
+
     tracing_subscriber::fmt()
         .with_line_number(true)
-        .with_max_level(tracing::Level::DEBUG)
+        .with_max_level(log_level)
         .init();
 
     let mut conn_reg = operators::ConnectionRegistry::new();

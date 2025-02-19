@@ -14,6 +14,7 @@ async fn main() -> Result<()> {
 
     create_simple_data(base_path.clone())?;
     create_large_simple_data(base_path.clone())?;
+    create_huge_simple_data(base_path.clone())?;
 
     Ok(())
 }
@@ -33,6 +34,15 @@ fn create_large_simple_data(mut base_path: std::path::PathBuf) -> Result<()> {
     create_dir(&base_path)?;
 
     simple_data(&base_path, 10_000, 1000)?;
+
+    Ok(())
+}
+
+fn create_huge_simple_data(mut base_path: std::path::PathBuf) -> Result<()> {
+    base_path.push("huge_simple");
+    create_dir(&base_path)?;
+
+    simple_data(&base_path, 1_000_000, 10_000)?;
 
     Ok(())
 }

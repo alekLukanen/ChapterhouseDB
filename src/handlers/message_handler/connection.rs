@@ -152,7 +152,7 @@ impl Connection {
                     }
                 },
                 Some(msg) = self.pipe.recv() => {
-                    let msg_bytes = msg.to_bytes()?;
+                    let msg_bytes = self.msg_reg.build_msg_bytes(msg).await?;
                     self.stream.write_all(&msg_bytes[..]).await?;
                 },
                 _ = self.connection_ct.cancelled() => {

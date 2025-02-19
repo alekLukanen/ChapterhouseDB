@@ -246,7 +246,7 @@ impl QueryHandler {
         // recompute the query status and exit early if the
         let query_status = self.state.refresh_query_status(query_id)?;
         if query_status.terminal() {
-            debug!(
+            info!(
                 query_id = query_id.clone(),
                 status = query_status.to_string(),
                 "query finished"

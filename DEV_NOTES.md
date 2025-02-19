@@ -13,7 +13,7 @@ the functionality necessary to perform basic math and string operations.
   Eq, NotEq, And, Or. For strings support only the Eq operator.
 - [X] When the exchange operator shuts down it should send out a status change message like
 the producer operator does.
-- [ ] Make the message serialization and de-serialization async.
+- [X] Make the message serialization and de-serialization async.
 - [ ] The client should be able to request records from the query result iteratively. The client
 should be able to request one record at a time, where each record to one row group from a 
 parquet file.
