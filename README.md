@@ -38,7 +38,7 @@ query optimization techniques.
 
 ## 🛢️ Supported SQL
 
-- [X] Types
+- [✅] Types
   - [X] Numeric types
   - [X] String type
   - [ ] Time types
