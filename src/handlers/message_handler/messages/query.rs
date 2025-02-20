@@ -1,9 +1,262 @@
+use std::io::Read;
+use std::{any::Any, io::Cursor, sync::Arc};
+
 use anyhow::Result;
+use arrow::array::RecordBatch;
+use bytes::{Buf, BufMut, BytesMut};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-use crate::{handlers::operator_handler::TotalOperatorCompute, planner};
+use crate::{
+    handlers::{operator_handler::TotalOperatorCompute, query_handler},
+    planner,
+};
 
-use super::message::{GenericMessage, MessageName, SendableMessage};
+use super::message::{
+    GenericMessage, Message, MessageName, MessageParser, SendableMessage, SerializedMessage,
+};
+
+////////////////////////////////////////////////////////////
+//
+
+#[derive(Debug, Clone, Serialize)]
+pub enum GetQueryDataResp {
+    QueryNotFound,
+    Record {
+        #[serde(skip_serializing)]
+        record: Arc<arrow::array::RecordBatch>,
+        next_file_idx: Option<u64>,
+        next_file_row_group_idx: Option<u64>,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GetQueryDataRespQueryNotFound {}
+
+#[derive(Debug, Deserialize)]
+pub struct GetQueryDataRespRecord {
+    next_file_idx: Option<u64>,
+    next_file_row_group_idx: Option<u64>,
+}
+
+impl GetQueryDataResp {
+    fn msg_id(&self) -> u8 {
+        match self {
+            Self::QueryNotFound => 0,
+            Self::Record { .. } => 1,
+        }
+    }
+}
+
+impl SendableMessage for GetQueryDataResp {
+    fn to_bytes(&self) -> Result<Vec<u8>> {
+        match self {
+            Self::QueryNotFound => {
+                let meta_data = serde_json::to_vec(self)?;
+                let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len());
+                buf.put_u8(self.msg_id());
+                buf.put_u64(meta_data.len() as u64);
+                buf.put(&meta_data[..]);
+                return Ok(buf.to_vec());
+            }
+            Self::Record { record, .. } => {
+                let mut data_buf = Vec::new();
+                {
+                    let mut record_writer =
+                        arrow::ipc::writer::StreamWriter::try_new(&mut data_buf, &record.schema())?;
+                    record_writer.write(record)?;
+                    record_writer.finish()?
+                }
+
+                let meta_data = serde_json::to_vec(self)?;
+
+                let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len() + data_buf.len());
+                buf.put_u8(self.msg_id());
+                buf.put_u64(meta_data.len() as u64);
+                buf.put(&meta_data[..]);
+                buf.put(&data_buf[..]);
+
+                return Ok(buf.to_vec());
+            }
+        }
+    }
+    fn msg_name(&self) -> MessageName {
+        MessageName::GetQueryDataResp
+    }
+    fn clone_box(&self) -> Box<dyn SendableMessage> {
+        Box::new(self.clone())
+    }
+    fn as_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum GetQueryDataRespParserError {
+    #[error("read exact failed")]
+    ReadExactFailed,
+    #[error("not implemented: {0}")]
+    NotImplemented(String),
+    #[error("received multiple record batches")]
+    ReceivedMultipleRecordBatches,
+}
+
+#[derive(Debug, Clone)]
+pub struct GetQueryDataRespParser {}
+
+impl GetQueryDataRespParser {
+    pub fn new() -> GetQueryDataRespParser {
+        GetQueryDataRespParser {}
+    }
+
+    fn parse_record(&self, buf: &mut Cursor<&[u8]>) -> Result<arrow::array::RecordBatch> {
+        let mut record_data = BytesMut::with_capacity(buf.remaining());
+        record_data.resize(buf.remaining(), 0);
+        match buf.read_exact(&mut record_data) {
+            Err(_) => return Err(GetQueryDataRespParserError::ReadExactFailed.into()),
+            _ => (),
+        }
+
+        let mut record_data_cursor = std::io::Cursor::new(&record_data[..]);
+        let record_reader =
+            arrow::ipc::reader::StreamReader::try_new(&mut record_data_cursor, None)?;
+        let mut result_record: Option<arrow::array::RecordBatch> = None;
+        for record in record_reader {
+            match record {
+                Ok(record) => {
+                    if result_record.is_some() {
+                        return Err(
+                            GetQueryDataRespParserError::ReceivedMultipleRecordBatches.into()
+                        );
+                    }
+                    result_record = Some(record);
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
+
+        if let Some(record) = result_record {
+            Ok(record)
+        } else {
+            Err(GetQueryDataRespParserError::NotImplemented("no record".to_string()).into())
+        }
+    }
+}
+
+impl MessageParser for GetQueryDataRespParser {
+    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
+        let mut buf = Cursor::new(&ser_msg.msg_data[..]);
+        buf.set_position(0);
+
+        let msg_id = buf.get_u8();
+        let meta_data_len = buf.get_u64();
+
+        if msg_id == 0 {
+            let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
+            meta_data.resize(meta_data_len as usize, 0);
+            match buf.read_exact(&mut meta_data) {
+                Err(_) => return Err(GetQueryDataRespParserError::ReadExactFailed.into()),
+                _ => (),
+            }
+            let _: GetQueryDataRespQueryNotFound = serde_json::from_slice(&meta_data[..])?;
+
+            let msg = GetQueryDataResp::QueryNotFound;
+
+            Ok(Message::build_from_serialized_message(
+                ser_msg,
+                Box::new(msg),
+            ))
+        } else if msg_id == 1 {
+            let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
+            meta_data.resize(meta_data_len as usize, 0);
+            match buf.read_exact(&mut meta_data) {
+                Err(_) => return Err(GetQueryDataRespParserError::ReadExactFailed.into()),
+                _ => (),
+            }
+            let meta: GetQueryDataRespRecord = serde_json::from_slice(&meta_data[..])?;
+
+            let record = self.parse_record(&mut buf)?;
+            let msg = GetQueryDataResp::Record {
+                record: Arc::new(record),
+                next_file_idx: meta.next_file_idx,
+                next_file_row_group_idx: meta.next_file_row_group_idx,
+            };
+
+            Ok(Message::build_from_serialized_message(
+                ser_msg,
+                Box::new(msg),
+            ))
+        } else {
+            return Err(
+                GetQueryDataRespParserError::NotImplemented(format!("msg id: {}", msg_id)).into(),
+            );
+        }
+    }
+
+    fn msg_name(&self) -> MessageName {
+        MessageName::GetQueryDataResp
+    }
+}
+
+////////////////////////////////////////////////////////////
+//
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetQueryData {
+    query_id: u128,
+    file_idx: u64,
+    file_row_group_idx: u64,
+}
+
+impl GenericMessage for GetQueryData {
+    fn msg_name() -> MessageName {
+        MessageName::GetQueryData
+    }
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: GetQueryData = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
+    }
+}
+
+////////////////////////////////////////////////////////////
+//
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetQueryStatus {
+    query_id: u128,
+}
+
+impl GenericMessage for GetQueryStatus {
+    fn msg_name() -> MessageName {
+        MessageName::GetQueryStatus
+    }
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: GetQueryStatus = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
+    }
+}
+
+////////////////////////////////////////////////////////////
+//
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GetQueryStatusResp {
+    QueryNotFound,
+    Status(query_handler::Status),
+}
+
+impl GenericMessage for GetQueryStatusResp {
+    fn msg_name() -> MessageName {
+        MessageName::GetQueryStatusResp
+    }
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: GetQueryStatusResp = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
+    }
+}
 
 ////////////////////////////////////////////////////////////
 //

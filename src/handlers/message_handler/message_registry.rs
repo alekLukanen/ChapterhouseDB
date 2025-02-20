@@ -9,6 +9,7 @@ use super::messages::message::{
     GenericMessageParser, Message, MessageParser, SendableMessage, SerializedMessage,
     SerializedMessageError,
 };
+use super::messages::query::GetQueryDataRespParser;
 
 #[derive(Debug, Clone, Error)]
 pub enum MessageRegistryError {
@@ -70,6 +71,16 @@ impl MessageRegistry {
         self.add(Box::new(GenericMessageParser::<
             messages::query::OperatorInstanceStatusChange,
         >::new()));
+        self.add(Box::new(GenericMessageParser::<
+            messages::query::GetQueryStatus,
+        >::new()));
+        self.add(Box::new(GenericMessageParser::<
+            messages::query::GetQueryStatusResp,
+        >::new()));
+        self.add(Box::new(GenericMessageParser::<
+            messages::query::GetQueryData,
+        >::new()));
+        self.add(Box::new(GetQueryDataRespParser::new()));
 
         // operator
         self.add(Box::new(GenericMessageParser::<

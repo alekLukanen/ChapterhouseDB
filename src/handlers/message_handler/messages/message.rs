@@ -552,6 +552,10 @@ pub enum MessageName {
     QueryOperatorInstanceStatusChange,
     ExchangeOperatorStatusChange,
     OperatorShutdown,
+    GetQueryStatus,
+    GetQueryStatusResp,
+    GetQueryData,
+    GetQueryDataResp,
 }
 
 impl MessageName {
@@ -570,6 +574,10 @@ impl MessageName {
             Self::QueryOperatorInstanceStatusChange => "QueryOperatorInstanceStatusChange",
             Self::ExchangeOperatorStatusChange => "ExchangeOperatorStatusChange",
             Self::OperatorShutdown => "OperatorShutdown",
+            Self::GetQueryStatus => "GetQueryStatus",
+            Self::GetQueryStatusResp => "GetQueryStatusResp",
+            Self::GetQueryData => "GetQueryData",
+            Self::GetQueryDataResp => "GetQueryDataResp",
         }
     }
     pub fn as_u16(&self) -> u16 {
@@ -587,6 +595,10 @@ impl MessageName {
             Self::QueryOperatorInstanceStatusChange => 10,
             Self::ExchangeOperatorStatusChange => 11,
             Self::OperatorShutdown => 12,
+            Self::GetQueryStatus => 13,
+            Self::GetQueryStatusResp => 14,
+            Self::GetQueryData => 15,
+            Self::GetQueryDataResp => 16,
         }
     }
 }

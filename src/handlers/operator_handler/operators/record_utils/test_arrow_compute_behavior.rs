@@ -9,6 +9,42 @@ use arrow::compute;
 use arrow::datatypes::{DataType, Field, Schema};
 
 #[test]
+fn test_pretty_print_record() -> Result<()> {
+    let text_array1: ArrayRef = Arc::new(StringArray::from(vec!["hello", ", ", "world", "!"]));
+    let text_array2: ArrayRef = Arc::new(StringArray::from(vec!["a", "b", "c", "d"]));
+    let int_array1: ArrayRef = Arc::new(Int32Array::from(vec![1, 2, 3, 4]));
+    let schema = Schema::new(vec![
+        Field::new("table_a.id", DataType::Int32, false),
+        Field::new("table_a.text", DataType::Utf8, false),
+        Field::new("table_b.text", DataType::Utf8, false),
+    ]);
+
+    let rec = RecordBatch::try_new(
+        Arc::new(schema),
+        vec![int_array1, text_array1.clone(), text_array2.clone()],
+    )
+    .unwrap();
+
+    let recs = vec![rec];
+    let form_rec = arrow::util::pretty::pretty_format_batches(&recs)?;
+
+    println!("{}", form_rec);
+
+    let expected_form_rec = "+------------+--------------+--------------+
+| table_a.id | table_a.text | table_b.text |
++------------+--------------+--------------+
+| 1          | hello        | a            |
+| 2          | ,            | b            |
+| 3          | world        | c            |
+| 4          | !            | d            |
++------------+--------------+--------------+";
+
+    assert_eq!(form_rec.to_string(), expected_form_rec.to_string());
+
+    Ok(())
+}
+
+#[test]
 fn test_scalar_plus_scalar_returns_an_array_of_length_one_which_is_not_scalar() -> Result<()> {
     let left = Int32Array::new_scalar(1);
     let right = Int32Array::new_scalar(2);

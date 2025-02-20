@@ -1,8 +1,8 @@
 use std::u128;
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::debug;
 use uuid::Uuid;
 
 use crate::{
@@ -24,7 +24,7 @@ pub enum QueryHandlerStateError {
     ExpectedProducerOperatorType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Status {
     Queued,
     SendingToWorker,
