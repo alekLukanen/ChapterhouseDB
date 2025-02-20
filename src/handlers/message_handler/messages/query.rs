@@ -226,7 +226,7 @@ impl GenericMessage for GetQueryData {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetQueryStatus {
-    query_id: u128,
+    pub query_id: u128,
 }
 
 impl GenericMessage for GetQueryStatus {

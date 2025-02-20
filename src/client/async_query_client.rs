@@ -3,8 +3,10 @@ use bytes::BytesMut;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use crate::handlers::message_handler::messages::message::Message;
 use crate::handlers::message_handler::{messages, MessageRegistry};
 
 #[derive(Debug, Error)]
@@ -15,6 +17,8 @@ pub enum AsyncQueryClientError {
     ConnectionResetByPeer,
     #[error("expected message but received none")]
     ExpectedMessageButReceivedNone,
+    #[error("received message with incorrect request id")]
+    ReceivedMessageWithIncorrectRequestId,
 }
 
 #[derive(Debug)]
@@ -43,8 +47,64 @@ impl AsyncQueryClient {
             .await
             .context("failed to send query")?;
 
-        let query_resp: messages::query::RunQueryResp = self.expect_msg(stream).await?;
+        let query_resp: messages::query::RunQueryResp =
+            self.expect_msg(stream, run_query.request_id).await?;
         Ok(query_resp)
+    }
+
+    pub async fn get_query_status(
+        &self,
+        ct: CancellationToken,
+        query_id: &u128,
+    ) -> Result<messages::query::GetQueryStatusResp> {
+        let (ref mut stream, connection_id) = self
+            .create_connection()
+            .await
+            .context("connection failed")?;
+
+        let ref mut get_query_status = Message::new(Box::new(messages::query::GetQueryStatus {
+            query_id: query_id.clone(),
+        }));
+        self.send_msg(stream, get_query_status, connection_id)
+            .await
+            .context("failed to send message")?;
+
+        let resp: messages::query::GetQueryStatusResp =
+            self.expect_msg(stream, get_query_status.request_id).await?;
+        Ok(resp)
+    }
+
+    pub async fn wait_for_query_to_finish(
+        &self,
+        ct: CancellationToken,
+        query_id: &u128,
+        max_wait: chrono::Duration,
+    ) -> Result<messages::query::GetQueryStatusResp> {
+        let ct_task = ct.clone();
+        let dur = max_wait.to_std()?;
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = ct_task.cancelled() => {
+                    return;
+                }
+                _ = tokio::time::sleep(dur) => {
+                    ct_task.cancel();
+                    return;
+                }
+            }
+        });
+
+        loop {
+            let resp = self.get_query_status(ct.clone(), query_id).await?;
+            match resp {
+                messages::query::GetQueryStatusResp::QueryNotFound => {
+                    return Ok(resp);
+                }
+                messages::query::GetQueryStatusResp::Status(_) => {
+                    return Ok(resp);
+                }
+            }
+        }
     }
 
     async fn create_connection(&self) -> Result<(TcpStream, u128)> {
@@ -64,7 +124,7 @@ impl AsyncQueryClient {
         self.send_msg(stream, identify, connection_id).await?;
 
         let _: messages::common::Identify = self
-            .expect_msg(stream)
+            .expect_msg(stream, identify.request_id)
             .await
             .context("failed to receive response identification from the worker")?;
 
@@ -74,10 +134,17 @@ impl AsyncQueryClient {
     async fn expect_msg<T: messages::message::SendableMessage>(
         &self,
         stream: &mut TcpStream,
+        request_id: u128,
     ) -> Result<T> {
         let msg = self.read_msg(stream).await?;
         match msg {
-            Some(msg) => Ok(self.msg_reg.try_cast_msg_owned(msg)?),
+            Some(msg) => {
+                if msg.request_id != request_id {
+                    Err(AsyncQueryClientError::ReceivedMessageWithIncorrectRequestId.into())
+                } else {
+                    Ok(self.msg_reg.try_cast_msg_owned(msg)?)
+                }
+            }
             None => Err(AsyncQueryClientError::ExpectedMessageButReceivedNone.into()),
         }
     }

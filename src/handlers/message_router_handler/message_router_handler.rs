@@ -239,8 +239,8 @@ impl MessageRouterHandler {
         match identify_msg {
             messages::common::Identify::Worker { id } => {
                 if let Some(inbound_stream_id) = msg.inbound_stream_id {
-                    let identify_back =
-                        Message::new(Box::new(messages::common::Identify::Worker {
+                    let identify_back = msg
+                        .reply(Box::new(messages::common::Identify::Worker {
                             id: self.worker_id.clone(),
                         }))
                         .set_sent_from_worker_id(self.worker_id.clone())
@@ -270,8 +270,8 @@ impl MessageRouterHandler {
                     };
                     self.state.lock().await.add_external_subscriber(sub)?;
 
-                    let identify_back =
-                        Message::new(Box::new(messages::common::Identify::Worker {
+                    let identify_back = msg
+                        .reply(Box::new(messages::common::Identify::Worker {
                             id: self.worker_id.clone(),
                         }))
                         .set_sent_from_worker_id(self.worker_id.clone())
