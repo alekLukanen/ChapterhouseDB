@@ -10,7 +10,6 @@ use chapterhouseqe::{
 
 use clap::Parser;
 
-/// Simple program to greet a person
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -18,7 +17,7 @@ struct Args {
     #[arg(short, long, default_value_t = 7000)]
     port: u32,
 
-    /// Addresses to connect to
+    /// Addresses to connect with
     #[arg(short, long)]
     connect_to_addresses: Vec<String>,
 

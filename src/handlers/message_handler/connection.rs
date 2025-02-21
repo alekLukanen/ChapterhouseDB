@@ -7,7 +7,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use crate::handlers::message_handler::messages;
@@ -88,7 +88,7 @@ impl Connection {
     }
 
     pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
-        info!(
+        debug!(
             stream_id = self.stream_id,
             ip = self.stream.peer_addr()?.to_string(),
             "new connection",
@@ -139,7 +139,7 @@ impl Connection {
                             if size == 0 {
                                 self.pipe.close_receiver();
                                 if self.buf.is_empty() {
-                                    return Ok(());
+                                    break;
                                 } else {
                                     return Err(ConnectionError::ConnectionResetByPeer.into());
                                 }
@@ -164,7 +164,7 @@ impl Connection {
             }
         }
 
-        info!("closing connection...");
+        debug!("closing connection...");
         self.pipe.close_receiver();
         tokio::select! {
             res = self.stream.shutdown() => {

@@ -106,6 +106,10 @@ impl QueryHandler {
                 .handle_run_query(&msg)
                 .await
                 .context("failed handling the run query message")?,
+            MessageName::GetQueryStatus => self
+                .handle_get_query_status(&msg)
+                .await
+                .context("failed handling the get query status message")?,
             MessageName::OperatorInstanceAvailable => self
                 .handle_operator_instance_response(&msg)
                 .await
@@ -126,6 +130,33 @@ impl QueryHandler {
                 info!("unknown message received: {:?}", msg);
             }
         }
+        Ok(())
+    }
+
+    async fn handle_get_query_status(&mut self, msg: &Message) -> Result<()> {
+        let cast_msg: &messages::query::GetQueryStatus = self.msg_reg.try_cast_msg(msg)?;
+
+        let query_res = self.state.find_query(&cast_msg.query_id);
+        match query_res {
+            Ok(query) => {
+                let resp_msg = msg.reply(Box::new(messages::query::GetQueryStatusResp::Status(
+                    query.status.clone(),
+                )));
+                self.router_pipe.send(resp_msg).await?;
+            }
+            Err(err) => match err.downcast_ref::<QueryHandlerStateError>() {
+                Some(QueryHandlerStateError::QueryNotFound(_)) => {
+                    let resp_msg =
+                        msg.reply(Box::new(messages::query::GetQueryStatusResp::QueryNotFound));
+                    self.router_pipe.send(resp_msg).await?;
+                }
+                None => {}
+                _ => {
+                    return Err(err);
+                }
+            },
+        }
+
         Ok(())
     }
 
@@ -431,6 +462,8 @@ impl MessageConsumer for QueryHandlerSubscriber {
         // always accept these messages
         match msg.msg.msg_name() {
             MessageName::RunQuery => return true,
+            MessageName::GetQueryStatus => return true,
+            MessageName::GetQueryData => return true,
             MessageName::OperatorInstanceAvailable => {
                 match self
                     .msg_reg

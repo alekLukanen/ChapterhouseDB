@@ -79,32 +79,48 @@ impl AsyncQueryClient {
         ct: CancellationToken,
         query_id: &u128,
         max_wait: chrono::Duration,
+        poll_interval: chrono::Duration,
     ) -> Result<messages::query::GetQueryStatusResp> {
-        let ct_task = ct.clone();
-        let dur = max_wait.to_std()?;
-        tokio::spawn(async move {
-            tokio::select! {
-                _ = ct_task.cancelled() => {
-                    return;
-                }
-                _ = tokio::time::sleep(dur) => {
-                    ct_task.cancel();
-                    return;
-                }
-            }
-        });
+        let ct_task = CancellationToken::new();
+        let poll_interval = poll_interval.to_std()?;
+
+        Self::cancel_wait(ct.clone(), ct_task.clone(), max_wait)?;
 
         loop {
-            let resp = self.get_query_status(ct.clone(), query_id).await?;
-            match resp {
+            let resp = self.get_query_status(ct_task.clone(), query_id).await?;
+            match &resp {
                 messages::query::GetQueryStatusResp::QueryNotFound => {
+                    ct_task.cancel();
                     return Ok(resp);
                 }
-                messages::query::GetQueryStatusResp::Status(_) => {
+                messages::query::GetQueryStatusResp::Status(status) => {
+                    if !status.terminal() {
+                        tokio::time::sleep(poll_interval).await;
+                        continue;
+                    }
+                    ct_task.cancel();
                     return Ok(resp);
                 }
             }
         }
+    }
+
+    fn cancel_wait(
+        ct: CancellationToken,
+        ct_task: CancellationToken,
+        max_wait: chrono::Duration,
+    ) -> Result<()> {
+        let dur = max_wait.to_std()?;
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = ct_task.cancelled() => {}
+                _ = ct.cancelled() => {}
+                _ = tokio::time::sleep(dur) => {}
+            }
+            ct_task.cancel();
+            return;
+        });
+        Ok(())
     }
 
     async fn create_connection(&self) -> Result<(TcpStream, u128)> {
@@ -160,7 +176,8 @@ impl AsyncQueryClient {
             }
 
             // end the conneciton if the other system has sent too much data
-            if buf.len() > 1024 * 1024 * 10 {
+            // 1 Gib
+            if buf.len() > 1024 * 1024 * 1024 {
                 return Err(AsyncQueryClientError::BufferReachedMaxSize.into());
             }
 

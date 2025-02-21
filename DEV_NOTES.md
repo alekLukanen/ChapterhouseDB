@@ -41,6 +41,11 @@ of the record stack is no longer needed you can remove it's reference and load i
 that will soon be used. Write the records to Arrow files not Parquet files and write these
 records to the "default" connection (file systems, S3, etc...) under folder 
 `/exchange/<query_id>/<exchange_instance_id>/<record_id>.arrow`.
+- [ ] Refactor the query handler state so that the find and get method use an option for
+things that they can't find instead of returning an error. For example, if a query is not
+found return None instead of a query not found error.
+- [ ] Update the Connection struct in `connection.rs` so that it handles errors more cleanly.
+It should run the shutdown after the main loop before returning.
 
 ## TODO
 
