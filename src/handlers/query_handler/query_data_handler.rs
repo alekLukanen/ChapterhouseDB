@@ -27,8 +27,8 @@ use crate::handlers::{
 
 #[derive(Debug, Error)]
 pub enum QueryDataHandlerError {
-    #[error("get data message file index less than zero: {0:?}")]
-    GetDataMessageFileIndexLessThanZero(messages::query::GetQueryData),
+    #[error("query file does not exist")]
+    QueryFileDoesNotExist,
 }
 
 pub struct QueryDataHandler {
@@ -129,7 +129,6 @@ impl QueryDataHandler {
 
     async fn handle_get_query_data(&self, msg: &Message) -> Result<()> {
         let get_data_msg: &messages::query::GetQueryData = self.msg_reg.try_cast_msg(msg)?;
-        Self::validate_get_data_msg_request(get_data_msg)?;
 
         let query_uuid_id = Uuid::from_u128(get_data_msg.query_id.clone());
         let mut file_path = PathBuf::from("/query_results");
@@ -140,18 +139,62 @@ impl QueryDataHandler {
             .to_str()
             .expect("expected file path to be non-empty");
 
+        match self
+            .get_row_group_data(complete_file_path, get_data_msg.file_row_group_idx)
+            .await
+        {
+            Ok((Some(rec), num_row_groups)) => {
+                let next_file_idx = if get_data_msg.file_row_group_idx < num_row_groups - 1 {
+                    get_data_msg.file_idx
+                } else {
+                    get_data_msg.file_idx + 1
+                };
+                let next_row_group_idx = if get_data_msg.file_row_group_idx < num_row_groups - 1 {
+                    get_data_msg.file_row_group_idx + 1
+                } else {
+                    0
+                };
+
+                let resp = msg.reply(Box::new(messages::query::GetQueryDataResp::Record {
+                    record: Arc::new(rec),
+                    next_file_idx: Some(next_file_idx),
+                    next_file_row_group_idx: Some(next_row_group_idx),
+                }));
+                self.router_pipe.send(resp).await?;
+            }
+            Ok((None, _)) => {
+                let resp = msg.reply(Box::new(
+                    messages::query::GetQueryDataResp::RecordRowGroupNotFound,
+                ));
+                self.router_pipe.send(resp).await?;
+            }
+            Err(err) => {
+                error!("{:?}", err);
+                let resp = msg.reply(Box::new(messages::query::GetQueryDataResp::Error {
+                    err: err.to_string(),
+                }));
+                self.router_pipe.send(resp).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn get_row_group_data(
+        &self,
+        file_path: &str,
+        file_row_group_idx: u64,
+    ) -> Result<(Option<arrow::array::RecordBatch>, u64)> {
         let storage_conn = self.conn_reg.get_operator("default")?;
 
-        let content_len = if let Ok(meta_data) = storage_conn.stat(complete_file_path).await {
+        let content_len = if let Ok(meta_data) = storage_conn.stat(file_path).await {
             meta_data.content_length()
         } else {
-            let resp = msg.reply(Box::new(messages::query::GetQueryDataResp::QueryNotFound));
-            self.router_pipe.send(resp).await?;
-            return Ok(());
+            return Err(QueryDataHandlerError::QueryFileDoesNotExist.into());
         };
 
         let reader = storage_conn
-            .reader_with(complete_file_path)
+            .reader_with(file_path)
             .gap(512 * 1024)
             .chunk(16 * 1024 * 1024)
             .concurrent(4)
@@ -161,59 +204,19 @@ impl QueryDataHandler {
         let meta_data =
             ArrowReaderMetadata::load_async(parquet_reader_for_meta, ArrowReaderOptions::new())
                 .await?;
-        let num_row_groups = meta_data.metadata().num_row_groups();
+        let num_row_groups = meta_data.metadata().num_row_groups() as u64;
 
         let parquet_reader = AsyncReader::new(reader, content_len);
         let mut stream = ParquetRecordBatchStreamBuilder::new(parquet_reader)
             .await?
-            .with_row_groups(vec![get_data_msg.file_row_group_idx as usize])
+            .with_row_groups(vec![file_row_group_idx as usize])
             .build()?;
 
-        let rec: Option<arrow::array::RecordBatch> = None;
-        let has_next_row_group_idx = false;
-
-        let rec = if let Some(rec) = stream.next().await {
-            if let Ok(rec) = rec {
-                rec
-            } else {
-                None
-            }
-        } else {
-            let resp = msg.reply(Box::new(
-                messages::query::GetQueryDataResp::RecordRowGroupNotFound,
-            ));
-            self.router_pipe.send(resp).await?;
-            return Ok(());
-        };
-        let next_file_idx = if has_next_row_group_idx {
-            get_data_msg.file_idx
-        } else {
-            get_data_msg.file_idx + 1
-        };
-        let next_row_group_idx = if has_next_row_group_idx {
-            get_data_msg.file_row_group_idx + 1
-        } else {
-            0
-        };
-
-        let resp = msg.reply(Box::new(messages::query::GetQueryDataResp::Record {
-            record: Arc::new(rec),
-            next_file_idx: Some(next_file_idx),
-            next_file_row_group_idx: Some(next_row_group_idx),
-        }));
-        self.router_pipe.send(resp).await?;
-
-        Ok(())
-    }
-
-    fn validate_get_data_msg_request(get_data_msg: &messages::query::GetQueryData) -> Result<()> {
-        if get_data_msg.file_idx < 0 {
-            return Err(QueryDataHandlerError::GetDataMessageFileIndexLessThanZero(
-                get_data_msg.clone(),
-            )
-            .into());
+        match stream.next().await {
+            Some(Ok(res)) => Ok((Some(res), num_row_groups)),
+            Some(Err(err)) => Err(err.into()),
+            None => Ok((None, num_row_groups)),
         }
-        Ok(())
     }
 }
 

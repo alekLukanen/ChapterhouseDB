@@ -10,7 +10,7 @@ use crate::handlers::message_handler::{ConnectionPoolHandler, MessageRegistry};
 use crate::handlers::message_router_handler::MessageRouterHandler;
 use crate::handlers::operator_handler::operators;
 use crate::handlers::operator_handler::{OperatorHandler, TotalOperatorCompute};
-use crate::handlers::query_handler::QueryHandler;
+use crate::handlers::query_handler::{QueryDataHandler, QueryHandler};
 
 pub struct QueryWorkerConfig {
     address: String,
@@ -82,6 +82,13 @@ impl QueryWorker {
         let mut query_handler =
             QueryHandler::new(message_router_state.clone(), msg_reg.clone()).await;
 
+        let mut query_data_handler = QueryDataHandler::new(
+            message_router_state.clone(),
+            msg_reg.clone(),
+            conn_reg.clone(),
+        )
+        .await;
+
         let mut operator_handler = OperatorHandler::new(
             message_router_state.clone(),
             msg_reg.clone(),
@@ -94,28 +101,35 @@ impl QueryWorker {
         let ct = self.cancelation_token.clone();
         tt.spawn(async move {
             if let Err(err) = connection_pool_handler.async_main(ct).await {
-                error!("error: {}", err);
+                error!("{:?}", err);
             }
         });
 
         let message_router_ct = self.cancelation_token.clone();
         tt.spawn(async move {
             if let Err(err) = message_router.async_main(message_router_ct).await {
-                error!("error: {}", err);
+                error!("{:?}", err);
             }
         });
 
         let query_handler_ct = self.cancelation_token.clone();
         tt.spawn(async move {
             if let Err(err) = query_handler.async_main(query_handler_ct).await {
-                error!("error: {}", err);
+                error!("{:?}", err);
+            }
+        });
+
+        let query_data_handler_ct = self.cancelation_token.clone();
+        tt.spawn(async move {
+            if let Err(err) = query_data_handler.async_main(query_data_handler_ct).await {
+                error!("{:?}", err);
             }
         });
 
         let operator_handler_ct = self.cancelation_token.clone();
         tt.spawn(async move {
             if let Err(err) = operator_handler.async_main(operator_handler_ct).await {
-                error!("error: {}", err);
+                error!("{:?}", err);
             }
         });
 

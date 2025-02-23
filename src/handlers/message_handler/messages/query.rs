@@ -29,6 +29,9 @@ pub enum GetQueryDataResp {
         next_file_idx: Option<u64>,
         next_file_row_group_idx: Option<u64>,
     },
+    Error {
+        err: String,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -36,6 +39,11 @@ pub struct GetQueryDataRespQueryNotFound {}
 
 #[derive(Debug, Deserialize)]
 pub struct GetQueryDataRespRecordRowGroupNotFound {}
+
+#[derive(Debug, Deserialize)]
+pub struct GetQueryDataRespError {
+    err: String,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct GetQueryDataRespRecord {
@@ -49,6 +57,7 @@ impl GetQueryDataResp {
             Self::QueryNotFound => 0,
             Self::RecordRowGroupNotFound => 1,
             Self::Record { .. } => 2,
+            Self::Error { .. } => 3,
         }
     }
 }
@@ -56,15 +65,7 @@ impl GetQueryDataResp {
 impl SendableMessage for GetQueryDataResp {
     fn to_bytes(&self) -> Result<Vec<u8>> {
         match self {
-            Self::QueryNotFound => {
-                let meta_data = serde_json::to_vec(self)?;
-                let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len());
-                buf.put_u8(self.msg_id());
-                buf.put_u64(meta_data.len() as u64);
-                buf.put(&meta_data[..]);
-                return Ok(buf.to_vec());
-            }
-            Self::RecordRowGroupNotFound => {
+            Self::QueryNotFound | Self::RecordRowGroupNotFound | Self::Error { .. } => {
                 let meta_data = serde_json::to_vec(self)?;
                 let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len());
                 buf.put_u8(self.msg_id());
@@ -212,6 +213,21 @@ impl MessageParser for GetQueryDataRespParser {
                 next_file_idx: meta.next_file_idx,
                 next_file_row_group_idx: meta.next_file_row_group_idx,
             };
+
+            Ok(Message::build_from_serialized_message(
+                ser_msg,
+                Box::new(msg),
+            ))
+        } else if msg_id == 3 {
+            let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
+            meta_data.resize(meta_data_len as usize, 0);
+            match buf.read_exact(&mut meta_data) {
+                Err(_) => return Err(GetQueryDataRespParserError::ReadExactFailed.into()),
+                _ => (),
+            }
+            let meta: GetQueryDataRespError = serde_json::from_slice(&meta_data[..])?;
+
+            let msg = GetQueryDataResp::Error { err: meta.err };
 
             Ok(Message::build_from_serialized_message(
                 ser_msg,
