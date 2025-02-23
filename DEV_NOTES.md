@@ -86,6 +86,9 @@ should reserve space before creating new arrays or records. These arrays and rec
 should also store a weak reference in the manager so that the manager can keep track of
 what is still active. The `Record` type should implement the `Drop` trait so that
 when the record is dropped it removes itself from the manager.
+- [ ] Update the query status polling loop so that the client can send a request and then 
+receive a generic ok response. Then at this point the query handler will push an update to
+the client when the query completes.
 
 ## 📄 Rust Notes
 

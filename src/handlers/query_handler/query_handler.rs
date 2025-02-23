@@ -65,15 +65,30 @@ impl QueryHandler {
     }
 
     pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
+        debug!(operator_id = self.operator_id, "started query handler");
+
         self.message_router_state
             .lock()
             .await
             .add_internal_subscriber(self.subscriber(), self.operator_id);
 
+        let res = self.inner_async_main(ct.clone()).await;
+
+        self.message_router_state
+            .lock()
+            .await
+            .remove_internal_subscriber(&self.operator_id);
+        self.router_pipe.close_receiver();
+
+        debug!(operator_id = self.operator_id, "closed the query handler");
+
+        res
+    }
+
+    async fn inner_async_main(&mut self, ct: CancellationToken) -> Result<()> {
         loop {
             tokio::select! {
                 Some(msg) = self.router_pipe.recv() => {
-                    debug!("recieved message: {}", msg);
                     let res = self.handle_message(msg).await;
                     if let Err(err) = res {
                         if let Some(err_state) = err.downcast_ref::<QueryHandlerStateError>() {
@@ -89,14 +104,6 @@ impl QueryHandler {
             }
         }
 
-        self.message_router_state
-            .lock()
-            .await
-            .remove_internal_subscriber(&self.operator_id);
-
-        info!("closing the query handler...");
-        self.router_pipe.close_receiver();
-
         Ok(())
     }
 
@@ -105,32 +112,32 @@ impl QueryHandler {
             MessageName::RunQuery => self
                 .handle_run_query(&msg)
                 .await
-                .context("failed handling the run query message")?,
+                .context("failed handling the run query message"),
             MessageName::GetQueryStatus => self
                 .handle_get_query_status(&msg)
                 .await
-                .context("failed handling the get query status message")?,
+                .context("failed handling the get query status message"),
             MessageName::OperatorInstanceAvailable => self
                 .handle_operator_instance_response(&msg)
                 .await
-                .context("failed handling the operator instance available response message")?,
+                .context("failed handling the operator instance available response message"),
             MessageName::OperatorInstanceAssignment => self
                 .handle_operator_instance_assignment_responses(&msg)
                 .await
-                .context("failed handling the operator instance assignment response messages")?,
+                .context("failed handling the operator instance assignment response messages"),
             MessageName::QueryHandlerRequests => self
                 .handle_query_handler_request_list_operator_instances(&msg)
                 .await
-                .context("failed handling the query handler request")?,
+                .context("failed handling the query handler request"),
             MessageName::QueryOperatorInstanceStatusChange => self
                 .handle_operator_instance_status_change(&msg)
                 .await
-                .context("failed handling the operator instance status change")?,
+                .context("failed handling the operator instance status change"),
             _ => {
-                info!("unknown message received: {:?}", msg);
+                info!("unhandled message received: {:?}", msg);
+                Ok(())
             }
         }
-        Ok(())
     }
 
     async fn handle_get_query_status(&mut self, msg: &Message) -> Result<()> {

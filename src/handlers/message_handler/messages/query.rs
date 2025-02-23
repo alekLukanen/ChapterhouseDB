@@ -206,9 +206,9 @@ impl MessageParser for GetQueryDataRespParser {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetQueryData {
-    query_id: u128,
-    file_idx: u64,
-    file_row_group_idx: u64,
+    pub query_id: u128,
+    pub file_idx: u64,
+    pub file_row_group_idx: u64,
 }
 
 impl GenericMessage for GetQueryData {
