@@ -35,12 +35,6 @@ pub enum GetQueryDataResp {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct GetQueryDataRespQueryNotFound {}
-
-#[derive(Debug, Deserialize)]
-pub struct GetQueryDataRespRecordRowGroupNotFound {}
-
-#[derive(Debug, Deserialize)]
 pub struct GetQueryDataRespError {
     err: String,
 }
@@ -175,7 +169,6 @@ impl MessageParser for GetQueryDataRespParser {
                 Err(_) => return Err(GetQueryDataRespParserError::ReadExactFailed.into()),
                 _ => (),
             }
-            let _: GetQueryDataRespQueryNotFound = serde_json::from_slice(&meta_data[..])?;
 
             let msg = GetQueryDataResp::QueryNotFound;
 
@@ -190,7 +183,6 @@ impl MessageParser for GetQueryDataRespParser {
                 Err(_) => return Err(GetQueryDataRespParserError::ReadExactFailed.into()),
                 _ => (),
             }
-            let _: GetQueryDataRespRecordRowGroupNotFound = serde_json::from_slice(&meta_data[..])?;
 
             let msg = GetQueryDataResp::RecordRowGroupNotFound;
 
@@ -205,7 +197,9 @@ impl MessageParser for GetQueryDataRespParser {
                 Err(_) => return Err(GetQueryDataRespParserError::ReadExactFailed.into()),
                 _ => (),
             }
-            let meta: GetQueryDataRespRecord = serde_json::from_slice(&meta_data[..])?;
+
+            let meta: serde_json::Value = serde_json::from_slice(&meta_data[..])?;
+            let meta: GetQueryDataRespRecord = serde_json::from_value(meta["Record"].clone())?;
 
             let record = self.parse_record(&mut buf)?;
             let msg = GetQueryDataResp::Record {
@@ -225,7 +219,9 @@ impl MessageParser for GetQueryDataRespParser {
                 Err(_) => return Err(GetQueryDataRespParserError::ReadExactFailed.into()),
                 _ => (),
             }
-            let meta: GetQueryDataRespError = serde_json::from_slice(&meta_data[..])?;
+
+            let meta: serde_json::Value = serde_json::from_slice(&meta_data[..])?;
+            let meta: GetQueryDataRespError = serde_json::from_value(meta["Error"].clone())?;
 
             let msg = GetQueryDataResp::Error { err: meta.err };
 

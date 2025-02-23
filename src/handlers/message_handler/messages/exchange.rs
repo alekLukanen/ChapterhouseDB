@@ -92,12 +92,6 @@ struct ExchangeRequestsGetNextRecordResponseRecord {
 }
 
 #[derive(Debug, Deserialize)]
-struct ExchangeRequestsGetNextRecordResponseNoneLeft {}
-
-#[derive(Debug, Deserialize)]
-struct ExchangeRequestsGetNextRecordResponseNoneAvailable {}
-
-#[derive(Debug, Deserialize)]
 struct ExchangeRequestsGetNextRecordRequest {
     operator_id: String,
 }
@@ -118,9 +112,6 @@ struct ExchangeRequestsOperatorCompletedRecordProcessingRequest {
     operator_id: String,
     record_id: u64,
 }
-
-#[derive(Debug, Deserialize)]
-struct ExchangeRequestsOperatorCompletedRecordProcessingResponse {}
 
 impl SendableMessage for ExchangeRequests {
     fn to_bytes(&self) -> Result<Vec<u8>> {
@@ -282,8 +273,10 @@ impl MessageParser for ExchangeRequestsParser {
                 Err(_) => return Err(ExchangeRequestsError::ReadExactFailed.into()),
                 _ => (),
             }
+
+            let meta: serde_json::Value = serde_json::from_slice(&meta_data[..])?;
             let meta: ExchangeRequestsGetNextRecordRequest =
-                serde_json::from_slice(&meta_data[..])?;
+                serde_json::from_value(meta["GetNextRecordRequest"].clone())?;
 
             let msg = ExchangeRequests::GetNextRecordRequest {
                 operator_id: meta.operator_id,
@@ -300,8 +293,10 @@ impl MessageParser for ExchangeRequestsParser {
                 Err(_) => return Err(ExchangeRequestsError::ReadExactFailed.into()),
                 _ => (),
             }
+
+            let meta: serde_json::Value = serde_json::from_slice(&meta_data[..])?;
             let meta: ExchangeRequestsGetNextRecordResponseRecord =
-                serde_json::from_slice(&meta_data[..])?;
+                serde_json::from_value(meta["GetNextRecordResponseRecord"].clone())?;
 
             let record = self.parse_record(&mut buf)?;
             let msg = ExchangeRequests::GetNextRecordResponseRecord {
@@ -321,8 +316,6 @@ impl MessageParser for ExchangeRequestsParser {
                 Err(_) => return Err(ExchangeRequestsError::ReadExactFailed.into()),
                 _ => (),
             }
-            let _: ExchangeRequestsGetNextRecordResponseNoneLeft =
-                serde_json::from_slice(&meta_data[..])?;
 
             let msg = ExchangeRequests::GetNextRecordResponseNoneLeft;
 
@@ -337,8 +330,6 @@ impl MessageParser for ExchangeRequestsParser {
                 Err(_) => return Err(ExchangeRequestsError::ReadExactFailed.into()),
                 _ => (),
             }
-            let _: ExchangeRequestsGetNextRecordResponseNoneAvailable =
-                serde_json::from_slice(&meta_data[..])?;
 
             let msg = ExchangeRequests::GetNextRecordResponseNoneAvailable;
 
@@ -353,7 +344,10 @@ impl MessageParser for ExchangeRequestsParser {
                 Err(_) => return Err(ExchangeRequestsError::ReadExactFailed.into()),
                 _ => (),
             }
-            let meta: ExchangeRequestsSendRecordRequest = serde_json::from_slice(&meta_data[..])?;
+
+            let meta: serde_json::Value = serde_json::from_slice(&meta_data[..])?;
+            let meta: ExchangeRequestsSendRecordRequest =
+                serde_json::from_value(meta["SendRecordRequest"].clone())?;
 
             let record = self.parse_record(&mut buf)?;
             let msg = ExchangeRequests::SendRecordRequest {
@@ -373,7 +367,10 @@ impl MessageParser for ExchangeRequestsParser {
                 Err(_) => return Err(ExchangeRequestsError::ReadExactFailed.into()),
                 _ => (),
             }
-            let meta: ExchangeRequestsSendRecordResponse = serde_json::from_slice(&meta_data[..])?;
+
+            let meta: serde_json::Value = serde_json::from_slice(&meta_data[..])?;
+            let meta: ExchangeRequestsSendRecordResponse =
+                serde_json::from_value(meta["SendRecordResponse"].clone())?;
 
             let msg = ExchangeRequests::SendRecordResponse {
                 record_id: meta.record_id,
@@ -391,8 +388,10 @@ impl MessageParser for ExchangeRequestsParser {
                 _ => (),
             }
 
+            let meta: serde_json::Value = serde_json::from_slice(&meta_data[..])?;
             let meta: ExchangeRequestsOperatorCompletedRecordProcessingRequest =
-                serde_json::from_slice(&meta_data[..])?;
+                serde_json::from_value(meta["OperatorCompletedRecordProcessingRequest"].clone())?;
+
             let msg = ExchangeRequests::OperatorCompletedRecordProcessingRequest {
                 operator_id: meta.operator_id,
                 record_id: meta.record_id,
@@ -410,8 +409,6 @@ impl MessageParser for ExchangeRequestsParser {
                 _ => (),
             }
 
-            let _: ExchangeRequestsOperatorCompletedRecordProcessingResponse =
-                serde_json::from_slice(&meta_data[..])?;
             let msg = ExchangeRequests::OperatorCompletedRecordProcessingResponse;
 
             Ok(Message::build_from_serialized_message(

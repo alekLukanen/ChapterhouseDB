@@ -235,9 +235,19 @@ impl Subscriber for QueryDataHandlerSubscriber {}
 impl MessageConsumer for QueryDataHandlerSubscriber {
     fn consumes_message(&self, msg: &Message) -> bool {
         match msg.msg.msg_name() {
-            MessageName::GetQueryData => true,
-            _ => false,
+            MessageName::GetQueryData => return true,
+            _ => (),
         }
+
+        // only accept other messages intended for this operator
+        if msg.sent_from_connection_id.is_none()
+            && (msg.route_to_connection_id.is_some()
+                || msg.route_to_operation_id != Some(self.operator_id))
+        {
+            return false;
+        }
+
+        false
     }
 }
 
