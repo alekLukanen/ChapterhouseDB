@@ -22,6 +22,7 @@ use super::message::{
 #[derive(Debug, Clone, Serialize)]
 pub enum GetQueryDataResp {
     QueryNotFound,
+    RecordRowGroupNotFound,
     Record {
         #[serde(skip_serializing)]
         record: Arc<arrow::array::RecordBatch>,
@@ -34,6 +35,9 @@ pub enum GetQueryDataResp {
 pub struct GetQueryDataRespQueryNotFound {}
 
 #[derive(Debug, Deserialize)]
+pub struct GetQueryDataRespRecordRowGroupNotFound {}
+
+#[derive(Debug, Deserialize)]
 pub struct GetQueryDataRespRecord {
     next_file_idx: Option<u64>,
     next_file_row_group_idx: Option<u64>,
@@ -43,7 +47,8 @@ impl GetQueryDataResp {
     fn msg_id(&self) -> u8 {
         match self {
             Self::QueryNotFound => 0,
-            Self::Record { .. } => 1,
+            Self::RecordRowGroupNotFound => 1,
+            Self::Record { .. } => 2,
         }
     }
 }
@@ -52,6 +57,14 @@ impl SendableMessage for GetQueryDataResp {
     fn to_bytes(&self) -> Result<Vec<u8>> {
         match self {
             Self::QueryNotFound => {
+                let meta_data = serde_json::to_vec(self)?;
+                let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len());
+                buf.put_u8(self.msg_id());
+                buf.put_u64(meta_data.len() as u64);
+                buf.put(&meta_data[..]);
+                return Ok(buf.to_vec());
+            }
+            Self::RecordRowGroupNotFound => {
                 let meta_data = serde_json::to_vec(self)?;
                 let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len());
                 buf.put_u8(self.msg_id());
@@ -170,6 +183,21 @@ impl MessageParser for GetQueryDataRespParser {
                 Box::new(msg),
             ))
         } else if msg_id == 1 {
+            let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
+            meta_data.resize(meta_data_len as usize, 0);
+            match buf.read_exact(&mut meta_data) {
+                Err(_) => return Err(GetQueryDataRespParserError::ReadExactFailed.into()),
+                _ => (),
+            }
+            let _: GetQueryDataRespRecordRowGroupNotFound = serde_json::from_slice(&meta_data[..])?;
+
+            let msg = GetQueryDataResp::RecordRowGroupNotFound;
+
+            Ok(Message::build_from_serialized_message(
+                ser_msg,
+                Box::new(msg),
+            ))
+        } else if msg_id == 2 {
             let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
             meta_data.resize(meta_data_len as usize, 0);
             match buf.read_exact(&mut meta_data) {

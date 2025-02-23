@@ -1,6 +1,12 @@
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
+use futures::StreamExt;
+use parquet::arrow::{
+    arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions},
+    ParquetRecordBatchStreamBuilder,
+};
+use parquet_opendal::AsyncReader;
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
@@ -146,10 +152,56 @@ impl QueryDataHandler {
 
         let reader = storage_conn
             .reader_with(complete_file_path)
+            .gap(512 * 1024)
             .chunk(16 * 1024 * 1024)
             .concurrent(4)
             .await?;
-        let parquet_reader = parquet_opendal::AsyncReader::new(reader, content_len);
+        let ref mut parquet_reader_for_meta = AsyncReader::new(reader.clone(), content_len);
+
+        let meta_data =
+            ArrowReaderMetadata::load_async(parquet_reader_for_meta, ArrowReaderOptions::new())
+                .await?;
+        let num_row_groups = meta_data.metadata().num_row_groups();
+
+        let parquet_reader = AsyncReader::new(reader, content_len);
+        let mut stream = ParquetRecordBatchStreamBuilder::new(parquet_reader)
+            .await?
+            .with_row_groups(vec![get_data_msg.file_row_group_idx as usize])
+            .build()?;
+
+        let rec: Option<arrow::array::RecordBatch> = None;
+        let has_next_row_group_idx = false;
+
+        let rec = if let Some(rec) = stream.next().await {
+            if let Ok(rec) = rec {
+                rec
+            } else {
+                None
+            }
+        } else {
+            let resp = msg.reply(Box::new(
+                messages::query::GetQueryDataResp::RecordRowGroupNotFound,
+            ));
+            self.router_pipe.send(resp).await?;
+            return Ok(());
+        };
+        let next_file_idx = if has_next_row_group_idx {
+            get_data_msg.file_idx
+        } else {
+            get_data_msg.file_idx + 1
+        };
+        let next_row_group_idx = if has_next_row_group_idx {
+            get_data_msg.file_row_group_idx + 1
+        } else {
+            0
+        };
+
+        let resp = msg.reply(Box::new(messages::query::GetQueryDataResp::Record {
+            record: Arc::new(rec),
+            next_file_idx: Some(next_file_idx),
+            next_file_row_group_idx: Some(next_row_group_idx),
+        }));
+        self.router_pipe.send(resp).await?;
 
         Ok(())
     }
