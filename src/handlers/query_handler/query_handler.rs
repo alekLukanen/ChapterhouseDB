@@ -470,7 +470,6 @@ impl MessageConsumer for QueryHandlerSubscriber {
         match msg.msg.msg_name() {
             MessageName::RunQuery => return true,
             MessageName::GetQueryStatus => return true,
-            MessageName::GetQueryData => return true,
             MessageName::OperatorInstanceAvailable => {
                 match self
                     .msg_reg

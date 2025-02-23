@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
         from read_files('simple/*.parquet')
             where id > 25 + 0.0;";
     let run_query_resp = client
-        .run_query(query.to_string())
+        .run_query(ct.clone(), query.to_string())
         .await
         .context("failed initiating a query run")?;
 
@@ -91,6 +91,27 @@ async fn main() -> Result<()> {
         messages::query::GetQueryStatusResp::QueryNotFound => {
             error!("query was not found");
             return Ok(());
+        }
+    }
+
+    debug!("get the query data");
+    let data_msg = client
+        .get_query_data(ct.clone(), &query_id, 0, 0, chrono::Duration::seconds(1))
+        .await?;
+    match data_msg {
+        messages::query::GetQueryDataResp::Record {
+            record,
+            next_file_idx,
+            next_file_row_group_idx,
+        } => {
+            let recs = vec![record.as_ref().clone()];
+            let rec_txt = arrow::util::pretty::pretty_format_batches(&recs)?;
+            info!("record data\n{}", rec_txt);
+            info!("next_file_idx: {:?}", next_file_idx);
+            info!("next_file_row_group_idx: {:?}", next_file_row_group_idx);
+        }
+        other => {
+            error!("unable to get record: {:?}", other);
         }
     }
 

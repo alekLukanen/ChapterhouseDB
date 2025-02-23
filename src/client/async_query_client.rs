@@ -19,6 +19,8 @@ pub enum AsyncQueryClientError {
     ExpectedMessageButReceivedNone,
     #[error("received message with incorrect request id")]
     ReceivedMessageWithIncorrectRequestId,
+    #[error("token cancelled")]
+    TokenCancelled,
 }
 
 #[derive(Debug)]
@@ -35,20 +37,25 @@ impl AsyncQueryClient {
         }
     }
 
-    pub async fn run_query(&self, query: String) -> Result<messages::query::RunQueryResp> {
+    pub async fn run_query(
+        &self,
+        ct: CancellationToken,
+        query: String,
+    ) -> Result<messages::query::RunQueryResp> {
         let (ref mut stream, connection_id) = self
-            .create_connection()
+            .create_connection(ct.clone())
             .await
             .context("connection failed")?;
 
         let ref mut run_query =
             messages::message::Message::new(Box::new(messages::query::RunQuery::new(query)));
-        self.send_msg(stream, run_query, connection_id)
+        self.send_msg(ct.clone(), stream, run_query, connection_id)
             .await
             .context("failed to send query")?;
 
-        let query_resp: messages::query::RunQueryResp =
-            self.expect_msg(stream, run_query.request_id).await?;
+        let query_resp: messages::query::RunQueryResp = self
+            .expect_msg(ct.clone(), stream, run_query.request_id)
+            .await?;
         Ok(query_resp)
     }
 
@@ -58,19 +65,20 @@ impl AsyncQueryClient {
         query_id: &u128,
     ) -> Result<messages::query::GetQueryStatusResp> {
         let (ref mut stream, connection_id) = self
-            .create_connection()
+            .create_connection(ct.clone())
             .await
             .context("connection failed")?;
 
         let ref mut get_query_status = Message::new(Box::new(messages::query::GetQueryStatus {
             query_id: query_id.clone(),
         }));
-        self.send_msg(stream, get_query_status, connection_id)
+        self.send_msg(ct.clone(), stream, get_query_status, connection_id)
             .await
             .context("failed to send message")?;
 
-        let resp: messages::query::GetQueryStatusResp =
-            self.expect_msg(stream, get_query_status.request_id).await?;
+        let resp: messages::query::GetQueryStatusResp = self
+            .expect_msg(ct.clone(), stream, get_query_status.request_id)
+            .await?;
         Ok(resp)
     }
 
@@ -105,6 +113,38 @@ impl AsyncQueryClient {
         }
     }
 
+    pub async fn get_query_data(
+        &self,
+        ct: CancellationToken,
+        query_id: &u128,
+        file_idx: u64,
+        file_row_group_idx: u64,
+        max_wait: chrono::Duration,
+    ) -> Result<messages::query::GetQueryDataResp> {
+        let ct_task = CancellationToken::new();
+        Self::cancel_wait(ct.clone(), ct_task.clone(), max_wait)?;
+
+        let (ref mut stream, connection_id) = self
+            .create_connection(ct_task.clone())
+            .await
+            .context("connection failed")?;
+
+        let ref mut msg = Message::new(Box::new(messages::query::GetQueryData {
+            query_id: query_id.clone(),
+            file_idx,
+            file_row_group_idx,
+        }));
+
+        self.send_msg(ct_task.clone(), stream, msg, connection_id)
+            .await
+            .context("failed to send get query data message")?;
+
+        let resp: messages::query::GetQueryDataResp = self
+            .expect_msg(ct_task.clone(), stream, msg.request_id)
+            .await?;
+        Ok(resp)
+    }
+
     fn cancel_wait(
         ct: CancellationToken,
         ct_task: CancellationToken,
@@ -123,24 +163,30 @@ impl AsyncQueryClient {
         Ok(())
     }
 
-    async fn create_connection(&self) -> Result<(TcpStream, u128)> {
+    async fn create_connection(&self, ct: CancellationToken) -> Result<(TcpStream, u128)> {
         let mut stream = TcpStream::connect(self.address.clone()).await?;
         let connection_id = Uuid::new_v4().as_u128();
-        self.identify(&mut stream, connection_id.clone())
+        self.identify(ct.clone(), &mut stream, connection_id.clone())
             .await
             .context("failed to identify with the worker")?;
         Ok((stream, connection_id))
     }
 
-    async fn identify(&self, stream: &mut TcpStream, connection_id: u128) -> Result<()> {
+    async fn identify(
+        &self,
+        ct: CancellationToken,
+        stream: &mut TcpStream,
+        connection_id: u128,
+    ) -> Result<()> {
         let ref mut identify =
             messages::message::Message::new(Box::new(messages::common::Identify::Connection {
                 id: connection_id,
             }));
-        self.send_msg(stream, identify, connection_id).await?;
+        self.send_msg(ct.clone(), stream, identify, connection_id)
+            .await?;
 
         let _: messages::common::Identify = self
-            .expect_msg(stream, identify.request_id)
+            .expect_msg(ct, stream, identify.request_id)
             .await
             .context("failed to receive response identification from the worker")?;
 
@@ -149,19 +195,27 @@ impl AsyncQueryClient {
 
     async fn expect_msg<T: messages::message::SendableMessage>(
         &self,
+        ct: CancellationToken,
         stream: &mut TcpStream,
         request_id: u128,
     ) -> Result<T> {
-        let msg = self.read_msg(stream).await?;
-        match msg {
-            Some(msg) => {
-                if msg.request_id != request_id {
-                    Err(AsyncQueryClientError::ReceivedMessageWithIncorrectRequestId.into())
-                } else {
-                    Ok(self.msg_reg.try_cast_msg_owned(msg)?)
+        tokio::select! {
+            msg = self.read_msg(stream) => {
+                match msg {
+                    Ok(Some(msg)) => {
+                        if msg.request_id != request_id {
+                            Err(AsyncQueryClientError::ReceivedMessageWithIncorrectRequestId.into())
+                        } else {
+                            Ok(self.msg_reg.try_cast_msg_owned(msg)?)
+                        }
+                    }
+                    Ok(None) => Err(AsyncQueryClientError::ExpectedMessageButReceivedNone.into()),
+                    Err(err) => Err(err),
                 }
             }
-            None => Err(AsyncQueryClientError::ExpectedMessageButReceivedNone.into()),
+            _ = ct.cancelled() => {
+                Err(AsyncQueryClientError::TokenCancelled.into())
+            }
         }
     }
 
@@ -198,13 +252,21 @@ impl AsyncQueryClient {
 
     async fn send_msg(
         &self,
+        ct: CancellationToken,
         stream: &mut TcpStream,
         msg: &mut messages::message::Message,
         connection_id: u128,
     ) -> Result<()> {
         msg.set_sent_from_connection_id(connection_id);
-        stream.write_all(&msg.to_bytes()?[..]).await?;
-
-        Ok(())
+        let data = msg.to_bytes()?;
+        tokio::select! {
+            res = stream.write_all(&data[..]) => {
+                res?;
+                Ok(())
+            }
+            _ = ct.cancelled() => {
+                Err(AsyncQueryClientError::TokenCancelled.into())
+            }
+        }
     }
 }
