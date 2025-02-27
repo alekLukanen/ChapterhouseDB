@@ -14,12 +14,19 @@ the functionality necessary to perform basic math and string operations.
 - [X] When the exchange operator shuts down it should send out a status change message like
 the producer operator does.
 - [X] Make the message serialization and de-serialization async.
-- [ ] The client should be able to request records from the query result iteratively. The client
+- [X] The client should be able to request records from the query result iteratively. The client
 should be able to request one record at a time, where each record to one row group from a 
 parquet file.
   * You can use a tuple `(file, row group, row index)` as the cursor. The row group is the 
   row group number in the file and the row index is the row index within the row group.
   Files should be sequential starting from `0`.
+- [ ] Implement a basic terminal UI using Ratatui so that you can easily write queries, 
+monitor query status including the status of individual operators and get view the query
+results in a table. The editor should be on the left, system monitor on the right and the 
+table at the bottom or in different view that is linked to by a result table underneath the 
+system monitor. You should also implement basic saving of the queries into an sql file in the
+current directory named `_chdb_editor_queries.sql` by default.
+  * Docs: https://ratatui.rs/ 
 - [ ] Materializing files should be be able to compact the records into a larger parquet file
 with a max number of row groups and rows in each group. The task should be
 able to take many records from the exchange until it has enough to fit into a row group,
