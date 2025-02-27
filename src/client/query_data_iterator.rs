@@ -12,6 +12,8 @@ use super::AsyncQueryClient;
 pub enum QueryDataIteratorError {
     #[error("query not found: {0}")]
     QueryNotFound(u128),
+    #[error("record row group not found: file_idx={0}, file_row_group_idx={1}")]
+    RecordRowGroupNotFound(u64, u64),
     #[error("database error response: {0}")]
     DatabaseErrorResp(String),
 }
@@ -65,10 +67,17 @@ impl QueryDataIterator {
                 self.file_row_group_idx = next_file_row_group_idx;
                 Ok(Some(record))
             }
+            messages::query::GetQueryDataResp::ReachedEndOfFiles => Ok(None),
             messages::query::GetQueryDataResp::QueryNotFound => {
                 Err(QueryDataIteratorError::QueryNotFound(self.query_id.clone()).into())
             }
-            messages::query::GetQueryDataResp::RecordRowGroupNotFound => Ok(None),
+            messages::query::GetQueryDataResp::RecordRowGroupNotFound => {
+                Err(QueryDataIteratorError::RecordRowGroupNotFound(
+                    self.file_idx,
+                    self.file_row_group_idx,
+                )
+                .into())
+            }
             messages::query::GetQueryDataResp::Error { err } => {
                 Err(QueryDataIteratorError::DatabaseErrorResp(err).into())
             }

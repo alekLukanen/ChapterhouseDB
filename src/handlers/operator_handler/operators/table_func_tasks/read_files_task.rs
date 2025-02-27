@@ -4,7 +4,7 @@ use anyhow::{Context, Error, Result};
 use futures::StreamExt;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 
 use crate::handlers::message_handler::messages;
 use crate::handlers::message_handler::messages::message::{Message, MessageName};
@@ -247,7 +247,6 @@ impl ReadFilesTask {
             }
             match record_res {
                 Ok(record) => {
-                    info!("read record");
                     self.send_record(record)
                         .await
                         .context("unable to send record to the exchange")?;

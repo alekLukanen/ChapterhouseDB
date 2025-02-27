@@ -31,6 +31,7 @@ pub enum GetQueryDataResp {
     Error {
         err: String,
     },
+    ReachedEndOfFiles,
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,6 +52,7 @@ impl GetQueryDataResp {
             Self::RecordRowGroupNotFound => 1,
             Self::Record { .. } => 2,
             Self::Error { .. } => 3,
+            Self::ReachedEndOfFiles => 4,
         }
     }
 }
@@ -58,7 +60,10 @@ impl GetQueryDataResp {
 impl SendableMessage for GetQueryDataResp {
     fn to_bytes(&self) -> Result<Vec<u8>> {
         match self {
-            Self::QueryNotFound | Self::RecordRowGroupNotFound | Self::Error { .. } => {
+            Self::QueryNotFound
+            | Self::RecordRowGroupNotFound
+            | Self::Error { .. }
+            | Self::ReachedEndOfFiles => {
                 let meta_data = serde_json::to_vec(self)?;
                 let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len());
                 buf.put_u8(self.msg_id());
@@ -223,6 +228,20 @@ impl MessageParser for GetQueryDataRespParser {
             let meta: GetQueryDataRespError = serde_json::from_value(meta["Error"].clone())?;
 
             let msg = GetQueryDataResp::Error { err: meta.err };
+
+            Ok(Message::build_from_serialized_message(
+                ser_msg,
+                Box::new(msg),
+            ))
+        } else if msg_id == 4 {
+            let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
+            meta_data.resize(meta_data_len as usize, 0);
+            match buf.read_exact(&mut meta_data) {
+                Err(_) => return Err(GetQueryDataRespParserError::ReadExactFailed.into()),
+                _ => (),
+            }
+
+            let msg = GetQueryDataResp::ReachedEndOfFiles;
 
             Ok(Message::build_from_serialized_message(
                 ser_msg,

@@ -97,25 +97,6 @@ async fn main() -> Result<()> {
     }
 
     debug!("get the query data");
-    let data_msg = client
-        .get_query_data(ct.clone(), &query_id, 0, 0, chrono::Duration::seconds(1))
-        .await?;
-    match data_msg {
-        messages::query::GetQueryDataResp::Record {
-            record,
-            next_file_idx,
-            next_file_row_group_idx,
-        } => {
-            let recs = vec![record.as_ref().clone()];
-            let rec_txt = arrow::util::pretty::pretty_format_batches(&recs)?;
-            info!("record data\n{}", rec_txt);
-            info!("next_file_idx: {:?}", next_file_idx);
-            info!("next_file_row_group_idx: {:?}", next_file_row_group_idx);
-        }
-        other => {
-            error!("unable to get record: {:?}", other);
-        }
-    }
     let mut query_data_iter =
         QueryDataIterator::new(client, query_id, 0, 0, chrono::Duration::seconds(1));
     loop {

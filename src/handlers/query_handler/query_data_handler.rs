@@ -169,13 +169,23 @@ impl QueryDataHandler {
                 ));
                 self.router_pipe.send(resp).await?;
             }
-            Err(err) => {
-                error!("{:?}", err);
-                let resp = msg.reply(Box::new(messages::query::GetQueryDataResp::Error {
-                    err: err.to_string(),
-                }));
-                self.router_pipe.send(resp).await?;
-            }
+            Err(err) => match err.downcast_ref::<QueryDataHandlerError>() {
+                Some(cast_err)
+                    if matches!(cast_err, QueryDataHandlerError::QueryFileDoesNotExist) =>
+                {
+                    let resp = msg.reply(Box::new(
+                        messages::query::GetQueryDataResp::ReachedEndOfFiles,
+                    ));
+                    self.router_pipe.send(resp).await?;
+                }
+                Some(_) | None => {
+                    error!("{:?}", err);
+                    let resp = msg.reply(Box::new(messages::query::GetQueryDataResp::Error {
+                        err: err.to_string(),
+                    }));
+                    self.router_pipe.send(resp).await?;
+                }
+            },
         }
 
         Ok(())
