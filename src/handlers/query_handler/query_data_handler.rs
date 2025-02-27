@@ -149,16 +149,17 @@ impl QueryDataHandler {
                 } else {
                     get_data_msg.file_idx + 1
                 };
-                let next_row_group_idx = if get_data_msg.file_row_group_idx < num_row_groups - 1 {
-                    get_data_msg.file_row_group_idx + 1
-                } else {
-                    0
-                };
+                let next_file_row_group_idx =
+                    if get_data_msg.file_row_group_idx < num_row_groups - 1 {
+                        get_data_msg.file_row_group_idx + 1
+                    } else {
+                        0
+                    };
 
                 let resp = msg.reply(Box::new(messages::query::GetQueryDataResp::Record {
                     record: Arc::new(rec),
-                    next_file_idx: Some(next_file_idx),
-                    next_file_row_group_idx: Some(next_row_group_idx),
+                    next_file_idx,
+                    next_file_row_group_idx,
                 }));
                 self.router_pipe.send(resp).await?;
             }

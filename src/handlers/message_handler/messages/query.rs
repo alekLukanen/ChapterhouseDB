@@ -2,7 +2,6 @@ use std::io::Read;
 use std::{any::Any, io::Cursor, sync::Arc};
 
 use anyhow::Result;
-use arrow::array::RecordBatch;
 use bytes::{Buf, BufMut, BytesMut};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -26,8 +25,8 @@ pub enum GetQueryDataResp {
     Record {
         #[serde(skip_serializing)]
         record: Arc<arrow::array::RecordBatch>,
-        next_file_idx: Option<u64>,
-        next_file_row_group_idx: Option<u64>,
+        next_file_idx: u64,
+        next_file_row_group_idx: u64,
     },
     Error {
         err: String,
@@ -41,8 +40,8 @@ pub struct GetQueryDataRespError {
 
 #[derive(Debug, Deserialize)]
 pub struct GetQueryDataRespRecord {
-    next_file_idx: Option<u64>,
-    next_file_row_group_idx: Option<u64>,
+    next_file_idx: u64,
+    next_file_row_group_idx: u64,
 }
 
 impl GetQueryDataResp {

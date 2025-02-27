@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 use chapterhouseqe::{
-    client::AsyncQueryClient,
+    client::{AsyncQueryClient, QueryDataIterator},
     handlers::{message_handler::messages, query_handler},
 };
 use tokio_util::sync::CancellationToken;
@@ -39,7 +41,7 @@ async fn main() -> Result<()> {
         .init();
 
     let address = "127.0.0.1:7000";
-    let client = AsyncQueryClient::new(address.to_string());
+    let client = Arc::new(AsyncQueryClient::new(address.to_string()));
     let ct = CancellationToken::new();
 
     let query = "
@@ -112,6 +114,21 @@ async fn main() -> Result<()> {
         }
         other => {
             error!("unable to get record: {:?}", other);
+        }
+    }
+    let mut query_data_iter =
+        QueryDataIterator::new(client, query_id, 0, 0, chrono::Duration::seconds(1));
+    loop {
+        let rec = query_data_iter.next(ct.clone()).await?;
+        match rec {
+            Some(rec) => {
+                let recs = vec![rec.as_ref().clone()];
+                let rec_txt = arrow::util::pretty::pretty_format_batches(&recs)?;
+                info!("record data\n{}", rec_txt);
+            }
+            None => {
+                break;
+            }
         }
     }
 
