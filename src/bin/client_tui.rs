@@ -133,7 +133,7 @@ impl QueriesApp {
     fn render_info_area(&self, area: Rect, buf: &mut Buffer) {
         let info_block = Block::bordered()
             .title(" Execution Info ")
-            .border_set(border::THICK)
+            .border_set(border::ROUNDED)
             .border_style(Style::default().cyan());
 
         if let Some(queries) = &self.queries {
@@ -146,6 +146,7 @@ impl QueriesApp {
             };
 
             let total_queries_items = vec![
+                Line::from(vec!["File: ".cyan(), format!("{}", self.sql_file).blue()]),
                 Line::from(vec![
                     "Total Queries: ".cyan(),
                     format!("{}", queries.len()).blue(),
@@ -161,7 +162,7 @@ impl QueriesApp {
             ];
             let query_lines = total_queries_items.len() as u16;
 
-            let total_queries_txt = Paragraph::new(total_queries_items);
+            let total_queries_txt = Paragraph::new(total_queries_items).wrap(Wrap::default());
 
             let progress_txt = Paragraph::new(Line::from("Progress:".cyan()));
             let progress_bar = Gauge::default()
@@ -171,7 +172,7 @@ impl QueriesApp {
             let info_block_layout = Layout::vertical([
                 Constraint::Length(query_lines),
                 Constraint::Length(1),
-                Constraint::Length(1),
+                Constraint::Fill(1),
             ]);
             let [queries_txt_area, progress_txt_area, progress_bar_area] =
                 info_block_layout.areas(info_block.inner(area));
@@ -183,32 +184,46 @@ impl QueriesApp {
             info_block.render(area, buf);
         }
     }
+
+    fn render_table_area(&self, area: Rect, buf: &mut Buffer) {
+        let table_block = Block::bordered()
+            .title(" Query Data ")
+            .border_set(border::ROUNDED)
+            .border_style(Style::default().cyan());
+
+        table_block.render(area, buf);
+    }
+
+    fn render_queries_area(&self, area: Rect, buf: &mut Buffer) {
+        let queries_block = Block::bordered()
+            .title(" Queries ")
+            .border_set(border::ROUNDED)
+            .border_style(Style::default().cyan());
+        queries_block.render(area, buf);
+    }
 }
 
 impl Widget for &QueriesApp {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = Line::from(vec![Span::styled(
-            " Queries ",
-            ratatui::style::Style::default().bold(),
+            " Executing Queries ",
+            ratatui::style::Style::default().bold().cyan(),
         )]);
         let instructions = Line::from(vec![" Quit ".into(), "<Q> ".blue().bold()]);
-        let block = Block::bordered()
+        let block = Block::default()
             .title(title.centered())
-            .title_bottom(instructions.centered())
-            .border_set(border::THICK)
-            .border_style(Style::default().cyan());
+            .title_bottom(instructions.centered());
 
         let view_layout =
             Layout::horizontal([Constraint::Percentage(20), Constraint::Percentage(80)]);
         let [left_area, right_area] = view_layout.areas(block.inner(area));
 
-        let left_layout = Layout::vertical([Constraint::Length(7), Constraint::Fill(1)]);
-        let [left_info_area, _] = left_layout.areas(left_area);
+        let left_layout = Layout::vertical([Constraint::Length(10), Constraint::Fill(1)]);
+        let [left_info_area, left_queries_area] = left_layout.areas(left_area);
 
         self.render_info_area(left_info_area, buf);
-
-        let table_block = Block::bordered();
-        table_block.render(right_area, buf);
+        self.render_queries_area(left_queries_area, buf);
+        self.render_table_area(right_area, buf);
 
         block.render(area, buf);
     }
