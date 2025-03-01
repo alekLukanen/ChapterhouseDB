@@ -42,3 +42,4 @@ rand = { version = "0.8" }
 chrono = { version = "0.4", features = ["serde"] }
 ratatui = { version = "0.28.0" }
 crossterm = { version = "0.28.1" }
+regex = { version = "1.11.1" }
