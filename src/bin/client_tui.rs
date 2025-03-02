@@ -5,7 +5,13 @@ use std::{
 
 use anyhow::{anyhow, Context, Result};
 
-use chapterhouseqe::{client::AsyncQueryClient, handlers::query_handler::Status};
+use chapterhouseqe::{
+    client::AsyncQueryClient,
+    handlers::{
+        message_handler::messages,
+        query_handler::{self, Status},
+    },
+};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
     layout::{Constraint, Layout, Rect},
@@ -18,6 +24,8 @@ use ratatui::{
 use regex::Regex;
 
 use clap::Parser;
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, error};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -72,6 +80,7 @@ impl TableColors {
 struct QueryInfo {
     query_txt: String,
     status: Option<Status>,
+    control_err: Option<String>,
 }
 
 impl QueryInfo {
@@ -110,13 +119,138 @@ pub struct QueriesAppState {
     queries: Option<Vec<QueryInfo>>,
 }
 
+impl QueriesAppState {
+    fn get_queries_size(&self) -> usize {
+        if let Some(queries) = &self.queries {
+            queries.len()
+        } else {
+            0
+        }
+    }
+
+    fn get_query_sql(&self, idx: usize) -> String {
+        if let Some(queries) = &self.queries {
+            queries
+                .get(idx)
+                .expect("query should exist")
+                .query_txt
+                .clone()
+        } else {
+            panic!("queries vec isn't set")
+        }
+    }
+
+    fn update_query_status(&mut self, query_idx: usize, status: Status) -> Result<()> {
+        if let Some(queries) = &mut self.queries {
+            if let Some(query) = queries.get_mut(query_idx) {
+                query.status = Some(status);
+                return Ok(());
+            } else {
+                return Err(anyhow!("query at index {} does not exist", query_idx));
+            }
+        } else {
+            panic!("queries vec isn't set");
+        }
+    }
+
+    fn update_control_err(&mut self, query_idx: usize, err: String) -> Result<()> {
+        if let Some(queries) = &mut self.queries {
+            if let Some(query) = queries.get_mut(query_idx) {
+                query.control_err = Some(err);
+                return Ok(());
+            } else {
+                return Err(anyhow!("query at index {} does not exist", query_idx));
+            }
+        } else {
+            panic!("queries vec isn't set");
+        }
+    }
+
+    async fn execute_queries(
+        ct: CancellationToken,
+        state: Arc<Mutex<QueriesAppState>>,
+        client: Arc<AsyncQueryClient>,
+    ) -> Result<()> {
+        let queries_len = state
+            .lock()
+            .map_err(|_| anyhow!("lock failed"))?
+            .get_queries_size();
+
+        for idx in 0..queries_len {
+            let res =
+                QueriesAppState::execute_query(ct.clone(), state.clone(), client.clone(), idx)
+                    .await;
+            if let Err(err) = res {
+                state
+                    .lock()
+                    .map_err(|_| anyhow!("lock failed"))?
+                    .update_control_err(idx, err.to_string())?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn execute_query(
+        ct: CancellationToken,
+        state: Arc<Mutex<QueriesAppState>>,
+        client: Arc<AsyncQueryClient>,
+        query_idx: usize,
+    ) -> Result<()> {
+        let query = state
+            .lock()
+            .map_err(|_| anyhow!("lock failed"))?
+            .get_query_sql(query_idx.clone());
+
+        let run_query_resp = client
+            .run_query(ct.clone(), query.to_string())
+            .await
+            .context("failed initiating a query run")?;
+
+        let query_id = match run_query_resp {
+            messages::query::RunQueryResp::Created { query_id } => query_id,
+            messages::query::RunQueryResp::NotCreated => {
+                error!("query failed to be created");
+                return Ok(());
+            }
+        };
+
+        let query_status = client
+            .wait_for_query_to_finish(
+                ct.clone(),
+                &query_id,
+                chrono::Duration::seconds(60),
+                chrono::Duration::milliseconds(100),
+            )
+            .await?;
+
+        match &query_status {
+            messages::query::GetQueryStatusResp::Status(status) => {
+                state
+                    .lock()
+                    .map_err(|_| anyhow!("lock failed"))?
+                    .update_query_status(query_idx.clone(), status.clone())?;
+            }
+            messages::query::GetQueryStatusResp::QueryNotFound => {
+                state
+                    .lock()
+                    .map_err(|_| anyhow!("lock failed"))?
+                    .update_control_err(query_idx, format!("{:?}", query_status))?;
+                return Ok(());
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub struct QueriesApp {
     sql_file: String,
     state: Arc<Mutex<QueriesAppState>>,
     exit: bool,
 
-    client: AsyncQueryClient,
+    ct: CancellationToken,
+    client: Arc<AsyncQueryClient>,
 
     table_state: TableState,
     table_colors: TableColors,
@@ -128,7 +262,8 @@ impl QueriesApp {
             sql_file,
             state: Arc::new(Mutex::new(QueriesAppState { queries: None })),
             exit: false,
-            client,
+            ct: CancellationToken::new(),
+            client: Arc::new(client),
             table_state: TableState::default().with_selected(0),
             table_colors: TableColors::new(),
         }
@@ -155,9 +290,21 @@ impl QueriesApp {
                 .map(|item| QueryInfo {
                     query_txt: item.clone(),
                     status: None,
+                    control_err: None,
                 })
                 .collect(),
         );
+
+        // distribute the queries
+        let task_ct = self.ct.clone();
+        let task_state = self.state.clone();
+        let task_client = self.client.clone();
+        tokio::spawn(async move {
+            let res = QueriesAppState::execute_queries(task_ct, task_state, task_client).await;
+            if let Err(err) = res {
+                panic!("error: {}", err);
+            }
+        });
 
         while !self.exit {
             terminal.draw(|frame| self.draw(frame))?;
