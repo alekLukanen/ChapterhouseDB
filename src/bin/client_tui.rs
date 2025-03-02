@@ -12,6 +12,7 @@ use chapterhouseqe::{
         query_handler::{self, Status},
     },
 };
+use chrono::Duration;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
     layout::{Constraint, Layout, Rect},
@@ -24,8 +25,8 @@ use ratatui::{
 use regex::Regex;
 
 use clap::Parser;
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -57,6 +58,12 @@ async fn main() -> Result<()> {
     ratatui::restore();
 
     app_result
+}
+
+#[derive(Debug)]
+enum AppEvent {
+    TerminalEvent(event::Event),
+    DataUpdate,
 }
 
 #[derive(Debug)]
@@ -168,6 +175,7 @@ impl QueriesAppState {
 
     async fn execute_queries(
         ct: CancellationToken,
+        sender: mpsc::Sender<AppEvent>,
         state: Arc<Mutex<QueriesAppState>>,
         client: Arc<AsyncQueryClient>,
     ) -> Result<()> {
@@ -177,9 +185,16 @@ impl QueriesAppState {
             .get_queries_size();
 
         for idx in 0..queries_len {
-            let res =
-                QueriesAppState::execute_query(ct.clone(), state.clone(), client.clone(), idx)
-                    .await;
+            let res = QueriesAppState::execute_query(
+                ct.clone(),
+                sender.clone(),
+                state.clone(),
+                client.clone(),
+                idx,
+            )
+            .await;
+
+            let _ = sender.send(AppEvent::DataUpdate).await;
             if let Err(err) = res {
                 state
                     .lock()
@@ -193,6 +208,7 @@ impl QueriesAppState {
 
     async fn execute_query(
         ct: CancellationToken,
+        sender: mpsc::Sender<AppEvent>,
         state: Arc<Mutex<QueriesAppState>>,
         client: Arc<AsyncQueryClient>,
         query_idx: usize,
@@ -210,7 +226,6 @@ impl QueriesAppState {
         let query_id = match run_query_resp {
             messages::query::RunQueryResp::Created { query_id } => query_id,
             messages::query::RunQueryResp::NotCreated => {
-                error!("query failed to be created");
                 return Ok(());
             }
         };
@@ -236,9 +251,10 @@ impl QueriesAppState {
                     .lock()
                     .map_err(|_| anyhow!("lock failed"))?
                     .update_control_err(query_idx, format!("{:?}", query_status))?;
-                return Ok(());
             }
         }
+
+        let _ = sender.send(AppEvent::DataUpdate).await;
         Ok(())
     }
 }
@@ -249,6 +265,9 @@ pub struct QueriesApp {
     state: Arc<Mutex<QueriesAppState>>,
     exit: bool,
 
+    sender: mpsc::Sender<AppEvent>,
+    receiver: mpsc::Receiver<AppEvent>,
+
     ct: CancellationToken,
     client: Arc<AsyncQueryClient>,
 
@@ -258,10 +277,13 @@ pub struct QueriesApp {
 
 impl QueriesApp {
     fn new(sql_file: String, client: AsyncQueryClient) -> QueriesApp {
+        let (sender, receiver) = mpsc::channel::<AppEvent>(1000);
         QueriesApp {
             sql_file,
             state: Arc::new(Mutex::new(QueriesAppState { queries: None })),
             exit: false,
+            sender,
+            receiver,
             ct: CancellationToken::new(),
             client: Arc::new(client),
             table_state: TableState::default().with_selected(0),
@@ -299,19 +321,50 @@ impl QueriesApp {
         let task_ct = self.ct.clone();
         let task_state = self.state.clone();
         let task_client = self.client.clone();
+        let task_sender = self.sender.clone();
         tokio::spawn(async move {
-            let res = QueriesAppState::execute_queries(task_ct, task_state, task_client).await;
+            let res = QueriesAppState::execute_queries(
+                task_ct,
+                task_sender.clone(),
+                task_state,
+                task_client,
+            )
+            .await;
             if let Err(err) = res {
+                panic!("error: {}", err);
+            }
+            let _ = task_sender.send(AppEvent::DataUpdate).await;
+        });
+
+        let task_ct = self.ct.clone();
+        let task_sender = self.sender.clone();
+        tokio::spawn(async move {
+            if let Err(err) = QueriesApp::handle_key_events(task_ct, task_sender).await {
                 panic!("error: {}", err);
             }
         });
 
         while !self.exit {
             terminal.draw(|frame| self.draw(frame))?;
-            self.handle_events()?;
+            self.handle_events().await?;
         }
 
         Ok(())
+    }
+
+    async fn handle_key_events(
+        ct: CancellationToken,
+        sender: mpsc::Sender<AppEvent>,
+    ) -> Result<()> {
+        loop {
+            if ct.is_cancelled() {
+                return Ok(());
+            }
+            if event::poll(Duration::milliseconds(50).to_std()?)? {
+                let event = event::read()?;
+                sender.send(AppEvent::TerminalEvent(event)).await?;
+            }
+        }
     }
 
     fn draw(&mut self, frame: &mut Frame) {
@@ -344,15 +397,17 @@ impl QueriesApp {
         frame.render_widget(block, frame.area())
     }
 
-    fn handle_events(&mut self) -> Result<()> {
-        match event::read()? {
-            // it's important to check that the event is a key press event as
-            // crossterm also emits key release and repeat events on Windows.
-            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                self.handle_key_event(key_event)?;
-            }
-            _ => {}
-        };
+    async fn handle_events(&mut self) -> Result<()> {
+        match self.receiver.recv().await {
+            Some(AppEvent::DataUpdate) => {}
+            Some(AppEvent::TerminalEvent(event)) => match event {
+                Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                    self.handle_key_event(key_event)?;
+                }
+                _ => {}
+            },
+            None => {}
+        }
         Ok(())
     }
 
@@ -368,6 +423,7 @@ impl QueriesApp {
 
     fn exit(&mut self) {
         self.exit = true;
+        self.ct.cancel();
     }
 
     fn render_info_area(&self, area: Rect, frame: &mut Frame) -> Result<()> {
@@ -385,7 +441,7 @@ impl QueriesApp {
             let queries_completed = queries.iter().filter(|item| item.completed()).count();
             let queries_errored = queries.iter().filter(|item| item.errored()).count();
             let percent_complete = if queries.len() > 0 {
-                (queries_completed as f32 / queries.len() as f32) as u16
+                100 * (queries_completed as f32 / queries.len() as f32) as u16
             } else {
                 0u16
             };
