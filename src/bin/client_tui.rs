@@ -1,8 +1,11 @@
-use std::fs;
+use std::{
+    fs,
+    sync::{Arc, Mutex},
+};
 
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
 
-use chapterhouseqe::handlers::query_handler::Status;
+use chapterhouseqe::{client::AsyncQueryClient, handlers::query_handler::Status};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
     layout::{Constraint, Layout, Rect},
@@ -19,17 +22,32 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// The port used to accept incoming connections
+    #[arg(short, long, default_value_t = 7000)]
+    port: u32,
+
+    /// Addresses to connect with
+    #[arg(short, long)]
+    connect_to_address: String,
+
     /// The logging level (debug, info, warning, error)
     #[arg(short, long)]
     sql_file: String,
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let args = Args::parse();
+    let address = format!("{}:{}", args.connect_to_address, args.port);
 
     let mut terminal = ratatui::init();
-    let app_result = QueriesApp::new(args.sql_file).run(&mut terminal);
+
+    let client = AsyncQueryClient::new(address);
+    let app_result = QueriesApp::new(args.sql_file, client)
+        .run(&mut terminal)
+        .await;
     ratatui::restore();
+
     app_result
 }
 
@@ -88,27 +106,35 @@ impl QueryInfo {
 }
 
 #[derive(Debug)]
+pub struct QueriesAppState {
+    queries: Option<Vec<QueryInfo>>,
+}
+
+#[derive(Debug)]
 pub struct QueriesApp {
     sql_file: String,
-    queries: Option<Vec<QueryInfo>>,
+    state: Arc<Mutex<QueriesAppState>>,
     exit: bool,
+
+    client: AsyncQueryClient,
 
     table_state: TableState,
     table_colors: TableColors,
 }
 
 impl QueriesApp {
-    fn new(sql_file: String) -> QueriesApp {
+    fn new(sql_file: String, client: AsyncQueryClient) -> QueriesApp {
         QueriesApp {
             sql_file,
-            queries: None,
+            state: Arc::new(Mutex::new(QueriesAppState { queries: None })),
             exit: false,
+            client,
             table_state: TableState::default().with_selected(0),
             table_colors: TableColors::new(),
         }
     }
 
-    pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
+    pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         // draw the initial ui
         terminal.draw(|frame| self.draw(frame))?;
 
@@ -120,7 +146,10 @@ impl QueriesApp {
             self.table_state.select(Some(0));
         }
 
-        self.queries = Some(
+        self.state
+            .lock()
+            .map_err(|_| anyhow!("lock failed"))?
+            .queries = Some(
             queries
                 .iter()
                 .map(|item| QueryInfo {
@@ -155,9 +184,15 @@ impl QueriesApp {
         let left_layout = Layout::vertical([Constraint::Length(10), Constraint::Fill(1)]);
         let [left_info_area, left_queries_area] = left_layout.areas(left_area);
 
-        self.render_info_area(left_info_area, frame);
-        self.render_queries_area(left_queries_area, frame);
-        self.render_table_area(right_area, frame);
+        if let Err(err) = self.render_info_area(left_info_area, frame) {
+            panic!("error: {}", err);
+        }
+        if let Err(err) = self.render_queries_area(left_queries_area, frame) {
+            panic!("error: {}", err);
+        }
+        if let Err(err) = self.render_table_area(right_area, frame) {
+            panic!("error: {}", err);
+        }
 
         frame.render_widget(block, frame.area())
     }
@@ -167,37 +202,43 @@ impl QueriesApp {
             // it's important to check that the event is a key press event as
             // crossterm also emits key release and repeat events on Windows.
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                self.handle_key_event(key_event)
+                self.handle_key_event(key_event)?;
             }
             _ => {}
         };
         Ok(())
     }
 
-    fn handle_key_event(&mut self, key_event: KeyEvent) {
+    fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<()> {
         match key_event.code {
             KeyCode::Char('q') => self.exit(),
-            KeyCode::Up => self.previous_row(),
-            KeyCode::Down => self.next_row(),
+            KeyCode::Up => self.previous_row()?,
+            KeyCode::Down => self.next_row()?,
             _ => {}
         }
+        Ok(())
     }
 
     fn exit(&mut self) {
         self.exit = true;
     }
 
-    fn render_info_area(&self, area: Rect, frame: &mut Frame) {
+    fn render_info_area(&self, area: Rect, frame: &mut Frame) -> Result<()> {
         let info_block = Block::bordered()
             .title(" Execution Info ")
             .border_set(border::ROUNDED)
             .border_style(Style::default().cyan());
 
-        if let Some(queries) = &self.queries {
+        if let Some(queries) = &self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("lock failed"))?
+            .queries
+        {
             let queries_completed = queries.iter().filter(|item| item.completed()).count();
             let queries_errored = queries.iter().filter(|item| item.errored()).count();
             let percent_complete = if queries.len() > 0 {
-                (queries_completed as f32 / queries.len() as f32) as u16 + 29
+                (queries_completed as f32 / queries.len() as f32) as u16
             } else {
                 0u16
             };
@@ -240,9 +281,10 @@ impl QueriesApp {
 
             frame.render_widget(info_block, area)
         }
+        Ok(())
     }
 
-    fn render_table_area(&self, area: Rect, frame: &mut Frame) {
+    fn render_table_area(&self, area: Rect, frame: &mut Frame) -> Result<()> {
         let table_block = Block::bordered()
             .title(Line::from(vec![
                 Span::raw(" ✨ "),
@@ -252,9 +294,10 @@ impl QueriesApp {
             .border_style(Style::default().fg(Color::Cyan));
 
         frame.render_widget(table_block, area);
+        Ok(())
     }
 
-    fn render_queries_area(&mut self, area: Rect, frame: &mut Frame) {
+    fn render_queries_area(&mut self, area: Rect, frame: &mut Frame) -> Result<()> {
         let queries_block = Block::bordered()
             .title(" Queries ")
             .border_set(border::ROUNDED)
@@ -273,7 +316,12 @@ impl QueriesApp {
         .style(header_style)
         .height(1);
 
-        let rows = if let Some(queries) = &self.queries {
+        let rows = if let Some(queries) = &self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("lock failed"))?
+            .queries
+        {
             queries
                 .iter()
                 .enumerate()
@@ -318,10 +366,17 @@ impl QueriesApp {
 
         frame.render_stateful_widget(table, queries_block.inner(area), &mut self.table_state);
         frame.render_widget(queries_block, area);
+
+        Ok(())
     }
 
-    pub fn next_row(&mut self) {
-        let size = if let Some(queries) = &self.queries {
+    pub fn next_row(&mut self) -> Result<()> {
+        let size = if let Some(queries) = &self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("lock failed"))?
+            .queries
+        {
             queries.len()
         } else {
             0
@@ -337,10 +392,16 @@ impl QueriesApp {
             None => 0,
         };
         self.table_state.select(Some(i));
+        Ok(())
     }
 
-    pub fn previous_row(&mut self) {
-        let size = if let Some(queries) = &self.queries {
+    pub fn previous_row(&mut self) -> Result<()> {
+        let size = if let Some(queries) = &self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("lock failed"))?
+            .queries
+        {
             queries.len()
         } else {
             0
@@ -357,6 +418,7 @@ impl QueriesApp {
             None => 0,
         };
         self.table_state.select(Some(i));
+        Ok(())
     }
 }
 
