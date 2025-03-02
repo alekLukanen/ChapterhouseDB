@@ -336,6 +336,7 @@ impl QueriesApp {
             let _ = task_sender.send(AppEvent::DataUpdate).await;
         });
 
+        // send key events to channel
         let task_ct = self.ct.clone();
         let task_sender = self.sender.clone();
         tokio::spawn(async move {
@@ -360,7 +361,7 @@ impl QueriesApp {
             if ct.is_cancelled() {
                 return Ok(());
             }
-            if event::poll(Duration::milliseconds(50).to_std()?)? {
+            if event::poll(Duration::milliseconds(1000 / 60).to_std()?)? {
                 let event = event::read()?;
                 sender.send(AppEvent::TerminalEvent(event)).await?;
             }
@@ -481,7 +482,6 @@ impl QueriesApp {
             frame.render_widget(total_queries_txt, queries_txt_area);
             frame.render_widget(progress_txt, progress_txt_area);
             frame.render_widget(progress_bar, progress_bar_area);
-
             frame.render_widget(info_block, area)
         }
         Ok(())
