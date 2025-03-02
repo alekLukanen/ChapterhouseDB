@@ -5,14 +5,11 @@ use anyhow::Result;
 use chapterhouseqe::handlers::query_handler::Status;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
-    buffer::Buffer,
     layout::{Constraint, Layout, Rect},
-    style::{palette::tailwind, Color, Modifier, Style, Stylize},
+    style::{Color, Modifier, Style, Stylize},
     symbols::border,
     text::{Line, Span, Text},
-    widgets::{
-        Block, Cell, Gauge, HighlightSpacing, Paragraph, Row, Table, TableState, Widget, Wrap,
-    },
+    widgets::{Block, Cell, Gauge, HighlightSpacing, Paragraph, Row, Table, TableState, Wrap},
     DefaultTerminal, Frame,
 };
 use regex::Regex;
@@ -38,31 +35,17 @@ fn main() -> Result<()> {
 
 #[derive(Debug)]
 struct TableColors {
-    buffer_bg: Color,
-    header_bg: Color,
     header_fg: Color,
     row_fg: Color,
-    selected_row_style_fg: Color,
     selected_column_style_fg: Color,
-    selected_cell_style_fg: Color,
-    normal_row_color: Color,
-    alt_row_color: Color,
-    footer_border_color: Color,
 }
 
 impl TableColors {
-    const fn new(color: &tailwind::Palette) -> Self {
+    const fn new() -> Self {
         Self {
-            buffer_bg: tailwind::SLATE.c950,
-            header_bg: color.c900,
-            header_fg: tailwind::SLATE.c200,
-            row_fg: tailwind::SLATE.c200,
-            selected_row_style_fg: color.c400,
-            selected_column_style_fg: color.c400,
-            selected_cell_style_fg: color.c600,
-            normal_row_color: tailwind::SLATE.c950,
-            alt_row_color: tailwind::SLATE.c900,
-            footer_border_color: color.c400,
+            header_fg: Color::Cyan,
+            row_fg: Color::Cyan,
+            selected_column_style_fg: Color::Blue,
         }
     }
 }
@@ -93,6 +76,15 @@ impl QueryInfo {
             _ => false,
         }
     }
+    fn status_icon(&self) -> &str {
+        match self.status {
+            Some(Status::Complete) => "✅",
+            Some(Status::Error(_)) => "❌",
+            Some(Status::Running) => "🔄",
+            Some(Status::Queued) => "🕒",
+            _ => "🕒",
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -112,7 +104,7 @@ impl QueriesApp {
             queries: None,
             exit: false,
             table_state: TableState::default().with_selected(0),
-            table_colors: TableColors::new(&tailwind::INDIGO),
+            table_colors: TableColors::new(),
         }
     }
 
@@ -123,6 +115,11 @@ impl QueriesApp {
         // break up the sql file text in statements
         let sql_data = fs::read_to_string(self.sql_file.clone())?;
         let queries = parse_sql_queries(sql_data)?;
+
+        if queries.len() > 0 {
+            self.table_state.select(Some(0));
+        }
+
         self.queries = Some(
             queries
                 .iter()
@@ -152,7 +149,7 @@ impl QueriesApp {
             .title_bottom(instructions.centered());
 
         let view_layout =
-            Layout::horizontal([Constraint::Percentage(20), Constraint::Percentage(80)]);
+            Layout::horizontal([Constraint::Percentage(30), Constraint::Percentage(70)]);
         let [left_area, right_area] = view_layout.areas(block.inner(frame.area()));
 
         let left_layout = Layout::vertical([Constraint::Length(10), Constraint::Fill(1)]);
@@ -180,6 +177,8 @@ impl QueriesApp {
     fn handle_key_event(&mut self, key_event: KeyEvent) {
         match key_event.code {
             KeyCode::Char('q') => self.exit(),
+            KeyCode::Up => self.previous_row(),
+            KeyCode::Down => self.next_row(),
             _ => {}
         }
     }
@@ -245,9 +244,12 @@ impl QueriesApp {
 
     fn render_table_area(&self, area: Rect, frame: &mut Frame) {
         let table_block = Block::bordered()
-            .title(" Query Data ")
+            .title(Line::from(vec![
+                Span::raw(" ✨ "),
+                Span::from("Query Data "),
+            ]))
             .border_set(border::ROUNDED)
-            .border_style(Style::default().cyan());
+            .border_style(Style::default().fg(Color::Cyan));
 
         frame.render_widget(table_block, area);
     }
@@ -258,50 +260,50 @@ impl QueriesApp {
             .border_set(border::ROUNDED)
             .border_style(Style::default().cyan());
 
-        let header_style = Style::default()
-            .fg(self.table_colors.header_fg)
-            .bg(self.table_colors.header_bg);
+        let header_style = Style::default().fg(self.table_colors.header_fg);
         let selected_row_style = Style::default()
             .add_modifier(Modifier::REVERSED)
-            .fg(self.table_colors.selected_row_style_fg);
-        let selected_col_style = Style::default().fg(self.table_colors.selected_column_style_fg);
-        let selected_cell_style = Style::default()
-            .add_modifier(Modifier::REVERSED)
-            .fg(self.table_colors.selected_cell_style_fg);
+            .fg(self.table_colors.selected_column_style_fg);
 
         let header = Row::new(vec![
+            Cell::default(),
+            Cell::from(Text::from("Idx".to_string())),
             Cell::from(Text::from("Query".to_string())),
-            Cell::from(Text::from("Status".to_string())),
-        ]);
+        ])
+        .style(header_style)
+        .height(1);
 
-        let queries = if let Some(queries) = &self.queries {
+        let rows = if let Some(queries) = &self.queries {
             queries
+                .iter()
+                .enumerate()
+                .map(|(i, data)| {
+                    Row::new(vec![
+                        Cell::from(
+                            Span::from(format!("{}", data.status_icon()))
+                                .style(Style::default().fg(Color::Green)),
+                        ),
+                        Cell::from(Text::from(format!("{}", i)).fg(self.table_colors.row_fg)),
+                        Cell::from(
+                            Text::from(data.query_txt.to_string()).fg(self.table_colors.row_fg),
+                        ),
+                    ])
+                    .height(4)
+                })
+                .collect::<Vec<Row>>()
         } else {
-            &vec![]
+            vec![]
         };
 
-        let rows = queries.iter().enumerate().map(|(i, data)| {
-            let color = match i % 2 {
-                0 => self.table_colors.normal_row_color,
-                _ => self.table_colors.alt_row_color,
-            };
+        let bar = "█";
 
-            Row::new(vec![
-                Cell::from(Text::from(data.query_txt.to_string())),
-                Cell::from(Text::from(format!("Done: {}", data.completed()))),
-            ])
-            .style(Style::new().fg(self.table_colors.row_fg).bg(color))
-            .height(4)
-        });
-
-        let bar = " █ ";
-
-        let t = Table::new(
+        let table = Table::new(
             rows,
             [
                 // + 1 is for padding.
+                Constraint::Length(2),
+                Constraint::Length(5),
                 Constraint::Fill(8),
-                Constraint::Fill(2),
             ],
         )
         .header(header)
@@ -312,10 +314,9 @@ impl QueriesApp {
             bar.into(),
             "".into(),
         ]))
-        .bg(self.table_colors.buffer_bg)
         .highlight_spacing(HighlightSpacing::Always);
 
-        frame.render_stateful_widget(t, area, &mut self.table_state);
+        frame.render_stateful_widget(table, queries_block.inner(area), &mut self.table_state);
         frame.render_widget(queries_block, area);
     }
 
