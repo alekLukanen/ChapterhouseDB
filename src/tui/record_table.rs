@@ -1,10 +1,17 @@
-use std::sync::Arc;
+use std::{cmp::max, cmp::min, sync::Arc};
 
+use anyhow::Result;
+use arrow::{
+    array::Datum,
+    error::ArrowError,
+    util::display::{ArrayFormatter, FormatOptions},
+};
 use ratatui::{
     buffer::Buffer,
-    layout::{Constraint, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Rect},
     style::Color,
-    widgets::StatefulWidget,
+    text::Text,
+    widgets::{Paragraph, StatefulWidget},
 };
 
 #[derive(Debug, Clone)]
@@ -77,21 +84,67 @@ impl RecordTableState {
 #[derive(Debug)]
 pub struct RecordTable {
     max_text_chars: usize,
+    max_column_width: usize,
     wrap_text: bool,
+    grid_spacing: u16,
     selected_color: Color,
 }
 
 impl RecordTable {
-    fn build_grid_layout(&self, state: &RecordTableState) -> Layout {
-        Layout::horizontal([Constraint::Length(5)])
+    fn build_row_layout(&self, max_column_widths: &Vec<usize>) -> Layout {
+        Layout::default()
+            .direction(Direction::Horizontal)
+            .spacing(self.grid_spacing)
+            .constraints(
+                max_column_widths
+                    .iter()
+                    .map(|item| Constraint::Length(item.clone() as u16)),
+            )
     }
+
+    fn render_grid(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        columns: Vec<String>,
+        rows: Vec<Vec<String>>,
+        state: &mut RecordTableState,
+    ) {
+        for row in &rows {
+            assert_eq!(columns.len(), row.len());
+        }
+
+        let mut max_column_widths = Vec::new();
+        for idx in 0..columns.len() {
+            let column_name_width = columns.get(idx).expect("column value").len();
+            let max_column_width_for_rows = rows
+                .iter()
+                .map(|row| row.get(idx).expect("row value").len())
+                .max();
+
+            let desired_column_width =
+                max(column_name_width, max_column_width_for_rows.unwrap_or(0));
+            let column_width = min(desired_column_width, self.max_column_width);
+
+            max_column_widths.push(column_width);
+        }
+
+        let row_heights = Vec::new();
+
+        // define the grid needed for the table
+        let row_layout = self.build_row_layout(&max_column_widths);
+    }
+
+    fn render_error(&self, area: Rect, buf: &mut Buffer, msg: String) {}
 }
 
 impl Default for RecordTable {
     fn default() -> Self {
         RecordTable {
             max_text_chars: 100,
+            max_column_width: 25,
             wrap_text: false,
+            grid_spacing: 1,
             selected_color: Color::Blue,
         }
     }
@@ -101,6 +154,96 @@ impl StatefulWidget for RecordTable {
     type State = RecordTableState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        self.build_grid_layout(state);
+        if state.offset.0 >= state.records.len() {
+            return;
+        }
+
+        let first_rec = if let Some(rec) = state.records.first() {
+            rec
+        } else {
+            return;
+        };
+        let columns: Vec<String> = first_rec
+            .record
+            .schema()
+            .fields
+            .iter()
+            .map(|item| item.name().clone())
+            .collect();
+
+        let num_cols = columns.len();
+
+        let formatter_options = FormatOptions::default();
+
+        // stringify the arrow data
+        let mut rows: Vec<Vec<String>> = Vec::new();
+        let mut current_offset = state.offset.clone();
+        let initial_rec = state.records.get(state.offset.0).cloned();
+        let mut formatters = if let Some(initial_rec) = &initial_rec {
+            initial_rec
+                .record
+                .columns()
+                .iter()
+                .map(|c| ArrayFormatter::try_new(c.as_ref(), &formatter_options))
+                .collect::<Result<Vec<_>, ArrowError>>()
+                .unwrap_or_else(|_| {
+                    self.render_error(
+                        area,
+                        buf,
+                        "unable to create formatters for arrow record data types".to_string(),
+                    );
+                    vec![]
+                })
+        } else {
+            return self.render_error(
+                area,
+                buf,
+                "unable to create formatters for arrow record data types".to_string(),
+            );
+        };
+
+        for _ in 0..state.max_rows_to_display {
+            let rec = if let Some(rec) = state.records.get(current_offset.0) {
+                rec
+            } else {
+                break;
+            };
+
+            let mut row = Vec::with_capacity(num_cols);
+            for formatter in &formatters {
+                let value = formatter.value(current_offset.1);
+                match value.try_to_string() {
+                    Ok(res) => row.push(res),
+                    Err(_) => row.push("Unable to Display".to_string()),
+                }
+            }
+            rows.push(row);
+
+            if current_offset.1 >= rec.record.num_rows() {
+                current_offset = (current_offset.0 + 1, 0);
+                let next_rec = state.records.get(current_offset.0).cloned();
+                if let Some(next_rec) = &next_rec {
+                    formatters = if let Ok(f) = next_rec
+                        .record
+                        .columns()
+                        .iter()
+                        .map(|c| ArrayFormatter::try_new(c.as_ref(), &formatter_options))
+                        .collect::<Result<Vec<_>, ArrowError>>()
+                    {
+                        f
+                    } else {
+                        return self.render_error(
+                            area,
+                            buf,
+                            "unable to create formatters for arrow record data types".to_string(),
+                        );
+                    };
+                }
+            } else {
+                current_offset = (current_offset.0, current_offset.1 + 1);
+            }
+        }
+
+        self.render_grid(area, buf, columns, rows, state);
     }
 }
