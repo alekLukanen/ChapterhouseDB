@@ -11,7 +11,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::Color,
     text::Text,
-    widgets::{Paragraph, StatefulWidget},
+    widgets::{Paragraph, StatefulWidget, Widget},
 };
 
 #[derive(Debug, Clone)]
@@ -83,23 +83,120 @@ impl RecordTableState {
 
 #[derive(Debug)]
 pub struct RecordTable {
-    max_text_chars: usize,
-    max_column_width: usize,
+    max_text_chars: u16,
+    max_column_width: u16,
     wrap_text: bool,
     grid_spacing: u16,
     selected_color: Color,
 }
 
 impl RecordTable {
-    fn build_row_layout(&self, max_column_widths: &Vec<usize>) -> Layout {
-        Layout::default()
+    fn build_row_layout(
+        &self,
+        max_column_widths: &Vec<u16>,
+        row_heights: &Vec<u16>,
+    ) -> (Layout, Layout) {
+        let vertical_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .spacing(self.grid_spacing)
+            .constraints(
+                row_heights
+                    .iter()
+                    .map(|item| Constraint::Length(item.clone() as u16)),
+            );
+        let horizontal_layout = Layout::default()
             .direction(Direction::Horizontal)
             .spacing(self.grid_spacing)
             .constraints(
                 max_column_widths
                     .iter()
                     .map(|item| Constraint::Length(item.clone() as u16)),
-            )
+            );
+        (vertical_layout, horizontal_layout)
+    }
+
+    fn get_columns_and_rows(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        state: &RecordTableState,
+    ) -> Option<(Vec<String>, Vec<Vec<String>>)> {
+        let first_rec = if let Some(rec) = state.records.first() {
+            rec
+        } else {
+            return None;
+        };
+        let columns: Vec<String> = first_rec
+            .record
+            .schema()
+            .fields
+            .iter()
+            .map(|item| item.name().clone())
+            .collect();
+
+        let num_cols = columns.len();
+
+        let formatter_options = FormatOptions::default();
+
+        // stringify the arrow data
+        let mut rows: Vec<Vec<String>> = Vec::new();
+        let mut current_offset = state.offset.clone();
+
+        let mut record_formatters = Vec::new();
+        for rec in &state.records {
+            let formatter = rec
+                .record
+                .columns()
+                .iter()
+                .map(|c| ArrayFormatter::try_new(c.as_ref(), &formatter_options))
+                .collect::<Result<Vec<_>, ArrowError>>()
+                .unwrap_or_else(|_| {
+                    self.render_error(
+                        area,
+                        buf,
+                        "unable to create formatters for arrow record data types".to_string(),
+                    );
+                    vec![]
+                });
+            record_formatters.push(formatter);
+        }
+        if record_formatters.len() == 0 {
+            self.render_error(
+                area,
+                buf,
+                "unable to create formatters for arrow record data types".to_string(),
+            );
+            return None;
+        }
+
+        for _ in 0..state.max_rows_to_display {
+            let rec = if let Some(rec) = state.records.get(current_offset.0) {
+                rec
+            } else {
+                break;
+            };
+            let formatters = record_formatters
+                .get(current_offset.0)
+                .expect("record formatter not found");
+
+            let mut row = Vec::with_capacity(num_cols);
+            for formatter in formatters {
+                let value = formatter.value(current_offset.1);
+                match value.try_to_string() {
+                    Ok(res) => row.push(res),
+                    Err(_) => row.push("Unable to Display".to_string()),
+                }
+            }
+            rows.push(row);
+
+            if current_offset.1 >= rec.record.num_rows() {
+                current_offset = (current_offset.0 + 1, 0);
+            } else {
+                current_offset = (current_offset.0, current_offset.1 + 1);
+            }
+        }
+
+        return None;
     }
 
     fn render_grid(
@@ -124,18 +221,38 @@ impl RecordTable {
 
             let desired_column_width =
                 max(column_name_width, max_column_width_for_rows.unwrap_or(0));
-            let column_width = min(desired_column_width, self.max_column_width);
+            let column_width = min(desired_column_width, self.max_column_width as usize);
 
-            max_column_widths.push(column_width);
+            max_column_widths.push(column_width as u16);
         }
 
-        let row_heights = Vec::new();
+        let row_heights = rows
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .enumerate()
+                    .map(|(col_idx, row_col)| {
+                        let row_len = row_col.len() as u16;
+                        let col_width = max_column_widths
+                            .get(col_idx)
+                            .expect("unable to find max column width");
+                        1 + (row_len + *col_width - 1) / *col_width
+                    })
+                    .max()
+                    .expect("expect row height")
+            })
+            .collect::<Vec<u16>>();
 
         // define the grid needed for the table
-        let row_layout = self.build_row_layout(&max_column_widths);
+        let (vertical_layout, horizontal_layout) =
+            self.build_row_layout(&max_column_widths, &row_heights);
+
+        for row in &rows {}
     }
 
-    fn render_error(&self, area: Rect, buf: &mut Buffer, msg: String) {}
+    fn render_error(&self, area: Rect, buf: &mut Buffer, msg: String) {
+        Paragraph::new(msg).centered().render(area, buf);
+    }
 }
 
 impl Default for RecordTable {
@@ -158,91 +275,12 @@ impl StatefulWidget for RecordTable {
             return;
         }
 
-        let first_rec = if let Some(rec) = state.records.first() {
-            rec
-        } else {
-            return;
-        };
-        let columns: Vec<String> = first_rec
-            .record
-            .schema()
-            .fields
-            .iter()
-            .map(|item| item.name().clone())
-            .collect();
-
-        let num_cols = columns.len();
-
-        let formatter_options = FormatOptions::default();
-
-        // stringify the arrow data
-        let mut rows: Vec<Vec<String>> = Vec::new();
-        let mut current_offset = state.offset.clone();
-        let initial_rec = state.records.get(state.offset.0).cloned();
-        let mut formatters = if let Some(initial_rec) = &initial_rec {
-            initial_rec
-                .record
-                .columns()
-                .iter()
-                .map(|c| ArrayFormatter::try_new(c.as_ref(), &formatter_options))
-                .collect::<Result<Vec<_>, ArrowError>>()
-                .unwrap_or_else(|_| {
-                    self.render_error(
-                        area,
-                        buf,
-                        "unable to create formatters for arrow record data types".to_string(),
-                    );
-                    vec![]
-                })
-        } else {
-            return self.render_error(
-                area,
-                buf,
-                "unable to create formatters for arrow record data types".to_string(),
-            );
-        };
-
-        for _ in 0..state.max_rows_to_display {
-            let rec = if let Some(rec) = state.records.get(current_offset.0) {
-                rec
-            } else {
-                break;
-            };
-
-            let mut row = Vec::with_capacity(num_cols);
-            for formatter in &formatters {
-                let value = formatter.value(current_offset.1);
-                match value.try_to_string() {
-                    Ok(res) => row.push(res),
-                    Err(_) => row.push("Unable to Display".to_string()),
-                }
+        let (columns, rows) = match self.get_columns_and_rows(area, buf, state) {
+            Some(val) => val,
+            None => {
+                return;
             }
-            rows.push(row);
-
-            if current_offset.1 >= rec.record.num_rows() {
-                current_offset = (current_offset.0 + 1, 0);
-                let next_rec = state.records.get(current_offset.0).cloned();
-                if let Some(next_rec) = &next_rec {
-                    formatters = if let Ok(f) = next_rec
-                        .record
-                        .columns()
-                        .iter()
-                        .map(|c| ArrayFormatter::try_new(c.as_ref(), &formatter_options))
-                        .collect::<Result<Vec<_>, ArrowError>>()
-                    {
-                        f
-                    } else {
-                        return self.render_error(
-                            area,
-                            buf,
-                            "unable to create formatters for arrow record data types".to_string(),
-                        );
-                    };
-                }
-            } else {
-                current_offset = (current_offset.0, current_offset.1 + 1);
-            }
-        }
+        };
 
         self.render_grid(area, buf, columns, rows, state);
     }
