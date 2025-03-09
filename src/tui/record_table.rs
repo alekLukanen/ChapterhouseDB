@@ -9,7 +9,7 @@ use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
-    widgets::{Paragraph, StatefulWidget, Widget},
+    widgets::{Block, Paragraph, StatefulWidget, Widget},
 };
 
 #[derive(Debug, Clone)]
@@ -101,6 +101,7 @@ pub struct RecordTable {
     grid_spacing: u16,
     selected_color: Color,
     text_color: Color,
+    border_color: Color,
 }
 
 impl RecordTable {
@@ -235,7 +236,7 @@ impl RecordTable {
 
             let desired_column_width =
                 max(column_name_width, max_column_width_for_rows.unwrap_or(0));
-            let column_width = min(desired_column_width, self.max_column_width as usize);
+            let column_width = min(desired_column_width, self.max_column_width as usize - 2);
 
             max_column_widths.push(column_width as u16);
         }
@@ -250,18 +251,40 @@ impl RecordTable {
                         let col_width = max_column_widths
                             .get(col_idx)
                             .expect("unable to find max column width");
-                        1 + (row_len + *col_width - 1) / *col_width
+                        (1 + (row_len + *col_width - 1) / *col_width) + 5
                     })
                     .max()
                     .expect("expect row height")
             })
             .collect::<Vec<u16>>();
 
+        //self.render_error(area, buf, format!("row_widths: {:?}", max_column_widths));
+
+        // render the column names
+        let [header_area, _, rows_area] = Layout::new(
+            Direction::Vertical,
+            [
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Fill(1),
+            ],
+        )
+        .areas(area);
+
         // define the grid needed for the table
         let (vertical_layout, horizontal_layout) =
             self.build_row_layout(&max_column_widths, &row_heights);
 
-        let vertical_areas = vertical_layout.split(area);
+        let horizontal_area = horizontal_layout.split(header_area);
+        for (col_idx, col_name) in columns.iter().enumerate() {
+            let cell_area = horizontal_area[col_idx];
+            let style = Style::default().fg(self.text_color);
+            let para = Paragraph::new(col_name.clone()).style(style);
+            para.render(cell_area, buf);
+        }
+
+        // render the rows
+        let vertical_areas = vertical_layout.split(rows_area);
         for (row_idx, row) in rows.iter().enumerate() {
             let vertical_area = vertical_areas[row_idx];
             let horizontal_area = horizontal_layout.split(vertical_area);
@@ -274,9 +297,8 @@ impl RecordTable {
                         style = style.bg(self.selected_color);
                     }
                 }
-                Paragraph::new(col.clone())
-                    .style(style)
-                    .render(cell_area, buf);
+                let para = Paragraph::new(col.clone()).style(style);
+                para.render(cell_area, buf);
             }
         }
     }
@@ -294,6 +316,7 @@ impl Default for RecordTable {
             grid_spacing: 1,
             selected_color: Color::Blue,
             text_color: Color::Cyan,
+            border_color: Color::Cyan,
         }
     }
 }
