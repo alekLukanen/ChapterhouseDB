@@ -9,7 +9,7 @@ use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
-    widgets::{Block, Paragraph, StatefulWidget, Widget},
+    widgets::{Block, Paragraph, StatefulWidget, Widget, Wrap},
 };
 
 #[derive(Debug, Clone)]
@@ -33,7 +33,7 @@ impl Default for RecordTableState {
             records: Vec::new(),
             offset: (0, 0),
             selected: None,
-            max_rows_to_display: 50,
+            max_rows_to_display: 15,
             desired_rows_to_buffer: 100,
         }
     }
@@ -251,14 +251,17 @@ impl RecordTable {
                         let col_width = max_column_widths
                             .get(col_idx)
                             .expect("unable to find max column width");
-                        (1 + (row_len + *col_width - 1) / *col_width) + 5
+                        let has_remainder = row_len % col_width;
+                        if has_remainder > 0 {
+                            1 + row_len / *col_width
+                        } else {
+                            row_len / *col_width
+                        }
                     })
                     .max()
                     .expect("expect row height")
             })
             .collect::<Vec<u16>>();
-
-        //self.render_error(area, buf, format!("row_widths: {:?}", max_column_widths));
 
         // render the column names
         let [header_area, _, rows_area] = Layout::new(
@@ -297,8 +300,12 @@ impl RecordTable {
                         style = style.bg(self.selected_color);
                     }
                 }
-                let para = Paragraph::new(col.clone()).style(style);
+                let para = Paragraph::new(col.clone())
+                    .style(style)
+                    .wrap(Wrap { trim: false });
                 para.render(cell_area, buf);
+                //let blk = Block::bordered().style(style);
+                //blk.render(cell_area, buf);
             }
         }
     }
@@ -312,7 +319,7 @@ impl Default for RecordTable {
     fn default() -> Self {
         RecordTable {
             max_text_chars: 100,
-            max_column_width: 25,
+            max_column_width: 50,
             grid_spacing: 1,
             selected_color: Color::Blue,
             text_color: Color::Cyan,
