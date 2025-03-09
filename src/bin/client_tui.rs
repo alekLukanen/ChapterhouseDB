@@ -6,11 +6,9 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 
 use chapterhouseqe::{
-    client::AsyncQueryClient,
-    handlers::{
-        message_handler::messages,
-        query_handler::{self, Status},
-    },
+    client::{AsyncQueryClient, QueryDataIterator},
+    handlers::{message_handler::messages, query_handler::Status},
+    tui::{RecordTable, RecordTableState, TableRecord},
 };
 use chrono::Duration;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
@@ -63,6 +61,7 @@ async fn main() -> Result<()> {
 #[derive(Debug)]
 enum AppEvent {
     TerminalEvent(event::Event),
+    Error(String),
     DataUpdate,
 }
 
@@ -88,6 +87,8 @@ struct QueryInfo {
     query_txt: String,
     status: Option<Status>,
     control_err: Option<String>,
+    query_data_iter: Option<QueryDataIterator>,
+    record_table_state: RecordTableState,
 }
 
 impl QueryInfo {
@@ -164,6 +165,37 @@ impl QueriesAppState {
         if let Some(queries) = &mut self.queries {
             if let Some(query) = queries.get_mut(query_idx) {
                 query.control_err = Some(err);
+                return Ok(());
+            } else {
+                return Err(anyhow!("query at index {} does not exist", query_idx));
+            }
+        } else {
+            panic!("queries vec isn't set");
+        }
+    }
+
+    fn update_query_data_iter(&mut self, query_idx: usize, iter: QueryDataIterator) -> Result<()> {
+        if let Some(queries) = &mut self.queries {
+            if let Some(query) = queries.get_mut(query_idx) {
+                query.query_data_iter = Some(iter);
+                return Ok(());
+            } else {
+                return Err(anyhow!("query at index {} does not exist", query_idx));
+            }
+        } else {
+            panic!("queries vec isn't set");
+        }
+    }
+
+    fn add_record(
+        &mut self,
+        query_idx: usize,
+        order: usize,
+        rec: Arc<arrow::array::RecordBatch>,
+    ) -> Result<()> {
+        if let Some(queries) = &mut self.queries {
+            if let Some(query) = queries.get_mut(query_idx) {
+                query.record_table_state.add_record(order, rec);
                 return Ok(());
             } else {
                 return Err(anyhow!("query at index {} does not exist", query_idx));
@@ -250,9 +282,29 @@ impl QueriesAppState {
                 state
                     .lock()
                     .map_err(|_| anyhow!("lock failed"))?
-                    .update_control_err(query_idx, format!("{:?}", query_status))?;
+                    .update_control_err(query_idx.clone(), format!("{:?}", query_status))?;
             }
         }
+
+        let _ = sender.send(AppEvent::DataUpdate).await;
+
+        // now create the data iterator and fetch the next record
+        let mut query_data_iter =
+            QueryDataIterator::new(client, query_id, 0, 0, chrono::Duration::seconds(1));
+
+        let rec = query_data_iter.next(ct.clone()).await?;
+        match rec {
+            Some(rec) => state
+                .lock()
+                .map_err(|_| anyhow!("lock failed"))?
+                .add_record(query_idx.clone(), 0, rec)?,
+            None => {}
+        }
+
+        state
+            .lock()
+            .map_err(|_| anyhow!("lock failed"))?
+            .update_query_data_iter(query_idx, query_data_iter)?;
 
         let _ = sender.send(AppEvent::DataUpdate).await;
         Ok(())
@@ -313,6 +365,8 @@ impl QueriesApp {
                     query_txt: item.clone(),
                     status: None,
                     control_err: None,
+                    record_table_state: RecordTableState::default(),
+                    query_data_iter: None,
                 })
                 .collect(),
         );
@@ -407,6 +461,7 @@ impl QueriesApp {
                 }
                 _ => {}
             },
+            Some(AppEvent::Error(_)) => {}
             None => {}
         }
         Ok(())
@@ -487,7 +542,7 @@ impl QueriesApp {
         Ok(())
     }
 
-    fn render_table_area(&self, area: Rect, frame: &mut Frame) -> Result<()> {
+    fn render_table_area(&mut self, area: Rect, frame: &mut Frame) -> Result<()> {
         let table_block = Block::bordered()
             .title(Line::from(vec![
                 Span::raw(" ✨ "),
@@ -495,6 +550,22 @@ impl QueriesApp {
             ]))
             .border_set(border::ROUNDED)
             .border_style(Style::default().fg(Color::Cyan));
+
+        if let Some(selected_query) = self.table_state.selected() {
+            let mut state_guard = self.state.lock().map_err(|_| anyhow!("lock failed"))?;
+
+            if let Some(queries) = &mut state_guard.queries {
+                if let Some(query_info) = queries.get_mut(selected_query) {
+                    let rec_table = RecordTable::default();
+                    let rec_table_state = &mut query_info.record_table_state;
+                    frame.render_stateful_widget(
+                        rec_table,
+                        table_block.inner(area),
+                        rec_table_state,
+                    );
+                }
+            }
+        }
 
         frame.render_widget(table_block, area);
         Ok(())
@@ -534,7 +605,10 @@ impl QueriesApp {
                             Span::from(format!("{}", data.status_icon()))
                                 .style(Style::default().fg(Color::Green)),
                         ),
-                        Cell::from(Text::from(format!("{}", i)).fg(self.table_colors.row_fg)),
+                        Cell::from(
+                            Text::from(format!("{}, {}", i, data.record_table_state.num_records()))
+                                .fg(self.table_colors.row_fg),
+                        ),
                         Cell::from(
                             Text::from(data.query_txt.to_string()).fg(self.table_colors.row_fg),
                         ),

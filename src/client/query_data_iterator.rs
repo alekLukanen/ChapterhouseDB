@@ -18,6 +18,7 @@ pub enum QueryDataIteratorError {
     DatabaseErrorResp(String),
 }
 
+#[derive(Debug)]
 pub struct QueryDataIterator {
     client: Arc<AsyncQueryClient>,
     query_id: u128,

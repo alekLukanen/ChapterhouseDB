@@ -2,31 +2,41 @@ use std::{cmp::max, cmp::min, sync::Arc};
 
 use anyhow::Result;
 use arrow::{
-    array::Datum,
     error::ArrowError,
     util::display::{ArrayFormatter, FormatOptions},
 };
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
-    style::Color,
-    text::Text,
+    style::{Color, Style},
     widgets::{Paragraph, StatefulWidget, Widget},
 };
 
 #[derive(Debug, Clone)]
-struct TableRecord {
+pub struct TableRecord {
     order: usize,
     record: Arc<arrow::array::RecordBatch>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct RecordTableState {
     records: Vec<TableRecord>,
     offset: (usize, usize), // the index in the records vec to start presenting rows
     selected: Option<usize>, // the selected row accouting for the offset
     max_rows_to_display: usize,
     desired_rows_to_buffer: usize,
+}
+
+impl Default for RecordTableState {
+    fn default() -> Self {
+        RecordTableState {
+            records: Vec::new(),
+            offset: (0, 0),
+            selected: None,
+            max_rows_to_display: 50,
+            desired_rows_to_buffer: 100,
+        }
+    }
 }
 
 impl RecordTableState {
@@ -79,15 +89,18 @@ impl RecordTableState {
         }
         self.records.push(table_record);
     }
+    pub fn num_records(&self) -> usize {
+        self.records.len()
+    }
 }
 
 #[derive(Debug)]
 pub struct RecordTable {
     max_text_chars: u16,
     max_column_width: u16,
-    wrap_text: bool,
     grid_spacing: u16,
     selected_color: Color,
+    text_color: Color,
 }
 
 impl RecordTable {
@@ -124,6 +137,7 @@ impl RecordTable {
         let first_rec = if let Some(rec) = state.records.first() {
             rec
         } else {
+            self.render_error(area, buf, "table does not have any records".to_string());
             return None;
         };
         let columns: Vec<String> = first_rec
@@ -189,14 +203,14 @@ impl RecordTable {
             }
             rows.push(row);
 
-            if current_offset.1 >= rec.record.num_rows() {
+            if current_offset.1 >= rec.record.num_rows() - 1 {
                 current_offset = (current_offset.0 + 1, 0);
             } else {
                 current_offset = (current_offset.0, current_offset.1 + 1);
             }
         }
 
-        return None;
+        return Some((columns, rows));
     }
 
     fn render_grid(
@@ -247,11 +261,28 @@ impl RecordTable {
         let (vertical_layout, horizontal_layout) =
             self.build_row_layout(&max_column_widths, &row_heights);
 
-        for row in &rows {}
+        let vertical_areas = vertical_layout.split(area);
+        for (row_idx, row) in rows.iter().enumerate() {
+            let vertical_area = vertical_areas[row_idx];
+            let horizontal_area = horizontal_layout.split(vertical_area);
+
+            for (col_idx, col) in row.iter().enumerate() {
+                let cell_area = horizontal_area[col_idx];
+                let mut style = Style::default().fg(self.text_color);
+                if let Some(selected) = state.selected {
+                    if selected == row_idx {
+                        style = style.bg(self.selected_color);
+                    }
+                }
+                Paragraph::new(col.clone())
+                    .style(style)
+                    .render(cell_area, buf);
+            }
+        }
     }
 
     fn render_error(&self, area: Rect, buf: &mut Buffer, msg: String) {
-        Paragraph::new(msg).centered().render(area, buf);
+        Paragraph::new(msg).render(area, buf);
     }
 }
 
@@ -260,9 +291,9 @@ impl Default for RecordTable {
         RecordTable {
             max_text_chars: 100,
             max_column_width: 25,
-            wrap_text: false,
             grid_spacing: 1,
             selected_color: Color::Blue,
+            text_color: Color::Cyan,
         }
     }
 }
@@ -272,6 +303,7 @@ impl StatefulWidget for RecordTable {
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         if state.offset.0 >= state.records.len() {
+            self.render_error(area, buf, "offset past end of records".to_string());
             return;
         }
 
