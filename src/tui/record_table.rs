@@ -33,7 +33,7 @@ impl Default for RecordTableState {
             records: Vec::new(),
             offset: (0, 0),
             selected: None,
-            max_rows_to_display: 15,
+            max_rows_to_display: 50,
             desired_rows_to_buffer: 100,
         }
     }
@@ -241,7 +241,7 @@ impl RecordTable {
             max_column_widths.push(column_width as u16);
         }
 
-        let row_heights = rows
+        let mut row_heights = rows
             .iter()
             .map(|row| {
                 row.iter()
@@ -263,16 +263,35 @@ impl RecordTable {
             })
             .collect::<Vec<u16>>();
 
+        // only show enough rows that will fit on the screen
+        let mut stop_index: usize = 0;
+        let mut total_height: u16 = 0;
+        for (idx, row_height) in row_heights.iter().enumerate() {
+            if total_height + row_height + 1 > (area.height - 3) {
+                break;
+            }
+            total_height += *row_height + 1;
+            stop_index = idx;
+        }
+        let rows = rows[0..stop_index].to_vec();
+        row_heights = row_heights[0..stop_index + 1].to_vec();
+
         // render the column names
-        let [header_area, _, rows_area] = Layout::new(
+        let [_, table_area] = Layout::new(
+            Direction::Horizontal,
+            [Constraint::Length(1), Constraint::Fill(1)],
+        )
+        .areas(area);
+        let [_, header_area, _, rows_area] = Layout::new(
             Direction::Vertical,
             [
+                Constraint::Length(1),
                 Constraint::Length(1),
                 Constraint::Length(1),
                 Constraint::Fill(1),
             ],
         )
-        .areas(area);
+        .areas(table_area);
 
         // define the grid needed for the table
         let (vertical_layout, horizontal_layout) =
@@ -304,8 +323,6 @@ impl RecordTable {
                     .style(style)
                     .wrap(Wrap { trim: false });
                 para.render(cell_area, buf);
-                //let blk = Block::bordered().style(style);
-                //blk.render(cell_area, buf);
             }
         }
     }
