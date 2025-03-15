@@ -38,6 +38,17 @@ query optimization techniques.
   This client will connect to port 7000 and initiate a query. The result
   will show up in the `sample_data/query_results/` directory.
 
+## 🚀 Running the TUI
+
+You can run the TUI with a set of example queries using this command
+
+```
+cargo run --bin client_tui -- --sql-file="sample_queries/simple.sql" --connect-to-address="127.0.0.1"
+```
+
+The TUI will send the queries to the worker and allow you to visualize
+the result data of the queries in a table.
+
 ## 🛢️ Supported SQL
 
 - [X] Types
