@@ -13,6 +13,8 @@ async fn main() -> Result<()> {
     base_path.push("./sample_data");
 
     create_simple_data(base_path.clone())?;
+    create_simple_wide_string_data(base_path.clone())?;
+
     create_large_simple_data(base_path.clone())?;
     create_huge_simple_data(base_path.clone())?;
 
@@ -33,7 +35,7 @@ fn create_large_simple_data(mut base_path: std::path::PathBuf) -> Result<()> {
     base_path.push("large_simple");
     create_dir(&base_path)?;
 
-    simple_data(&base_path, 10_000, 1000)?;
+    simple_data(&base_path, 10_000, 8, 1000)?;
 
     Ok(())
 }
@@ -42,7 +44,7 @@ fn create_huge_simple_data(mut base_path: std::path::PathBuf) -> Result<()> {
     base_path.push("huge_simple");
     create_dir(&base_path)?;
 
-    simple_data(&base_path, 1_000_000, 10_000)?;
+    simple_data(&base_path, 1_000_000, 8, 10_000)?;
 
     Ok(())
 }
@@ -51,12 +53,26 @@ fn create_simple_data(mut base_path: std::path::PathBuf) -> Result<()> {
     base_path.push("simple");
     create_dir(&base_path)?;
 
-    simple_data(&base_path, 100, 33)?;
+    simple_data(&base_path, 100, 8, 33)?;
 
     Ok(())
 }
 
-fn simple_data(base_path: &std::path::PathBuf, size: usize, rows_per_file: usize) -> Result<()> {
+fn create_simple_wide_string_data(mut base_path: std::path::PathBuf) -> Result<()> {
+    base_path.push("simple_wide_string");
+    create_dir(&base_path)?;
+
+    simple_data(&base_path, 100, 100, 33)?;
+
+    Ok(())
+}
+
+fn simple_data(
+    base_path: &std::path::PathBuf,
+    size: usize,
+    string_size: usize,
+    rows_per_file: usize,
+) -> Result<()> {
     // Create the schema
     let schema = Arc::new(arrow::datatypes::Schema::new(vec![
         arrow::datatypes::Field::new("id", arrow::datatypes::DataType::Int32, false),
@@ -72,7 +88,7 @@ fn simple_data(base_path: &std::path::PathBuf, size: usize, rows_per_file: usize
             let chars: String = rng
                 .clone()
                 .sample_iter(&rand::distributions::Uniform::new_inclusive('a', 'z'))
-                .take(8)
+                .take(string_size)
                 .collect();
             chars
         })

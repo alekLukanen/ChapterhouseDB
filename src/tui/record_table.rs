@@ -214,7 +214,21 @@ impl RecordTable {
             for formatter in formatters {
                 let value = formatter.value(current_offset.1);
                 match value.try_to_string() {
-                    Ok(res) => row.push(res),
+                    Ok(res) => {
+                        let res = if res.len() > self.max_text_chars as usize {
+                            if self.max_text_chars > 3 {
+                                let mut val: String =
+                                    res.chars().take(self.max_text_chars as usize - 3).collect();
+                                val.push_str("...");
+                                val
+                            } else {
+                                res.chars().take(self.max_text_chars as usize).collect()
+                            }
+                        } else {
+                            res
+                        };
+                        row.push(res);
+                    }
                     Err(_) => row.push("Unable to Display".to_string()),
                 }
             }
@@ -357,7 +371,7 @@ impl RecordTable {
 impl Default for RecordTable {
     fn default() -> Self {
         RecordTable {
-            max_text_chars: 100,
+            max_text_chars: 75,
             max_column_width: 50,
             grid_spacing: 1,
             selected_color: Color::Blue,
