@@ -8,9 +8,15 @@ use arrow::{
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
-    widgets::{Block, Paragraph, StatefulWidget, Widget, Wrap},
+    style::{Color, Modifier, Style},
+    widgets::{Paragraph, StatefulWidget, Widget, Wrap},
 };
+
+#[derive(Clone)]
+struct TableRow {
+    idx: usize,
+    fields: Vec<String>,
+}
 
 #[derive(Debug, Clone)]
 pub struct TableRecord {
@@ -23,6 +29,7 @@ pub struct RecordTableState {
     records: Vec<TableRecord>,
     offset: (usize, usize), // the index in the records vec to start presenting rows
     selected: Option<usize>, // the selected row accouting for the offset
+    alternate_selected: bool,
     max_rows_to_display: usize,
     desired_rows_to_buffer: usize,
 }
@@ -32,7 +39,8 @@ impl Default for RecordTableState {
         RecordTableState {
             records: Vec::new(),
             offset: (0, 0),
-            selected: None,
+            selected: Some(0),
+            alternate_selected: true,
             max_rows_to_display: 50,
             desired_rows_to_buffer: 100,
         }
@@ -46,6 +54,9 @@ impl RecordTableState {
             self.offset = (0, 0);
         }
         self.remove_unused_records();
+    }
+    pub fn selected(&self) -> Option<usize> {
+        return self.selected;
     }
     pub fn need_next_record(&self) -> bool {
         let current_record_rows_remaining = self
@@ -89,6 +100,9 @@ impl RecordTableState {
         }
         self.records.push(table_record);
     }
+    pub fn set_alternate_selected(&mut self, val: bool) {
+        self.alternate_selected = val;
+    }
     pub fn num_records(&self) -> usize {
         self.records.len()
     }
@@ -100,6 +114,8 @@ pub struct RecordTable {
     max_column_width: u16,
     grid_spacing: u16,
     selected_color: Color,
+    selected_alternate_color: Color,
+    selected_text_color: Color,
     text_color: Color,
     border_color: Color,
 }
@@ -134,7 +150,7 @@ impl RecordTable {
         area: Rect,
         buf: &mut Buffer,
         state: &RecordTableState,
-    ) -> Option<(Vec<String>, Vec<Vec<String>>)> {
+    ) -> Option<(Vec<String>, Vec<TableRow>)> {
         let first_rec = if let Some(rec) = state.records.first() {
             rec
         } else {
@@ -154,7 +170,7 @@ impl RecordTable {
         let formatter_options = FormatOptions::default();
 
         // stringify the arrow data
-        let mut rows: Vec<Vec<String>> = Vec::new();
+        let mut rows: Vec<TableRow> = Vec::new();
         let mut current_offset = state.offset.clone();
 
         let mut record_formatters = Vec::new();
@@ -184,7 +200,7 @@ impl RecordTable {
             return None;
         }
 
-        for _ in 0..state.max_rows_to_display {
+        for idx in 0..state.max_rows_to_display {
             let rec = if let Some(rec) = state.records.get(current_offset.0) {
                 rec
             } else {
@@ -202,7 +218,7 @@ impl RecordTable {
                     Err(_) => row.push("Unable to Display".to_string()),
                 }
             }
-            rows.push(row);
+            rows.push(TableRow { idx, fields: row });
 
             if current_offset.1 >= rec.record.num_rows() - 1 {
                 current_offset = (current_offset.0 + 1, 0);
@@ -219,11 +235,11 @@ impl RecordTable {
         area: Rect,
         buf: &mut Buffer,
         columns: Vec<String>,
-        rows: Vec<Vec<String>>,
+        rows: Vec<TableRow>,
         state: &mut RecordTableState,
     ) {
         for row in &rows {
-            assert_eq!(columns.len(), row.len());
+            assert_eq!(columns.len(), row.fields.len());
         }
 
         let mut max_column_widths = Vec::new();
@@ -231,7 +247,7 @@ impl RecordTable {
             let column_name_width = columns.get(idx).expect("column value").len();
             let max_column_width_for_rows = rows
                 .iter()
-                .map(|row| row.get(idx).expect("row value").len())
+                .map(|row| row.fields.get(idx).expect("row value").len())
                 .max();
 
             let desired_column_width =
@@ -244,7 +260,8 @@ impl RecordTable {
         let mut row_heights = rows
             .iter()
             .map(|row| {
-                row.iter()
+                row.fields
+                    .iter()
                     .enumerate()
                     .map(|(col_idx, row_col)| {
                         let row_len = row_col.len() as u16;
@@ -311,12 +328,17 @@ impl RecordTable {
             let vertical_area = vertical_areas[row_idx];
             let horizontal_area = horizontal_layout.split(vertical_area);
 
-            for (col_idx, col) in row.iter().enumerate() {
+            for (col_idx, col) in row.fields.iter().enumerate() {
                 let cell_area = horizontal_area[col_idx];
                 let mut style = Style::default().fg(self.text_color);
                 if let Some(selected) = state.selected {
                     if selected == row_idx {
-                        style = style.bg(self.selected_color);
+                        style = style.fg(self.selected_text_color);
+                        if state.alternate_selected {
+                            style = style.bg(self.selected_alternate_color);
+                        } else {
+                            style = style.bg(self.selected_color);
+                        }
                     }
                 }
                 let para = Paragraph::new(col.clone())
@@ -339,6 +361,8 @@ impl Default for RecordTable {
             max_column_width: 50,
             grid_spacing: 1,
             selected_color: Color::Blue,
+            selected_alternate_color: Color::Gray,
+            selected_text_color: Color::Black,
             text_color: Color::Cyan,
             border_color: Color::Cyan,
         }

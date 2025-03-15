@@ -1,6 +1,6 @@
 use std::{
     fs,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard},
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -70,6 +70,7 @@ struct TableColors {
     header_fg: Color,
     row_fg: Color,
     selected_column_style_fg: Color,
+    selected_alternate_column_style_fg: Color,
 }
 
 impl TableColors {
@@ -78,6 +79,7 @@ impl TableColors {
             header_fg: Color::Cyan,
             row_fg: Color::Cyan,
             selected_column_style_fg: Color::Blue,
+            selected_alternate_column_style_fg: Color::Gray,
         }
     }
 }
@@ -312,6 +314,12 @@ impl QueriesAppState {
 }
 
 #[derive(Debug)]
+enum SelectedTable {
+    QueryTable,
+    DataTable,
+}
+
+#[derive(Debug)]
 pub struct QueriesApp {
     sql_file: String,
     state: Arc<Mutex<QueriesAppState>>,
@@ -325,6 +333,8 @@ pub struct QueriesApp {
 
     table_state: TableState,
     table_colors: TableColors,
+
+    selected_table: SelectedTable,
 }
 
 impl QueriesApp {
@@ -340,6 +350,7 @@ impl QueriesApp {
             client: Arc::new(client),
             table_state: TableState::default().with_selected(0),
             table_colors: TableColors::new(),
+            selected_table: SelectedTable::QueryTable,
         }
     }
 
@@ -472,8 +483,40 @@ impl QueriesApp {
             KeyCode::Char('q') => self.exit(),
             KeyCode::Up => self.previous_row()?,
             KeyCode::Down => self.next_row()?,
+            KeyCode::Left | KeyCode::Right => self.switch_table()?,
             _ => {}
         }
+        Ok(())
+    }
+
+    fn switch_table(&mut self) -> Result<()> {
+        if let Some(selected_query) = self.table_state.selected() {
+            let mut state_guard = self.state.lock().map_err(|_| anyhow!("lock failed"))?;
+
+            if let Some(queries) = &mut state_guard.queries {
+                if let Some(query_info) = queries.get_mut(selected_query) {
+                    let rec_table_state = &mut query_info.record_table_state;
+                    match self.selected_table {
+                        SelectedTable::QueryTable => {
+                            rec_table_state.set_alternate_selected(false);
+                        }
+                        SelectedTable::DataTable => {
+                            rec_table_state.set_alternate_selected(true);
+                        }
+                    }
+                }
+            }
+        }
+
+        match self.selected_table {
+            SelectedTable::QueryTable => {
+                self.selected_table = SelectedTable::DataTable;
+            }
+            SelectedTable::DataTable => {
+                self.selected_table = SelectedTable::QueryTable;
+            }
+        }
+
         Ok(())
     }
 
@@ -578,9 +621,18 @@ impl QueriesApp {
             .border_style(Style::default().cyan());
 
         let header_style = Style::default().fg(self.table_colors.header_fg);
-        let selected_row_style = Style::default()
-            .add_modifier(Modifier::REVERSED)
-            .fg(self.table_colors.selected_column_style_fg);
+
+        let mut selected_row_style = Style::default().add_modifier(Modifier::REVERSED);
+        match self.selected_table {
+            SelectedTable::DataTable => {
+                selected_row_style =
+                    selected_row_style.fg(self.table_colors.selected_alternate_column_style_fg);
+            }
+            SelectedTable::QueryTable => {
+                selected_row_style =
+                    selected_row_style.fg(self.table_colors.selected_column_style_fg);
+            }
+        }
 
         let header = Row::new(vec![
             Cell::default(),
