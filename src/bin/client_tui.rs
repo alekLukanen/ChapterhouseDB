@@ -438,7 +438,12 @@ impl QueriesApp {
             " Executing Queries ",
             ratatui::style::Style::default().bold().cyan(),
         )]);
-        let instructions = Line::from(vec![" Quit ".into(), "<Q> ".blue().bold()]);
+        let instructions = Line::from(vec![
+            " Quit ".into(),
+            "<Q> ".blue().bold(),
+            "| Switch Table ".into(),
+            "<Tab> ".blue().bold(),
+        ]);
         let block = Block::default()
             .title(title.centered())
             .title_bottom(instructions.centered());
@@ -481,11 +486,25 @@ impl QueriesApp {
     fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<()> {
         match key_event.code {
             KeyCode::Char('q') => self.exit(),
-            KeyCode::Up => self.previous_row()?,
-            KeyCode::Down => self.next_row()?,
-            KeyCode::Left | KeyCode::Right => self.switch_table()?,
+            KeyCode::Up => match self.selected_table {
+                SelectedTable::QueryTable => self.previous_row()?,
+                SelectedTable::DataTable => self.previous_data_row()?,
+            },
+            KeyCode::Down => match self.selected_table {
+                SelectedTable::QueryTable => self.next_row()?,
+                SelectedTable::DataTable => self.next_data_row()?,
+            },
+            KeyCode::Tab => self.switch_table()?,
             _ => {}
         }
+        Ok(())
+    }
+
+    fn next_data_row(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn previous_data_row(&mut self) -> Result<()> {
         Ok(())
     }
 
