@@ -3,6 +3,8 @@ A simple SQL query engine capable of distributing work across a set of
 workers. The intent of this project is to allow me to test out various 
 query optimization techniques.
 
+![Query TUI](./imgs/query_tui_example.png)
+
 ## 🚀 Running the Base System
 
 1. Create the sample data by running the following command
