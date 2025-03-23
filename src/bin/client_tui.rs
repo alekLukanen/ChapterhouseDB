@@ -620,6 +620,7 @@ impl QueriesApp {
                 if let Some(query_info) = queries.get_mut(selected_query) {
                     let rec_table = RecordTable::default();
                     let rec_table_state = &mut query_info.record_table_state;
+                    rec_table_state.set_area(area);
                     frame.render_stateful_widget(
                         rec_table,
                         table_block.inner(area),
