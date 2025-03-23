@@ -1,6 +1,6 @@
 use std::{cmp::max, cmp::min, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use arrow::{
     error::ArrowError,
     util::display::{ArrayFormatter, FormatOptions},
@@ -8,7 +8,7 @@ use arrow::{
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     widgets::{Paragraph, StatefulWidget, Widget, Wrap},
 };
 
@@ -32,6 +32,19 @@ pub struct RecordTableState {
     alternate_selected: bool,
     max_rows_to_display: usize,
     desired_rows_to_buffer: usize,
+
+    max_text_chars: u16,
+    max_column_width: u16,
+
+    // memoize the row text
+    // this represents the text that will be displayed
+    // to the user and the first row will always be at
+    // the "offset" position. You can paginate to the next
+    // page which is a stiched view of the record data.
+    rows: Vec<Vec<String>>,
+    row_heights: Vec<u16>,
+    row_widths: Vec<u16>,
+    err: Option<String>,
 }
 
 impl Default for RecordTableState {
@@ -43,11 +56,18 @@ impl Default for RecordTableState {
             alternate_selected: true,
             max_rows_to_display: 50,
             desired_rows_to_buffer: 100,
+            max_text_chars: 75,
+            max_column_width: 50,
+            rows: Vec::new(),
+            row_heights: Vec::new(),
+            row_widths: Vec::new(),
+            err: None,
         }
     }
 }
 
 impl RecordTableState {
+    pub fn next_page(&mut self) {}
     pub fn select(&mut self, val: Option<usize>) {
         self.selected = val;
         if val.is_none() {
@@ -105,6 +125,90 @@ impl RecordTableState {
     }
     pub fn num_records(&self) -> usize {
         self.records.len()
+    }
+    fn set_error(&mut self, err: String) {
+        self.err = Some(err);
+    }
+    fn get_columns_and_rows(&mut self, area: Rect) -> Result<(Vec<String>, Vec<TableRow>)> {
+        let first_rec = if let Some(rec) = self.records.first() {
+            rec
+        } else {
+            return Err(anyhow!("table does not have any recors"));
+        };
+        let columns: Vec<String> = first_rec
+            .record
+            .schema()
+            .fields
+            .iter()
+            .map(|item| item.name().clone())
+            .collect();
+
+        let num_cols = columns.len();
+
+        let formatter_options = FormatOptions::default();
+
+        // stringify the arrow data
+        let mut rows: Vec<TableRow> = Vec::new();
+        let mut current_offset = self.offset.clone();
+
+        let mut record_formatters = Vec::new();
+        for rec in &self.records {
+            let formatter = rec
+                .record
+                .columns()
+                .iter()
+                .map(|c| ArrayFormatter::try_new(c.as_ref(), &formatter_options))
+                .collect::<Result<Vec<_>, ArrowError>>()?;
+            record_formatters.push(formatter);
+        }
+        if record_formatters.len() == 0 {
+            return Err(anyhow!(
+                "unable to create formatters for arrow record data types"
+            ));
+        }
+
+        for idx in 0..self.max_rows_to_display {
+            let rec = if let Some(rec) = self.records.get(current_offset.0) {
+                rec
+            } else {
+                break;
+            };
+            let formatters = record_formatters
+                .get(current_offset.0)
+                .expect("record formatter not found");
+
+            let mut row = Vec::with_capacity(num_cols);
+            for formatter in formatters {
+                let value = formatter.value(current_offset.1);
+                match value.try_to_string() {
+                    Ok(res) => {
+                        let res = if res.len() > self.max_text_chars as usize {
+                            if self.max_text_chars > 3 {
+                                let mut val: String =
+                                    res.chars().take(self.max_text_chars as usize - 3).collect();
+                                val.push_str("...");
+                                val
+                            } else {
+                                res.chars().take(self.max_text_chars as usize).collect()
+                            }
+                        } else {
+                            res
+                        };
+                        row.push(res);
+                    }
+                    Err(_) => row.push("Unable to Display".to_string()),
+                }
+            }
+            rows.push(TableRow { idx, fields: row });
+
+            if current_offset.1 >= rec.record.num_rows() - 1 {
+                current_offset = (current_offset.0 + 1, 0);
+            } else {
+                current_offset = (current_offset.0, current_offset.1 + 1);
+            }
+        }
+
+        return Ok((columns, rows));
     }
 }
 
