@@ -102,9 +102,73 @@ impl RecordTableState {
         return self.selected;
     }
 
-    pub fn next_page(&mut self) {}
+    fn get_record(&self, idx: usize) -> Option<&TableRecord> {
+        self.records
+            .binary_search_by_key(&idx, |r| r.order)
+            .ok()
+            .map(|pos| &self.records[pos])
+    }
 
-    pub fn need_records(&self) -> Vec<usize> {
+    pub fn next_page(&mut self) -> bool {
+        if self.waiting_for_data {
+            return false;
+        }
+
+        let max_offset_visible = if let Some(table_row) = self.rows.last() {
+            (table_row.record_idx, table_row.row_idx)
+        } else {
+            return false;
+        };
+        if self.records.len() <= max_offset_visible.0 {
+            return false;
+        }
+
+        if let Some(rec) = self.get_record(max_offset_visible.0) {
+            if max_offset_visible.1 + 1 >= rec.record.num_rows() {
+                self.offset = (max_offset_visible.0 + 1, 0);
+            } else {
+                self.offset = (max_offset_visible.0, max_offset_visible.1 + 1);
+            }
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    pub fn previous_page(&mut self) -> bool {
+        if self.waiting_for_data {
+            return false;
+        }
+
+        let min_offset_visible = if let Some(table_row) = self.rows.first() {
+            (table_row.record_idx, table_row.row_idx)
+        } else {
+            return false;
+        };
+        if self.records.len() <= min_offset_visible.0 {
+            return false;
+        }
+
+        if let Some(rec) = self.get_record(min_offset_visible.0) {
+            // TODO: implement a head and tail offset so that the view can be resized
+            if min_offset_visible.1 == 0 && min_offset_visible.0 != 0 {
+                let prev_rec = if let Some(prev_rec) = self.get_record(min_offset_visible.0 - 1) {
+                    prev_rec
+                } else {
+                    return false;
+                };
+                self.offset = (min_offset_visible.0 - 1, prev_rec.record.num_rows() - 1);
+            } else if min_offset_visible.1 == 0 && min_offset_visible.0 == 0 {
+                return false;
+            } else {
+            }
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    pub fn need_records(&mut self) -> Vec<usize> {
         let mut rows_before_offset: usize = 0;
         let mut rows_after_offset: usize = 0;
         for (rec_idx, rec) in self.records.iter().enumerate() {
@@ -138,7 +202,7 @@ impl RecordTableState {
                 }
             }
         } else if self.records.len() == 1 {
-            if need_previous_record {
+            if need_previous_record || need_next_record {
                 if let Some(rec) = self.records.first() {
                     if rec.order != 0 {
                         record_idxs.push(rec.order - 1);
@@ -149,6 +213,9 @@ impl RecordTableState {
             if self.last_record_idx.is_none() {
                 record_idxs.push(0);
             }
+        }
+        if record_idxs.len() > 0 {
+            self.waiting_for_data = true;
         }
         return record_idxs;
     }
@@ -175,6 +242,7 @@ impl RecordTableState {
             }
         }
         self.records.push(table_record);
+        self.waiting_for_data = false;
         self.refresh_view_data();
     }
 
@@ -209,6 +277,10 @@ impl RecordTableState {
     }
 
     fn set_columns_and_rows(&mut self, area: Rect) -> Result<()> {
+        if self.waiting_for_data {
+            return Ok(());
+        }
+
         let first_rec = if let Some(rec) = self.records.first() {
             rec
         } else {
@@ -341,6 +413,10 @@ impl RecordTableState {
             total_height += *row_height + 1;
             stop_index = idx;
         }
+        if stop_index + 1 < rows.len() {
+            self.waiting_for_data = true;
+        }
+
         let rows = rows[0..stop_index].to_vec();
         row_heights = row_heights[0..stop_index + 1].to_vec();
 
