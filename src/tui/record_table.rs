@@ -15,6 +15,8 @@ use ratatui::{
 #[derive(Debug, Clone)]
 struct TableRow {
     idx: usize,
+    record_idx: usize,
+    row_idx: usize,
     fields: Vec<String>,
 }
 
@@ -28,6 +30,7 @@ pub struct TableRecord {
 pub struct RecordTableState {
     area: Option<Rect>,
     records: Vec<TableRecord>,
+    last_record_idx: Option<usize>,
     offset: (usize, usize), // the index in the records vec to start presenting rows
     selected: Option<usize>, // the selected row accouting for the offset
     alternate_selected: bool,
@@ -46,6 +49,8 @@ pub struct RecordTableState {
     rows: Vec<TableRow>,
     row_heights: Vec<u16>,
     row_widths: Vec<u16>,
+    waiting_for_data: bool,
+
     err: Option<String>,
 }
 
@@ -54,6 +59,7 @@ impl Default for RecordTableState {
         RecordTableState {
             area: None,
             records: Vec::new(),
+            last_record_idx: None,
             offset: (0, 0),
             selected: Some(0),
             alternate_selected: true,
@@ -65,6 +71,7 @@ impl Default for RecordTableState {
             rows: Vec::new(),
             row_heights: Vec::new(),
             row_widths: Vec::new(),
+            waiting_for_data: true,
             err: None,
         }
     }
@@ -89,32 +96,61 @@ impl RecordTableState {
         if val.is_none() {
             self.offset = (0, 0);
         }
-        self.remove_unused_records();
     }
 
     pub fn selected(&self) -> Option<usize> {
         return self.selected;
     }
 
-    pub fn need_next_record(&self) -> bool {
-        let current_record_rows_remaining = self
-            .records
-            .get(self.offset.0)
-            .expect("missing table record")
-            .record
-            .num_rows()
-            - (self.offset.1 + 1);
-        let next_records_rows_remaining: usize = (self.offset.0..self.records.len())
-            .map(|idx| {
-                self.records
-                    .get(idx)
-                    .expect("missing table record")
-                    .record
-                    .num_rows()
-            })
-            .sum();
-        return current_record_rows_remaining + next_records_rows_remaining
-            < self.max_rows_to_display;
+    pub fn next_page(&mut self) {}
+
+    pub fn need_records(&self) -> Vec<usize> {
+        let mut rows_before_offset: usize = 0;
+        let mut rows_after_offset: usize = 0;
+        for (rec_idx, rec) in self.records.iter().enumerate() {
+            if rec_idx < self.offset.0 {
+                rows_before_offset += rec.record.num_rows();
+            } else if rec_idx > self.offset.0 {
+                rows_after_offset += rec.record.num_rows();
+            } else {
+                rows_before_offset += self.offset.1;
+                rows_after_offset += rec.record.num_rows() - (self.offset.1 + 1);
+            }
+        }
+
+        let need_previous_record = rows_before_offset >= self.max_rows_to_display;
+        let need_next_record = rows_after_offset >= self.max_rows_to_display;
+
+        let mut record_idxs = Vec::new();
+        if self.records.len() > 1 {
+            if need_previous_record {
+                if let Some(rec) = self.records.first() {
+                    if rec.order != 0 {
+                        record_idxs.push(rec.order - 1);
+                    }
+                }
+            }
+            if need_next_record {
+                if let Some(rec) = self.records.last() {
+                    if self.last_record_idx < Some(rec.order) {
+                        record_idxs.push(rec.order + 1);
+                    }
+                }
+            }
+        } else if self.records.len() == 1 {
+            if need_previous_record {
+                if let Some(rec) = self.records.first() {
+                    if rec.order != 0 {
+                        record_idxs.push(rec.order - 1);
+                    }
+                }
+            }
+        } else if self.records.len() == 0 {
+            if self.last_record_idx.is_none() {
+                record_idxs.push(0);
+            }
+        }
+        return record_idxs;
     }
 
     pub fn remove_unused_records(&mut self) {
@@ -160,6 +196,7 @@ impl RecordTableState {
         } else {
             return;
         };
+
         let res = self.set_columns_and_rows(area);
         match res {
             Ok(_) => {
@@ -241,7 +278,12 @@ impl RecordTableState {
                     Err(_) => row.push("Unable to Display".to_string()),
                 }
             }
-            rows.push(TableRow { idx, fields: row });
+            rows.push(TableRow {
+                idx,
+                record_idx: current_offset.0,
+                row_idx: current_offset.1,
+                fields: row,
+            });
 
             if current_offset.1 >= rec.record.num_rows() - 1 {
                 current_offset = (current_offset.0 + 1, 0);
