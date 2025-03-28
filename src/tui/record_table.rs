@@ -407,7 +407,7 @@ impl RecordTableState {
         let mut stop_index: usize = 0;
         let mut total_height: u16 = 0;
         for (idx, row_height) in row_heights.iter().enumerate() {
-            if total_height + row_height + 1 > (area.height - 3) {
+            if total_height + row_height + 1 > (area.height - 4) {
                 break;
             }
             total_height += *row_height + 1;
