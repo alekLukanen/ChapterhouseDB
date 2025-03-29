@@ -1,4 +1,8 @@
-use std::{cmp::max, cmp::min, sync::Arc};
+use std::{
+    cmp::{max, min},
+    collections::HashMap,
+    sync::Arc,
+};
 
 use anyhow::{anyhow, Result};
 use arrow::{
@@ -150,7 +154,6 @@ impl RecordTableState {
         }
 
         if let Some(rec) = self.get_record(min_offset_visible.0) {
-            // TODO: implement a head and tail offset so that the view can be resized
             if min_offset_visible.1 == 0 && min_offset_visible.0 != 0 {
                 let prev_rec = if let Some(prev_rec) = self.get_record(min_offset_visible.0 - 1) {
                     prev_rec
@@ -281,6 +284,62 @@ impl RecordTableState {
             return Ok(());
         }
 
+        let (columns, rows, mut row_heights, max_column_widths) =
+            self.get_render_data(self.offset, true)?;
+
+        // only show enough rows that will fit on the screen
+        let mut stop_index: usize = 0;
+        let mut total_height: u16 = 0;
+        for (idx, row_height) in row_heights.iter().enumerate() {
+            if total_height + Self::total_row_height(*row_height) > Self::total_area_height(area) {
+                break;
+            }
+            total_height += *row_height + 1;
+            stop_index = idx;
+        }
+        if stop_index + 1 < rows.len() {
+            self.waiting_for_data = true;
+        }
+
+        let rows = rows[0..stop_index].to_vec();
+        row_heights = row_heights[0..stop_index + 1].to_vec();
+
+        self.columns = columns;
+        self.rows = rows;
+        self.row_heights = row_heights;
+        self.row_widths = max_column_widths;
+
+        return Ok(());
+    }
+
+    fn get_offset_for_previous_page(&self, lower_offset: (usize, usize)) -> Result<(usize, usize)> {
+        let area = if let Some(area) = self.area {
+            area
+        } else {
+            return Err(anyhow!("area not set"));
+        };
+
+        let (_, rows, row_heights, _) = self.get_render_data(lower_offset, false)?;
+
+        assert_eq!(rows.len(), row_heights.len());
+
+        let mut upper_offset = lower_offset;
+        let mut total_height: u16 = 0;
+        for (row, row_height) in rows.iter().zip(row_heights).rev() {
+            if total_height + Self::total_row_height(row_height) > Self::total_area_height(area) {
+                break;
+            }
+            total_height += row_height + 1;
+            upper_offset = (row.record_idx, row.row_idx);
+        }
+        Ok(upper_offset)
+    }
+
+    fn get_render_data(
+        &self,
+        offset: (usize, usize),
+        forward: bool,
+    ) -> Result<(Vec<String>, Vec<TableRow>, Vec<u16>, Vec<u16>)> {
         let first_rec = if let Some(rec) = self.records.first() {
             rec
         } else {
@@ -302,7 +361,7 @@ impl RecordTableState {
         let mut rows: Vec<TableRow> = Vec::new();
         let mut current_offset = self.offset.clone();
 
-        let mut record_formatters = Vec::new();
+        let mut record_formatters = HashMap::new();
         for rec in &self.records {
             let formatter = rec
                 .record
@@ -310,7 +369,7 @@ impl RecordTableState {
                 .iter()
                 .map(|c| ArrayFormatter::try_new(c.as_ref(), &formatter_options))
                 .collect::<Result<Vec<_>, ArrowError>>()?;
-            record_formatters.push(formatter);
+            record_formatters.insert(rec.order, formatter);
         }
         if record_formatters.len() == 0 {
             return Err(anyhow!(
@@ -319,13 +378,13 @@ impl RecordTableState {
         }
 
         for idx in 0..self.max_rows_to_display {
-            let rec = if let Some(rec) = self.records.get(current_offset.0) {
+            let rec = if let Some(rec) = self.get_record(current_offset.0) {
                 rec
             } else {
                 break;
             };
             let formatters = record_formatters
-                .get(current_offset.0)
+                .get(&current_offset.0)
                 .expect("record formatter not found");
 
             let mut row = Vec::with_capacity(num_cols);
@@ -357,10 +416,23 @@ impl RecordTableState {
                 fields: row,
             });
 
-            if current_offset.1 >= rec.record.num_rows() - 1 {
-                current_offset = (current_offset.0 + 1, 0);
+            if forward {
+                if current_offset.1 >= rec.record.num_rows() - 1 {
+                    current_offset = (current_offset.0 + 1, 0);
+                } else {
+                    current_offset = (current_offset.0, current_offset.1 + 1);
+                }
             } else {
-                current_offset = (current_offset.0, current_offset.1 + 1);
+                if current_offset.1 <= 0 {
+                    let prev_rec = self.get_record(current_offset.1 - 1);
+                    if let Some(prev_rec) = prev_rec {
+                        current_offset = (current_offset.0 - 1, prev_rec.record.num_rows());
+                    } else {
+                        break;
+                    }
+                } else {
+                    current_offset = (current_offset.0, current_offset.1 - 1);
+                }
             }
         }
 
@@ -380,7 +452,7 @@ impl RecordTableState {
             max_column_widths.push(column_width as u16);
         }
 
-        let mut row_heights = rows
+        let row_heights = rows
             .iter()
             .map(|row| {
                 row.fields
@@ -403,29 +475,15 @@ impl RecordTableState {
             })
             .collect::<Vec<u16>>();
 
-        // only show enough rows that will fit on the screen
-        let mut stop_index: usize = 0;
-        let mut total_height: u16 = 0;
-        for (idx, row_height) in row_heights.iter().enumerate() {
-            if total_height + row_height + 1 > (area.height - 4) {
-                break;
-            }
-            total_height += *row_height + 1;
-            stop_index = idx;
-        }
-        if stop_index + 1 < rows.len() {
-            self.waiting_for_data = true;
-        }
+        Ok((columns, rows, row_heights, max_column_widths))
+    }
 
-        let rows = rows[0..stop_index].to_vec();
-        row_heights = row_heights[0..stop_index + 1].to_vec();
+    fn total_row_height(row_height: u16) -> u16 {
+        row_height + 1
+    }
 
-        self.columns = columns;
-        self.rows = rows;
-        self.row_heights = row_heights;
-        self.row_widths = max_column_widths;
-
-        return Ok(());
+    fn total_area_height(area: Rect) -> u16 {
+        area.height - 4
     }
 }
 
