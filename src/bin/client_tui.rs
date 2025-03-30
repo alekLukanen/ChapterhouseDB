@@ -294,13 +294,17 @@ impl QueriesAppState {
         let mut query_data_iter =
             QueryDataIterator::new(client, query_id, 0, 0, chrono::Duration::seconds(1));
 
-        let rec = query_data_iter.next(ct.clone()).await?;
-        match rec {
-            Some(rec) => state
-                .lock()
-                .map_err(|_| anyhow!("lock failed"))?
-                .add_record(query_idx.clone(), 0, rec)?,
-            None => {}
+        for i in 0..5 {
+            let rec = query_data_iter.next(ct.clone()).await?;
+            match rec {
+                Some(rec) => state
+                    .lock()
+                    .map_err(|_| anyhow!("lock failed"))?
+                    .add_record(query_idx.clone(), i, rec)?,
+                None => {
+                    break;
+                }
+            }
         }
 
         state
@@ -488,11 +492,11 @@ impl QueriesApp {
             KeyCode::Char('q') => self.exit(),
             KeyCode::Up => match self.selected_table {
                 SelectedTable::QueryTable => self.previous_row()?,
-                SelectedTable::DataTable => self.previous_data_row()?,
+                SelectedTable::DataTable => self.previous_data_page()?,
             },
             KeyCode::Down => match self.selected_table {
                 SelectedTable::QueryTable => self.next_row()?,
-                SelectedTable::DataTable => self.next_data_row()?,
+                SelectedTable::DataTable => self.next_data_page()?,
             },
             KeyCode::Tab => self.switch_table()?,
             _ => {}
@@ -500,11 +504,41 @@ impl QueriesApp {
         Ok(())
     }
 
-    fn next_data_row(&mut self) -> Result<()> {
+    fn next_data_page(&mut self) -> Result<()> {
+        let selected_query = if let Some(sq) = self.table_state.selected() {
+            sq
+        } else {
+            return Ok(());
+        };
+
+        let mut state_guard = self.state.lock().map_err(|_| anyhow!("lock failed"))?;
+
+        if let Some(queries) = &mut state_guard.queries {
+            if let Some(query_info) = queries.get_mut(selected_query) {
+                let rec_table_state = &mut query_info.record_table_state;
+                rec_table_state.next_page()?;
+            }
+        }
+
         Ok(())
     }
 
-    fn previous_data_row(&mut self) -> Result<()> {
+    fn previous_data_page(&mut self) -> Result<()> {
+        let selected_query = if let Some(sq) = self.table_state.selected() {
+            sq
+        } else {
+            return Ok(());
+        };
+
+        let mut state_guard = self.state.lock().map_err(|_| anyhow!("lock failed"))?;
+
+        if let Some(queries) = &mut state_guard.queries {
+            if let Some(query_info) = queries.get_mut(selected_query) {
+                let rec_table_state = &mut query_info.record_table_state;
+                rec_table_state.previous_page()?;
+            }
+        }
+
         Ok(())
     }
 
