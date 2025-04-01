@@ -225,6 +225,12 @@ impl QueryDataHandler {
                 .await?;
         let num_row_groups = meta_data.metadata().num_row_groups() as u64;
 
+        let file_row_group_idx = if file_row_group_idx == std::u64::MAX {
+            num_row_groups - 1
+        } else {
+            file_row_group_idx
+        };
+
         let parquet_reader = AsyncReader::new(reader, content_len);
         let mut stream = ParquetRecordBatchStreamBuilder::new(parquet_reader)
             .await?
@@ -250,15 +256,19 @@ impl QueryDataHandler {
         row_idx: u64,
         limit: u64,
         forward: bool,
-    ) -> Result<Option<(arrow::array::RecordBatch, Vec<u64, u64, u64)>> {
+    ) -> Result<Option<(arrow::array::RecordBatch, Vec<(u64, u64, u64)>)>> {
+        if limit == 0 {
+            return Ok(None);
+        }
+
         let query_uuid_id = Uuid::from_u128(query_id.clone());
 
-        let recs: Vec<arrow::array::RecordBatch> = Vec::new();
-        let rec_offsets: Vec<(u64, u64, u64)> = Vec::new();
-        let total_rows_in_recs: u64 = 0;
+        let mut recs: Vec<arrow::array::RecordBatch> = Vec::new();
+        let mut rec_offsets: Vec<(u64, u64, u64)> = Vec::new();
+        let mut total_rows_in_recs: u64 = 0;
 
-        let current_file_idx = file_idx;
-        let current_file_row_group_idx = file_row_group_idx;
+        let mut current_file_idx = file_idx;
+        let mut current_file_row_group_idx = file_row_group_idx;
         loop {
             let mut file_path = PathBuf::from("/query_results");
             file_path.push(format!("{}", query_uuid_id));
@@ -277,15 +287,72 @@ impl QueryDataHandler {
                         continue;
                     }
 
-                    let start_row_idx = if current_file_idx == file_idx
-                        && current_file_row_group_idx == file_row_group_idx
-                    {
-                        row_idx
-                    } else if forward {
-                        0u64
+                    let (start_row_idx, length) = if forward {
+                        if current_file_idx == file_idx
+                            && current_file_row_group_idx == file_row_group_idx
+                        {
+                            (
+                                row_idx,
+                                std::cmp::min(rec.num_rows() as u64, limit - total_rows_in_recs),
+                            )
+                        } else {
+                            (
+                                0u64,
+                                std::cmp::min(rec.num_rows() as u64, limit - total_rows_in_recs),
+                            )
+                        }
                     } else {
-                        (rec.num_rows() - 1) as u64
+                        if current_file_idx == file_idx
+                            && current_file_row_group_idx == file_row_group_idx
+                        {
+                            (
+                                row_idx
+                                    - std::cmp::min(
+                                        rec.num_rows() as u64,
+                                        limit - total_rows_in_recs,
+                                    )
+                                    - 1,
+                                std::cmp::min(rec.num_rows() as u64, limit - total_rows_in_recs),
+                            )
+                        } else {
+                            (
+                                rec.num_rows() as u64
+                                    - std::cmp::min(
+                                        rec.num_rows() as u64,
+                                        limit - total_rows_in_recs,
+                                    )
+                                    - 1,
+                                std::cmp::min(rec.num_rows() as u64, limit - total_rows_in_recs),
+                            )
+                        }
                     };
+
+                    let offsets: Vec<(u64, u64, u64)> = (start_row_idx..(start_row_idx + length))
+                        .map(|i| (current_file_idx, current_file_row_group_idx, i))
+                        .collect();
+                    let rec_slice = rec.slice(start_row_idx as usize, length as usize);
+
+                    total_rows_in_recs += rec_slice.num_rows() as u64;
+                    recs.push(rec_slice);
+                    rec_offsets.extend(offsets);
+
+                    if forward {
+                        if current_file_row_group_idx == num_row_groups - 1 {
+                            current_file_idx += 1;
+                            current_file_row_group_idx = 0;
+                        } else {
+                            current_file_row_group_idx += 1;
+                        }
+                    } else {
+                        if current_file_idx == 0 && current_file_row_group_idx == 0 {
+                            break;
+                        } else if current_file_idx > 0 && current_file_row_group_idx == 0 {
+                            current_file_idx -= 1;
+                            current_file_row_group_idx = std::u64::MAX;
+                        } else {
+                            current_file_row_group_idx -= 1;
+                        }
+                    }
                 }
                 Err(err) => match err.downcast_ref::<QueryDataHandlerError>() {
                     Some(cast_err)
@@ -300,10 +367,13 @@ impl QueryDataHandler {
             }
         }
 
-        assert_eq!(recs.iter().map(|rec| rec.num_rows()).sum(), rec_offsets.len());
+        assert_eq!(
+            recs.iter().map(|rec| rec.num_rows()).sum::<usize>(),
+            rec_offsets.len()
+        );
 
         if let Some(first_rec) = recs.first() {
-            let final_rec = arrow::compute::concat_batches(first_rec.schema_ref(), recs)?;
+            let final_rec = arrow::compute::concat_batches(first_rec.schema_ref(), recs.iter())?;
             Ok(Some((final_rec, rec_offsets)))
         } else {
             Ok(None)
