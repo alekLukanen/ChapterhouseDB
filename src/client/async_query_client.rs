@@ -119,6 +119,9 @@ impl AsyncQueryClient {
         query_id: &u128,
         file_idx: u64,
         file_row_group_idx: u64,
+        row_idx: u64,
+        limit: u16,
+        forward: bool,
         max_wait: chrono::Duration,
     ) -> Result<messages::query::GetQueryDataResp> {
         let ct_task = CancellationToken::new();

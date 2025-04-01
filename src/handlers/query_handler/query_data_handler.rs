@@ -29,6 +29,8 @@ use crate::handlers::{
 pub enum QueryDataHandlerError {
     #[error("query file does not exist")]
     QueryFileDoesNotExist,
+    #[error("row group {0} does not exist in the file {1}")]
+    RowGroupDoesNotExistInTheFile(u64, String),
 }
 
 pub struct QueryDataHandler {
@@ -140,7 +142,13 @@ impl QueryDataHandler {
             .expect("expected file path to be non-empty");
 
         match self
-            .get_row_group_data(complete_file_path, get_data_msg.file_row_group_idx)
+            .get_row_group_data(
+                complete_file_path,
+                get_data_msg.file_row_group_idx,
+                get_data_msg.row_idx,
+                get_data_msg.limit,
+                get_data_msg.forward,
+            )
             .await
         {
             Ok((Some(rec), num_row_groups)) => {
@@ -195,7 +203,7 @@ impl QueryDataHandler {
         &self,
         file_path: &str,
         file_row_group_idx: u64,
-    ) -> Result<(Option<arrow::array::RecordBatch>, u64)> {
+    ) -> Result<(arrow::array::RecordBatch, u64)> {
         let storage_conn = self.conn_reg.get_operator("default")?;
 
         let content_len = if let Ok(meta_data) = storage_conn.stat(file_path).await {
@@ -224,9 +232,81 @@ impl QueryDataHandler {
             .build()?;
 
         match stream.next().await {
-            Some(Ok(res)) => Ok((Some(res), num_row_groups)),
+            Some(Ok(res)) => Ok((res, num_row_groups)),
             Some(Err(err)) => Err(err.into()),
-            None => Ok((None, num_row_groups)),
+            None => Err(QueryDataHandlerError::RowGroupDoesNotExistInTheFile(
+                file_row_group_idx,
+                file_path.to_string(),
+            )
+            .into()),
+        }
+    }
+
+    async fn get_record_data(
+        &self,
+        query_id: u128,
+        file_idx: u64,
+        file_row_group_idx: u64,
+        row_idx: u64,
+        limit: u64,
+        forward: bool,
+    ) -> Result<Option<(arrow::array::RecordBatch, Vec<u64, u64, u64)>> {
+        let query_uuid_id = Uuid::from_u128(query_id.clone());
+
+        let recs: Vec<arrow::array::RecordBatch> = Vec::new();
+        let rec_offsets: Vec<(u64, u64, u64)> = Vec::new();
+        let total_rows_in_recs: u64 = 0;
+
+        let current_file_idx = file_idx;
+        let current_file_row_group_idx = file_row_group_idx;
+        loop {
+            let mut file_path = PathBuf::from("/query_results");
+            file_path.push(format!("{}", query_uuid_id));
+            file_path.push(format!("rec_{}.parquet", current_file_idx));
+            let complete_file_path = file_path
+                .to_str()
+                .expect("expected file path to be non-empty");
+
+            let res = self
+                .get_row_group_data(complete_file_path, current_file_row_group_idx)
+                .await;
+
+            match res {
+                Ok((rec, num_row_groups)) => {
+                    if rec.num_rows() == 0 {
+                        continue;
+                    }
+
+                    let start_row_idx = if current_file_idx == file_idx
+                        && current_file_row_group_idx == file_row_group_idx
+                    {
+                        row_idx
+                    } else if forward {
+                        0u64
+                    } else {
+                        (rec.num_rows() - 1) as u64
+                    };
+                }
+                Err(err) => match err.downcast_ref::<QueryDataHandlerError>() {
+                    Some(cast_err)
+                        if matches!(cast_err, QueryDataHandlerError::QueryFileDoesNotExist) =>
+                    {
+                        break;
+                    }
+                    Some(_) | None => {
+                        return Err(err);
+                    }
+                },
+            }
+        }
+
+        assert_eq!(recs.iter().map(|rec| rec.num_rows()).sum(), rec_offsets.len());
+
+        if let Some(first_rec) = recs.first() {
+            let final_rec = arrow::compute::concat_batches(first_rec.schema_ref(), recs)?;
+            Ok(Some((final_rec, rec_offsets)))
+        } else {
+            Ok(None)
         }
     }
 }

@@ -25,8 +25,7 @@ pub enum GetQueryDataResp {
     Record {
         #[serde(skip_serializing)]
         record: Arc<arrow::array::RecordBatch>,
-        next_file_idx: u64,
-        next_file_row_group_idx: u64,
+        record_offsets: Vec<(u64, u64, u64)>,
     },
     Error {
         err: String,
@@ -41,8 +40,7 @@ pub struct GetQueryDataRespError {
 
 #[derive(Debug, Deserialize)]
 pub struct GetQueryDataRespRecord {
-    next_file_idx: u64,
-    next_file_row_group_idx: u64,
+    record_offsets: Vec<(u64, u64, u64)>,
 }
 
 impl GetQueryDataResp {
@@ -208,8 +206,7 @@ impl MessageParser for GetQueryDataRespParser {
             let record = self.parse_record(&mut buf)?;
             let msg = GetQueryDataResp::Record {
                 record: Arc::new(record),
-                next_file_idx: meta.next_file_idx,
-                next_file_row_group_idx: meta.next_file_row_group_idx,
+                record_offsets: meta.record_offsets,
             };
 
             Ok(Message::build_from_serialized_message(
@@ -267,6 +264,9 @@ pub struct GetQueryData {
     pub query_id: u128,
     pub file_idx: u64,
     pub file_row_group_idx: u64,
+    pub row_idx: u64,
+    pub limit: u64,
+    pub forward: bool,
 }
 
 impl GenericMessage for GetQueryData {
