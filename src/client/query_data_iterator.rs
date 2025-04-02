@@ -24,6 +24,9 @@ pub struct QueryDataIterator {
     query_id: u128,
     file_idx: u64,
     file_row_group_idx: u64,
+    row_idx: u64,
+    limit: u64,
+    forward: bool,
     max_wait: chrono::Duration,
 }
 
@@ -33,6 +36,9 @@ impl QueryDataIterator {
         query_id: u128,
         start_file_idx: u64,
         start_file_row_group_idx: u64,
+        start_row_idx: u64,
+        limit: u64,
+        forward: bool,
         max_wait: chrono::Duration,
     ) -> QueryDataIterator {
         QueryDataIterator {
@@ -40,6 +46,9 @@ impl QueryDataIterator {
             query_id,
             file_idx: start_file_idx,
             file_row_group_idx: start_file_row_group_idx,
+            row_idx: start_row_idx,
+            limit,
+            forward,
             max_wait,
         }
     }
@@ -55,19 +64,17 @@ impl QueryDataIterator {
                 &self.query_id,
                 self.file_idx,
                 self.file_row_group_idx,
+                self.row_idx,
+                self.limit,
+                self.forward,
                 self.max_wait.clone(),
             )
             .await?;
         match resp {
             messages::query::GetQueryDataResp::Record {
                 record,
-                next_file_idx,
-                next_file_row_group_idx,
-            } => {
-                self.file_idx = next_file_idx;
-                self.file_row_group_idx = next_file_row_group_idx;
-                Ok(Some(record))
-            }
+                record_offsets,
+            } => Ok(Some(record)),
             messages::query::GetQueryDataResp::ReachedEndOfFiles => Ok(None),
             messages::query::GetQueryDataResp::QueryNotFound => {
                 Err(QueryDataIteratorError::QueryNotFound(self.query_id.clone()).into())
@@ -81,6 +88,28 @@ impl QueryDataIterator {
             }
             messages::query::GetQueryDataResp::Error { err } => {
                 Err(QueryDataIteratorError::DatabaseErrorResp(err).into())
+            }
+        }
+    }
+
+    pub fn get_next_offset(&self, rec_offsets: Vec<(u64, u64, u64)>) -> Option<(u64, u64, u64)> {
+        let last_offset = if let Some(offset) = rec_offsets.last() {
+            offset
+        } else {
+            return None;
+        };
+
+        if self.forward {
+            Some((last_offset.0, last_offset.1, last_offset.2 + 1))
+        } else {
+            if last_offset.0 == 0 && last_offset.1 == 0 && last_offset.2 == 0 {
+                None
+            } else if last_offset.1 == 0 && last_offset.2 == 0 {
+                Some((last_offset.0 - 1, std::u64::MAX, std::u64::MAX))
+            } else if last_offset.2 == 0 {
+                Some((last_offset.0, last_offset.1 - 1, std::u64::MAX))
+            } else {
+                Some((last_offset.0, last_offset.1, last_offset.2 - 1))
             }
         }
     }

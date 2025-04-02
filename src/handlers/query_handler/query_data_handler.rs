@@ -132,18 +132,10 @@ impl QueryDataHandler {
     async fn handle_get_query_data(&self, msg: &Message) -> Result<()> {
         let get_data_msg: &messages::query::GetQueryData = self.msg_reg.try_cast_msg(msg)?;
 
-        let query_uuid_id = Uuid::from_u128(get_data_msg.query_id.clone());
-        let mut file_path = PathBuf::from("/query_results");
-        file_path.push(format!("{}", query_uuid_id));
-        file_path.push(format!("rec_{}.parquet", get_data_msg.file_idx));
-
-        let complete_file_path = file_path
-            .to_str()
-            .expect("expected file path to be non-empty");
-
         match self
-            .get_row_group_data(
-                complete_file_path,
+            .get_record_data(
+                get_data_msg.query_id,
+                get_data_msg.file_idx,
                 get_data_msg.file_row_group_idx,
                 get_data_msg.row_idx,
                 get_data_msg.limit,
@@ -151,27 +143,14 @@ impl QueryDataHandler {
             )
             .await
         {
-            Ok((Some(rec), num_row_groups)) => {
-                let next_file_idx = if get_data_msg.file_row_group_idx < num_row_groups - 1 {
-                    get_data_msg.file_idx
-                } else {
-                    get_data_msg.file_idx + 1
-                };
-                let next_file_row_group_idx =
-                    if get_data_msg.file_row_group_idx < num_row_groups - 1 {
-                        get_data_msg.file_row_group_idx + 1
-                    } else {
-                        0
-                    };
-
+            Ok(Some((rec, rec_offsets))) => {
                 let resp = msg.reply(Box::new(messages::query::GetQueryDataResp::Record {
                     record: Arc::new(rec),
-                    next_file_idx,
-                    next_file_row_group_idx,
+                    record_offsets: rec_offsets,
                 }));
                 self.router_pipe.send(resp).await?;
             }
-            Ok((None, _)) => {
+            Ok(None) => {
                 let resp = msg.reply(Box::new(
                     messages::query::GetQueryDataResp::RecordRowGroupNotFound,
                 ));
@@ -288,44 +267,43 @@ impl QueryDataHandler {
                     }
 
                     let (start_row_idx, length) = if forward {
-                        if current_file_idx == file_idx
+                        let start_row_idx = if current_file_idx == file_idx
                             && current_file_row_group_idx == file_row_group_idx
                         {
-                            (
-                                row_idx,
-                                std::cmp::min(rec.num_rows() as u64, limit - total_rows_in_recs),
-                            )
+                            row_idx
                         } else {
-                            (
-                                0u64,
-                                std::cmp::min(rec.num_rows() as u64, limit - total_rows_in_recs),
-                            )
-                        }
+                            0u64
+                        };
+
+                        (
+                            start_row_idx,
+                            std::cmp::min(rec.num_rows() as u64, limit - total_rows_in_recs),
+                        )
                     } else {
-                        if current_file_idx == file_idx
+                        let start_row_idx = if current_file_idx == file_idx
                             && current_file_row_group_idx == file_row_group_idx
                         {
-                            (
-                                row_idx
-                                    - std::cmp::min(
-                                        rec.num_rows() as u64,
-                                        limit - total_rows_in_recs,
-                                    )
-                                    - 1,
-                                std::cmp::min(rec.num_rows() as u64, limit - total_rows_in_recs),
-                            )
-                        } else {
-                            (
+                            if row_idx == std::u64::MAX {
                                 rec.num_rows() as u64
-                                    - std::cmp::min(
-                                        rec.num_rows() as u64,
-                                        limit - total_rows_in_recs,
-                                    )
-                                    - 1,
-                                std::cmp::min(rec.num_rows() as u64, limit - total_rows_in_recs),
-                            )
-                        }
+                            } else {
+                                row_idx
+                            }
+                        } else {
+                            rec.num_rows() as u64
+                        };
+
+                        (
+                            start_row_idx
+                                - std::cmp::min(rec.num_rows() as u64, limit - total_rows_in_recs)
+                                - 1,
+                            std::cmp::min(rec.num_rows() as u64, limit - total_rows_in_recs),
+                        )
                     };
+
+                    // prevent out of bounds access by the requester
+                    if start_row_idx >= rec.num_rows() as u64 {
+                        continue;
+                    }
 
                     let offsets: Vec<(u64, u64, u64)> = (start_row_idx..(start_row_idx + length))
                         .map(|i| (current_file_idx, current_file_row_group_idx, i))
@@ -352,6 +330,10 @@ impl QueryDataHandler {
                         } else {
                             current_file_row_group_idx -= 1;
                         }
+                    }
+
+                    if total_rows_in_recs >= limit {
+                        break;
                     }
                 }
                 Err(err) => match err.downcast_ref::<QueryDataHandlerError>() {

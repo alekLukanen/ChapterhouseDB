@@ -120,7 +120,7 @@ impl AsyncQueryClient {
         file_idx: u64,
         file_row_group_idx: u64,
         row_idx: u64,
-        limit: u16,
+        limit: u64,
         forward: bool,
         max_wait: chrono::Duration,
     ) -> Result<messages::query::GetQueryDataResp> {
@@ -136,6 +136,9 @@ impl AsyncQueryClient {
             query_id: query_id.clone(),
             file_idx,
             file_row_group_idx,
+            row_idx,
+            limit,
+            forward,
         }));
 
         self.send_msg(ct_task.clone(), stream, msg, connection_id)

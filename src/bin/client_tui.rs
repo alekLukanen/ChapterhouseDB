@@ -1,6 +1,6 @@
 use std::{
     fs,
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{Arc, Mutex},
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context, Result};
 use chapterhouseqe::{
     client::{AsyncQueryClient, QueryDataIterator},
     handlers::{message_handler::messages, query_handler::Status},
-    tui::{RecordTable, RecordTableState, TableRecord},
+    tui::{RecordTable, RecordTableState},
 };
 use chrono::Duration;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
@@ -291,8 +291,16 @@ impl QueriesAppState {
         let _ = sender.send(AppEvent::DataUpdate).await;
 
         // now create the data iterator and fetch the next record
-        let mut query_data_iter =
-            QueryDataIterator::new(client, query_id, 0, 0, chrono::Duration::seconds(1));
+        let mut query_data_iter = QueryDataIterator::new(
+            client,
+            query_id,
+            0,
+            0,
+            0,
+            50,
+            true,
+            chrono::Duration::seconds(1),
+        );
 
         for i in 0..5 {
             let rec = query_data_iter.next(ct.clone()).await?;

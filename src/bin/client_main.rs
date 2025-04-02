@@ -97,8 +97,16 @@ async fn main() -> Result<()> {
     }
 
     debug!("get the query data");
-    let mut query_data_iter =
-        QueryDataIterator::new(client, query_id, 0, 0, chrono::Duration::seconds(1));
+    let mut query_data_iter = QueryDataIterator::new(
+        client,
+        query_id,
+        0,
+        0,
+        0,
+        20,
+        true,
+        chrono::Duration::seconds(1),
+    );
     loop {
         let rec = query_data_iter.next(ct.clone()).await?;
         match rec {
