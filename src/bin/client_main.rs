@@ -110,10 +110,11 @@ async fn main() -> Result<()> {
     loop {
         let rec = query_data_iter.next(ct.clone()).await?;
         match rec {
-            Some(rec) => {
+            Some((rec, offsets)) => {
                 let recs = vec![rec.as_ref().clone()];
                 let rec_txt = arrow::util::pretty::pretty_format_batches(&recs)?;
                 info!("record data\n{}", rec_txt);
+                info!("offsets: offsets\n{:?}", offsets);
             }
             None => {
                 break;

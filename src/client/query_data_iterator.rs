@@ -27,6 +27,7 @@ pub struct QueryDataIterator {
     row_idx: u64,
     limit: u64,
     forward: bool,
+    done: bool,
     max_wait: chrono::Duration,
 }
 
@@ -49,6 +50,7 @@ impl QueryDataIterator {
             row_idx: start_row_idx,
             limit,
             forward,
+            done: false,
             max_wait,
         }
     }
@@ -56,7 +58,11 @@ impl QueryDataIterator {
     pub async fn next(
         &mut self,
         ct: CancellationToken,
-    ) -> Result<Option<Arc<arrow::array::RecordBatch>>> {
+    ) -> Result<Option<(Arc<arrow::array::RecordBatch>, Vec<(u64, u64, u64)>)>> {
+        if self.done {
+            return Ok(None);
+        }
+
         let resp = self
             .client
             .get_query_data(
@@ -74,7 +80,20 @@ impl QueryDataIterator {
             messages::query::GetQueryDataResp::Record {
                 record,
                 record_offsets,
-            } => Ok(Some(record)),
+            } => {
+                let new_offset = self.get_next_offset(&record_offsets);
+                if let Some(new_offset) = new_offset {
+                    self.file_idx = new_offset.0;
+                    self.file_row_group_idx = new_offset.1;
+                    self.row_idx = new_offset.2;
+                } else {
+                    self.done = true;
+                }
+                if (record.num_rows() as u64) < self.limit {
+                    self.done = true;
+                }
+                Ok(Some((record, record_offsets)))
+            }
             messages::query::GetQueryDataResp::ReachedEndOfFiles => Ok(None),
             messages::query::GetQueryDataResp::QueryNotFound => {
                 Err(QueryDataIteratorError::QueryNotFound(self.query_id.clone()).into())
@@ -92,7 +111,7 @@ impl QueryDataIterator {
         }
     }
 
-    pub fn get_next_offset(&self, rec_offsets: Vec<(u64, u64, u64)>) -> Option<(u64, u64, u64)> {
+    pub fn get_next_offset(&self, rec_offsets: &Vec<(u64, u64, u64)>) -> Option<(u64, u64, u64)> {
         let last_offset = if let Some(offset) = rec_offsets.last() {
             offset
         } else {

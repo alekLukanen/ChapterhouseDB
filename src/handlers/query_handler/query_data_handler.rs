@@ -277,7 +277,10 @@ impl QueryDataHandler {
 
                         (
                             start_row_idx,
-                            std::cmp::min(rec.num_rows() as u64, limit - total_rows_in_recs),
+                            std::cmp::min(
+                                rec.num_rows() as u64 - start_row_idx,
+                                limit - total_rows_in_recs,
+                            ),
                         )
                     } else {
                         let start_row_idx = if current_file_idx == file_idx

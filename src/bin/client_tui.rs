@@ -305,7 +305,7 @@ impl QueriesAppState {
         for i in 0..5 {
             let rec = query_data_iter.next(ct.clone()).await?;
             match rec {
-                Some(rec) => state
+                Some((rec, _)) => state
                     .lock()
                     .map_err(|_| anyhow!("lock failed"))?
                     .add_record(query_idx.clone(), i, rec)?,
