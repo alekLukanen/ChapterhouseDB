@@ -6,7 +6,7 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 
 use chapterhouseqe::{
-    client::{AsyncQueryClient, QueryDataIterator},
+    client::{AsyncQueryClient, QueryDataIterator, TuiQueryDataIterator},
     handlers::{message_handler::messages, query_handler::Status},
     tui::{RecordTable, RecordTableState},
 };
@@ -89,7 +89,7 @@ struct QueryInfo {
     query_txt: String,
     status: Option<Status>,
     control_err: Option<String>,
-    query_data_iter: Option<QueryDataIterator>,
+    query_data_iter: Option<TuiQueryDataIterator>,
     record_table_state: RecordTableState,
 }
 
@@ -176,7 +176,11 @@ impl QueriesAppState {
         }
     }
 
-    fn update_query_data_iter(&mut self, query_idx: usize, iter: QueryDataIterator) -> Result<()> {
+    fn update_query_data_iter(
+        &mut self,
+        query_idx: usize,
+        iter: TuiQueryDataIterator,
+    ) -> Result<()> {
         if let Some(queries) = &mut self.queries {
             if let Some(query) = queries.get_mut(query_idx) {
                 query.query_data_iter = Some(iter);
@@ -291,19 +295,11 @@ impl QueriesAppState {
         let _ = sender.send(AppEvent::DataUpdate).await;
 
         // now create the data iterator and fetch the next record
-        let mut query_data_iter = QueryDataIterator::new(
-            client,
-            query_id,
-            0,
-            0,
-            0,
-            1000,
-            true,
-            chrono::Duration::seconds(1),
-        );
+        let mut query_data_iter =
+            TuiQueryDataIterator::new(client, query_id, 0, 0, 0, 50, chrono::Duration::seconds(1));
 
         for i in 0..5 {
-            let rec = query_data_iter.next(ct.clone()).await?;
+            let rec = query_data_iter.first(ct.clone()).await?;
             match rec {
                 Some((rec, _)) => state
                     .lock()
