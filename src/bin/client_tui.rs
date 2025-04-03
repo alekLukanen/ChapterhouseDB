@@ -297,7 +297,7 @@ impl QueriesAppState {
             0,
             0,
             0,
-            50,
+            1000,
             true,
             chrono::Duration::seconds(1),
         );
