@@ -33,9 +33,8 @@ pub struct TableRecord {
 #[derive(Debug)]
 pub struct RecordTableState {
     area: Option<Rect>,
-    records: Vec<TableRecord>,
-    last_record_idx: Option<usize>,
-    offset: (usize, usize), // the index in the records vec to start presenting rows
+    record: Option<TableRecord>,
+    offsets: Option<Vec<(u64, u64, u64)>>,
     selected: Option<usize>, // the selected row accouting for the offset
     alternate_selected: bool,
     max_rows_to_display: usize,
@@ -62,9 +61,8 @@ impl Default for RecordTableState {
     fn default() -> Self {
         RecordTableState {
             area: None,
-            records: Vec::new(),
-            last_record_idx: None,
-            offset: (0, 0),
+            record: None,
+            offsets: None,
             selected: Some(0),
             alternate_selected: true,
             max_rows_to_display: 50,
@@ -97,20 +95,10 @@ impl RecordTableState {
 
     pub fn select(&mut self, val: Option<usize>) {
         self.selected = val;
-        if val.is_none() {
-            self.offset = (0, 0);
-        }
     }
 
     pub fn selected(&self) -> Option<usize> {
         return self.selected;
-    }
-
-    fn get_record(&self, idx: usize) -> Option<&TableRecord> {
-        self.records
-            .binary_search_by_key(&idx, |r| r.order)
-            .ok()
-            .map(|pos| &self.records[pos])
     }
 
     pub fn next_page(&mut self) -> Result<bool> {

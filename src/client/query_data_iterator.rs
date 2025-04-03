@@ -112,23 +112,29 @@ impl QueryDataIterator {
     }
 
     pub fn get_next_offset(&self, rec_offsets: &Vec<(u64, u64, u64)>) -> Option<(u64, u64, u64)> {
-        let last_offset = if let Some(offset) = rec_offsets.last() {
-            offset
-        } else {
-            return None;
-        };
-
         if self.forward {
+            let last_offset = if let Some(offset) = rec_offsets.last() {
+                offset
+            } else {
+                return None;
+            };
+
             Some((last_offset.0, last_offset.1, last_offset.2 + 1))
         } else {
-            if last_offset.0 == 0 && last_offset.1 == 0 && last_offset.2 == 0 {
-                None
-            } else if last_offset.1 == 0 && last_offset.2 == 0 {
-                Some((last_offset.0 - 1, std::u64::MAX, std::u64::MAX))
-            } else if last_offset.2 == 0 {
-                Some((last_offset.0, last_offset.1 - 1, std::u64::MAX))
+            let first_offset = if let Some(offset) = rec_offsets.first() {
+                offset
             } else {
-                Some((last_offset.0, last_offset.1, last_offset.2 - 1))
+                return None;
+            };
+
+            if first_offset.0 == 0 && first_offset.1 == 0 && first_offset.2 == 0 {
+                None
+            } else if first_offset.1 == 0 && first_offset.2 == 0 {
+                Some((first_offset.0 - 1, std::u64::MAX, std::u64::MAX))
+            } else if first_offset.2 == 0 {
+                Some((first_offset.0, first_offset.1 - 1, std::u64::MAX))
+            } else {
+                Some((first_offset.0, first_offset.1, first_offset.2 - 1))
             }
         }
     }

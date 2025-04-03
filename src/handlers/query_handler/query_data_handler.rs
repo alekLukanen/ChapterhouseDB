@@ -243,7 +243,7 @@ impl QueryDataHandler {
         let query_uuid_id = Uuid::from_u128(query_id.clone());
 
         let mut recs: Vec<arrow::array::RecordBatch> = Vec::new();
-        let mut rec_offsets: Vec<(u64, u64, u64)> = Vec::new();
+        let mut rec_offsets: Vec<Vec<(u64, u64, u64)>> = Vec::new();
         let mut total_rows_in_recs: u64 = 0;
 
         let mut current_file_idx = file_idx;
@@ -315,7 +315,7 @@ impl QueryDataHandler {
 
                     total_rows_in_recs += rec_slice.num_rows() as u64;
                     recs.push(rec_slice);
-                    rec_offsets.extend(offsets);
+                    rec_offsets.push(offsets);
 
                     if forward {
                         if current_file_row_group_idx == num_row_groups - 1 {
@@ -358,8 +358,15 @@ impl QueryDataHandler {
         );
 
         if let Some(first_rec) = recs.first() {
-            let final_rec = arrow::compute::concat_batches(first_rec.schema_ref(), recs.iter())?;
-            Ok(Some((final_rec, rec_offsets)))
+            let final_rec =
+                arrow::compute::concat_batches(first_rec.schema_ref(), recs.iter().rev())?;
+
+            let mut final_rec_offsets = Vec::new();
+            for offsets in rec_offsets.iter().rev() {
+                final_rec_offsets.extend(offsets)
+            }
+
+            Ok(Some((final_rec, final_rec_offsets)))
         } else {
             Ok(None)
         }
