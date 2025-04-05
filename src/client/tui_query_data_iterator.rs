@@ -19,8 +19,8 @@ pub enum TuiQueryDataIteratorError {
 }
 
 pub struct VisibleWindow {
-    min_offset: (u64, u64, u64),
-    max_offset: (u64, u64, u64),
+    pub min_offset: (u64, u64, u64),
+    pub max_offset: (u64, u64, u64),
 }
 
 #[derive(Debug)]

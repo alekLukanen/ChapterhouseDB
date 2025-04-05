@@ -1,6 +1,6 @@
 use std::{
     cmp::{max, min},
-    collections::HashMap,
+    fmt::Debug,
     sync::Arc,
 };
 
@@ -19,15 +19,23 @@ use ratatui::{
 #[derive(Debug, Clone)]
 struct TableRow {
     idx: usize,
-    record_idx: usize,
-    row_idx: usize,
+    offset: (u64, u64, u64),
     fields: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TableRecord {
-    order: usize,
     record: Arc<arrow::array::RecordBatch>,
+    offsets: Vec<(u64, u64, u64)>,
+}
+
+impl Debug for TableRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TableRecord")
+            .field("record.num_rows()", &format!("{}", self.record.num_rows()))
+            .field("offsets.len()", &format!("{}", self.offsets.len()))
+            .finish()
+    }
 }
 
 #[derive(Debug)]
@@ -52,7 +60,6 @@ pub struct RecordTableState {
     rows: Vec<TableRow>,
     row_heights: Vec<u16>,
     row_widths: Vec<u16>,
-    waiting_for_data: bool,
 
     err: Option<String>,
 }
@@ -73,7 +80,6 @@ impl Default for RecordTableState {
             rows: Vec::new(),
             row_heights: Vec::new(),
             row_widths: Vec::new(),
-            waiting_for_data: true,
             err: None,
         }
     }
@@ -101,189 +107,36 @@ impl RecordTableState {
         return self.selected;
     }
 
-    pub fn next_page(&mut self) -> Result<bool> {
-        /*
-        let records_needed = self.need_records();
-        self.set_error(format!(
-            "next_page(): waiting_for_data={}, rows.len()={}, need_records()={:?}",
-            self.waiting_for_data,
-            self.rows.len(),
-            records_needed,
-        ));
-        */
+    pub fn set_record(
+        &mut self,
+        record: Arc<arrow::array::RecordBatch>,
+        offsets: Vec<(u64, u64, u64)>,
+    ) {
+        let tab_rec = TableRecord { record, offsets };
+        self.record = Some(tab_rec);
+        self.refresh_view_data();
+    }
 
-        self.need_records();
-
-        if self.waiting_for_data {
-            return Ok(false);
-        }
-        if self.need_records_in_direction(true) {
-            return Ok(false);
-        }
-
-        self.need_records();
-
-        let max_offset_visible = if let Some(table_row) = self.rows.last() {
-            (table_row.record_idx, table_row.row_idx)
+    pub fn get_max_visible_offset(&self) -> Option<(u64, u64, u64)> {
+        let last_row = if let Some(row) = self.rows.last() {
+            row
         } else {
-            return Ok(false);
+            return None;
         };
-
-        if let Some(rec) = self.get_record(max_offset_visible.0) {
-            if max_offset_visible.1 + 1 >= rec.record.num_rows() {
-                self.offset = (max_offset_visible.0 + 1, 0);
-            } else {
-                self.offset = (max_offset_visible.0, max_offset_visible.1 + 1);
-            }
-
-            self.refresh_view_data();
-            Ok(true)
-        } else {
-            Ok(false)
-        }
+        Some(last_row.offset)
     }
 
-    pub fn previous_page(&mut self) -> Result<bool> {
-        /*
-        let records_needed = self.need_records();
-        self.set_error(format!(
-            "previous_page(): waiting_for_data={}, rows.len()={}, offset={:?}, need_records()={:?}",
-            self.waiting_for_data,
-            self.rows.len(),
-            self.offset,
-            records_needed,
-        ));
-        */
-
-        if self.waiting_for_data {
-            return Ok(false);
-        }
-        if self.need_records_in_direction(false) {
-            return Ok(false);
-        }
-
-        let min_offset_visible = if let Some(table_row) = self.rows.first() {
-            (table_row.record_idx, table_row.row_idx)
+    pub fn get_min_visible_offset(&self) -> Option<(u64, u64, u64)> {
+        let first_row = if let Some(row) = self.rows.first() {
+            row
         } else {
-            return Ok(false);
+            return None;
         };
-
-        if min_offset_visible.0 == 0 && min_offset_visible.1 == 0 {
-            Ok(false)
-        } else {
-            let new_offset = self.get_offset_for_previous_page(self.offset)?;
-            self.offset = new_offset;
-
-            self.refresh_view_data();
-            Ok(true)
-        }
-    }
-
-    fn need_records_in_direction(&mut self, forward: bool) -> bool {
-        self.need_records().iter().any(|item| {
-            if forward {
-                if self.offset.0 < *item {
-                    true
-                } else {
-                    false
-                }
-            } else {
-                if self.offset.0 > *item {
-                    true
-                } else {
-                    false
-                }
-            }
-        })
-    }
-
-    pub fn need_records(&mut self) -> Vec<usize> {
-        let mut rows_before_offset: usize = 0;
-        let mut rows_after_offset: usize = 0;
-        for rec in self.records.iter() {
-            if rec.order < self.offset.0 {
-                rows_before_offset += rec.record.num_rows();
-            } else if rec.order > self.offset.0 {
-                rows_after_offset += rec.record.num_rows();
-            } else {
-                rows_before_offset += self.offset.1 + 1;
-                rows_after_offset += rec.record.num_rows() - (self.offset.1 + 1);
-            }
-        }
-
-        let need_previous_record = rows_before_offset <= self.max_rows_to_display;
-        let need_next_record = rows_after_offset <= self.max_rows_to_display;
-
-        let mut record_idxs = Vec::new();
-        if self.records.len() > 1 {
-            if need_previous_record {
-                if let Some(rec) = self.records.first() {
-                    if rec.order != 0 {
-                        record_idxs.push(rec.order - 1);
-                    }
-                }
-            }
-            if need_next_record {
-                if let Some(rec) = self.records.last() {
-                    if self.last_record_idx < Some(rec.order) {
-                        record_idxs.push(rec.order + 1);
-                    }
-                }
-            }
-        } else if self.records.len() == 1 {
-            if need_previous_record || need_next_record {
-                if let Some(rec) = self.records.first() {
-                    if rec.order != 0 {
-                        record_idxs.push(rec.order - 1);
-                    }
-                }
-            }
-        } else if self.records.len() == 0 {
-            if self.last_record_idx.is_none() {
-                record_idxs.push(0);
-            }
-        }
-        if record_idxs.len() > 0 {
-            self.waiting_for_data = true;
-        } else {
-            self.waiting_for_data = false;
-        }
-        return record_idxs;
-    }
-
-    pub fn remove_unused_records(&mut self) {
-        let mut new_records: Vec<TableRecord> = Vec::new();
-        let mut rows_seen: usize = 0;
-        for (idx, rec) in self.records.iter().enumerate() {
-            if idx >= self.offset.0 && rows_seen < self.desired_rows_to_buffer {
-                new_records.push(rec.clone());
-                rows_seen += rec.record.num_rows();
-            }
-        }
-        self.offset = (0, self.offset.1);
-        self.records = new_records;
-    }
-
-    pub fn add_record(&mut self, order: usize, record: Arc<arrow::array::RecordBatch>) {
-        let table_record = TableRecord { order, record };
-        for (idx, rec) in self.records.iter().enumerate() {
-            if order < rec.order {
-                self.records.insert(idx, table_record);
-                return;
-            }
-        }
-        self.records.push(table_record);
-        if self.need_records().len() == 0 {
-            self.refresh_view_data();
-        }
+        Some(first_row.offset)
     }
 
     pub fn set_alternate_selected(&mut self, val: bool) {
         self.alternate_selected = val;
-    }
-
-    pub fn num_records(&self) -> usize {
-        self.records.len()
     }
 
     fn set_error(&mut self, err: String) {
@@ -300,7 +153,7 @@ impl RecordTableState {
         let res = self.set_columns_and_rows(area);
         match res {
             Ok(_) => {
-                //self.err = None;
+                self.err = None;
             }
             Err(err) => {
                 self.set_error(err.to_string());
@@ -309,12 +162,7 @@ impl RecordTableState {
     }
 
     fn set_columns_and_rows(&mut self, area: Rect) -> Result<()> {
-        if self.waiting_for_data {
-            return Ok(());
-        }
-
-        let (columns, rows, mut row_heights, max_column_widths) =
-            self.get_render_data(self.offset, true)?;
+        let (columns, rows, mut row_heights, max_column_widths) = self.get_render_data()?;
 
         // only show enough rows that will fit on the screen
         let mut stop_index: usize = 0;
@@ -338,40 +186,13 @@ impl RecordTableState {
         return Ok(());
     }
 
-    fn get_offset_for_previous_page(&self, lower_offset: (usize, usize)) -> Result<(usize, usize)> {
-        let area = if let Some(area) = self.area {
-            area
-        } else {
-            return Err(anyhow!("area not set"));
-        };
-
-        let (_, rows, row_heights, _) = self.get_render_data(lower_offset, false)?;
-
-        assert_eq!(rows.len(), row_heights.len());
-
-        let mut upper_offset = lower_offset;
-        let mut total_height: u16 = 0;
-        for (row, row_height) in rows.iter().zip(row_heights) {
-            if total_height + Self::total_row_height(row_height) > Self::total_area_height(area) {
-                break;
-            }
-            total_height += row_height + 1;
-            upper_offset = (row.record_idx, row.row_idx);
-        }
-        Ok(upper_offset)
-    }
-
-    fn get_render_data(
-        &self,
-        offset: (usize, usize),
-        forward: bool,
-    ) -> Result<(Vec<String>, Vec<TableRow>, Vec<u16>, Vec<u16>)> {
-        let first_rec = if let Some(rec) = self.records.first() {
+    fn get_render_data(&self) -> Result<(Vec<String>, Vec<TableRow>, Vec<u16>, Vec<u16>)> {
+        let tab_rec = if let Some(rec) = &self.record {
             rec
         } else {
-            return Err(anyhow!("table does not have any records"));
+            return Err(anyhow!("table does not have a record"));
         };
-        let columns: Vec<String> = first_rec
+        let columns: Vec<String> = tab_rec
             .record
             .schema()
             .fields
@@ -385,37 +206,23 @@ impl RecordTableState {
 
         // stringify the arrow data
         let mut rows: Vec<TableRow> = Vec::new();
-        let mut current_offset = offset.clone();
 
-        let mut record_formatters = HashMap::new();
-        for rec in &self.records {
-            let formatter = rec
-                .record
-                .columns()
-                .iter()
-                .map(|c| ArrayFormatter::try_new(c.as_ref(), &formatter_options))
-                .collect::<Result<Vec<_>, ArrowError>>()?;
-            record_formatters.insert(rec.order, formatter);
-        }
+        let record_formatters = tab_rec
+            .record
+            .columns()
+            .iter()
+            .map(|c| ArrayFormatter::try_new(c.as_ref(), &formatter_options))
+            .collect::<Result<Vec<_>, ArrowError>>()?;
         if record_formatters.len() == 0 {
             return Err(anyhow!(
                 "unable to create formatters for arrow record data types"
             ));
         }
 
-        for idx in 0..self.max_rows_to_display {
-            let rec = if let Some(rec) = self.get_record(current_offset.0) {
-                rec
-            } else {
-                break;
-            };
-            let formatters = record_formatters
-                .get(&current_offset.0)
-                .expect("record formatter not found");
-
+        for idx in 0..std::cmp::min(self.max_rows_to_display, tab_rec.record.num_rows()) {
             let mut row = Vec::with_capacity(num_cols);
-            for formatter in formatters {
-                let value = formatter.value(current_offset.1);
+            for formatter in &record_formatters {
+                let value = formatter.value(idx);
                 match value.try_to_string() {
                     Ok(res) => {
                         let res = if res.len() > self.max_text_chars as usize {
@@ -437,31 +244,13 @@ impl RecordTableState {
             }
             rows.push(TableRow {
                 idx,
-                record_idx: current_offset.0,
-                row_idx: current_offset.1,
+                offset: tab_rec
+                    .offsets
+                    .get(idx)
+                    .expect("unable to find offset for record row")
+                    .clone(),
                 fields: row,
             });
-
-            if forward {
-                if current_offset.1 >= rec.record.num_rows() - 1 {
-                    current_offset = (current_offset.0 + 1, 0);
-                } else {
-                    current_offset = (current_offset.0, current_offset.1 + 1);
-                }
-            } else {
-                if current_offset.0 == 0 && current_offset.1 == 0 {
-                    break;
-                } else if current_offset.0 > 0 && current_offset.1 == 0 {
-                    let prev_rec = self.get_record(current_offset.0 - 1);
-                    if let Some(prev_rec) = prev_rec {
-                        current_offset = (current_offset.0 - 1, prev_rec.record.num_rows());
-                    } else {
-                        break;
-                    }
-                } else {
-                    current_offset = (current_offset.0, current_offset.1 - 1);
-                }
-            }
         }
 
         // compute the max column widths and heights
@@ -633,8 +422,16 @@ impl StatefulWidget for RecordTable {
     type State = RecordTableState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        if state.records.len() == 0 {
-            self.render_error(area, buf, "no records to display".to_string());
+        if state.record.is_none() {
+            self.render_error(area, buf, "no record to display".to_string());
+            return;
+        }
+        if state.rows.len() == 0 {
+            self.render_error(
+                area,
+                buf,
+                format!("no rendered row data to display. record={:?}", state.record),
+            );
             return;
         }
         if let Some(err) = &state.err {

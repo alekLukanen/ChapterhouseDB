@@ -240,6 +240,15 @@ impl QueryDataHandler {
             return Ok(None);
         }
 
+        debug!(
+            file_idx = file_idx,
+            file_row_group_idx = file_row_group_idx,
+            row_idx = row_idx,
+            limit = limit,
+            forward = forward,
+            "get record"
+        );
+
         let query_uuid_id = Uuid::from_u128(query_id.clone());
 
         let mut recs: Vec<arrow::array::RecordBatch> = Vec::new();
@@ -297,9 +306,8 @@ impl QueryDataHandler {
 
                         (
                             start_row_idx
-                                - std::cmp::min(rec.num_rows() as u64, limit - total_rows_in_recs)
-                                - 1,
-                            std::cmp::min(rec.num_rows() as u64, limit - total_rows_in_recs),
+                                - std::cmp::min(start_row_idx, limit - total_rows_in_recs),
+                            std::cmp::min(start_row_idx, limit - total_rows_in_recs),
                         )
                     };
 
@@ -354,18 +362,26 @@ impl QueryDataHandler {
 
         assert_eq!(
             recs.iter().map(|rec| rec.num_rows()).sum::<usize>(),
-            rec_offsets.len()
+            rec_offsets.iter().map(|item| item.len()).sum::<usize>()
         );
 
         if let Some(first_rec) = recs.first() {
-            let final_rec =
-                arrow::compute::concat_batches(first_rec.schema_ref(), recs.iter().rev())?;
+            let final_rec = if forward {
+                arrow::compute::concat_batches(first_rec.schema_ref(), recs.iter())?
+            } else {
+                arrow::compute::concat_batches(first_rec.schema_ref(), recs.iter().rev())?
+            };
 
             let mut final_rec_offsets = Vec::new();
-            for offsets in rec_offsets.iter().rev() {
-                final_rec_offsets.extend(offsets)
+            if forward {
+                for offsets in rec_offsets.iter() {
+                    final_rec_offsets.extend(offsets);
+                }
+            } else {
+                for offsets in rec_offsets.iter().rev() {
+                    final_rec_offsets.extend(offsets);
+                }
             }
-
             Ok(Some((final_rec, final_rec_offsets)))
         } else {
             Ok(None)

@@ -6,7 +6,7 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 
 use chapterhouseqe::{
-    client::{AsyncQueryClient, QueryDataIterator, TuiQueryDataIterator},
+    client::{AsyncQueryClient, TuiQueryDataIterator, VisibleWindow},
     handlers::{message_handler::messages, query_handler::Status},
     tui::{RecordTable, RecordTableState},
 };
@@ -196,12 +196,12 @@ impl QueriesAppState {
     fn add_record(
         &mut self,
         query_idx: usize,
-        order: usize,
         rec: Arc<arrow::array::RecordBatch>,
+        offsets: Vec<(u64, u64, u64)>,
     ) -> Result<()> {
         if let Some(queries) = &mut self.queries {
             if let Some(query) = queries.get_mut(query_idx) {
-                query.record_table_state.add_record(order, rec);
+                query.record_table_state.set_record(rec, offsets);
                 return Ok(());
             } else {
                 return Err(anyhow!("query at index {} does not exist", query_idx));
@@ -298,17 +298,13 @@ impl QueriesAppState {
         let mut query_data_iter =
             TuiQueryDataIterator::new(client, query_id, 0, 0, 0, 50, chrono::Duration::seconds(1));
 
-        for i in 0..5 {
-            let rec = query_data_iter.first(ct.clone()).await?;
-            match rec {
-                Some((rec, _)) => state
-                    .lock()
-                    .map_err(|_| anyhow!("lock failed"))?
-                    .add_record(query_idx.clone(), i, rec)?,
-                None => {
-                    break;
-                }
-            }
+        let rec = query_data_iter.first(ct.clone()).await?;
+        match rec {
+            Some((rec, offsets)) => state
+                .lock()
+                .map_err(|_| anyhow!("lock failed"))?
+                .add_record(query_idx.clone(), rec, offsets)?,
+            None => {}
         }
 
         state
@@ -481,7 +477,7 @@ impl QueriesApp {
             Some(AppEvent::DataUpdate) => {}
             Some(AppEvent::TerminalEvent(event)) => match event {
                 Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                    self.handle_key_event(key_event)?;
+                    self.handle_key_event(key_event).await?;
                 }
                 _ => {}
             },
@@ -491,16 +487,16 @@ impl QueriesApp {
         Ok(())
     }
 
-    fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<()> {
+    async fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<()> {
         match key_event.code {
             KeyCode::Char('q') => self.exit(),
             KeyCode::Up => match self.selected_table {
                 SelectedTable::QueryTable => self.previous_row()?,
-                SelectedTable::DataTable => self.previous_data_page()?,
+                SelectedTable::DataTable => self.previous_data_page().await?,
             },
             KeyCode::Down => match self.selected_table {
                 SelectedTable::QueryTable => self.next_row()?,
-                SelectedTable::DataTable => self.next_data_page()?,
+                SelectedTable::DataTable => self.next_data_page().await?,
             },
             KeyCode::Tab => self.switch_table()?,
             _ => {}
@@ -508,7 +504,7 @@ impl QueriesApp {
         Ok(())
     }
 
-    fn next_data_page(&mut self) -> Result<()> {
+    async fn next_data_page(&mut self) -> Result<()> {
         let selected_query = if let Some(sq) = self.table_state.selected() {
             sq
         } else {
@@ -519,15 +515,43 @@ impl QueriesApp {
 
         if let Some(queries) = &mut state_guard.queries {
             if let Some(query_info) = queries.get_mut(selected_query) {
-                let rec_table_state = &mut query_info.record_table_state;
-                rec_table_state.next_page()?;
+                let iter = if let Some(iter) = &mut query_info.query_data_iter {
+                    iter
+                } else {
+                    return Ok(());
+                };
+
+                let min_offset =
+                    if let Some(offset) = query_info.record_table_state.get_min_visible_offset() {
+                        offset
+                    } else {
+                        return Ok(());
+                    };
+                let max_offset =
+                    if let Some(offset) = query_info.record_table_state.get_max_visible_offset() {
+                        offset
+                    } else {
+                        return Ok(());
+                    };
+
+                let window = VisibleWindow {
+                    min_offset,
+                    max_offset,
+                };
+                let rec = iter.next(self.ct.clone(), window, true).await?;
+                match rec {
+                    Some((rec, offsets)) => {
+                        query_info.record_table_state.set_record(rec, offsets);
+                    }
+                    None => {}
+                }
             }
         }
 
         Ok(())
     }
 
-    fn previous_data_page(&mut self) -> Result<()> {
+    async fn previous_data_page(&mut self) -> Result<()> {
         let selected_query = if let Some(sq) = self.table_state.selected() {
             sq
         } else {
@@ -538,8 +562,36 @@ impl QueriesApp {
 
         if let Some(queries) = &mut state_guard.queries {
             if let Some(query_info) = queries.get_mut(selected_query) {
-                let rec_table_state = &mut query_info.record_table_state;
-                rec_table_state.previous_page()?;
+                let iter = if let Some(iter) = &mut query_info.query_data_iter {
+                    iter
+                } else {
+                    return Ok(());
+                };
+
+                let min_offset =
+                    if let Some(offset) = query_info.record_table_state.get_min_visible_offset() {
+                        offset
+                    } else {
+                        return Ok(());
+                    };
+                let max_offset =
+                    if let Some(offset) = query_info.record_table_state.get_max_visible_offset() {
+                        offset
+                    } else {
+                        return Ok(());
+                    };
+
+                let window = VisibleWindow {
+                    min_offset,
+                    max_offset,
+                };
+                let rec = iter.next(self.ct.clone(), window, false).await?;
+                match rec {
+                    Some((rec, offsets)) => {
+                        query_info.record_table_state.set_record(rec, offsets);
+                    }
+                    None => {}
+                }
             }
         }
 
@@ -715,10 +767,7 @@ impl QueriesApp {
                             Span::from(format!("{}", data.status_icon()))
                                 .style(Style::default().fg(Color::Green)),
                         ),
-                        Cell::from(
-                            Text::from(format!("{}, {}", i, data.record_table_state.num_records()))
-                                .fg(self.table_colors.row_fg),
-                        ),
+                        Cell::from(Text::from(format!("{}", i)).fg(self.table_colors.row_fg)),
                         Cell::from(
                             Text::from(data.query_txt.to_string()).fg(self.table_colors.row_fg),
                         ),
