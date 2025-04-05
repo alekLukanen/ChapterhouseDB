@@ -318,12 +318,12 @@ impl QueryDataHandler {
                                 row_idx
                             }
                         } else {
-                            rec.num_rows() as u64
+                            (rec.num_rows() - 1) as u64
                         };
 
                         (
                             end_row_idx - std::cmp::min(end_row_idx, limit - total_rows_in_recs),
-                            std::cmp::min(end_row_idx, limit - total_rows_in_recs),
+                            std::cmp::min(end_row_idx + 1, limit - total_rows_in_recs),
                         )
                     };
 
