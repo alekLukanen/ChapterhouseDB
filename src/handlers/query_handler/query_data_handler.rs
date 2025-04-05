@@ -271,6 +271,9 @@ impl QueryDataHandler {
 
             match res {
                 Ok((rec, num_row_groups)) => {
+                    if current_file_row_group_idx == std::u64::MAX {
+                        current_file_row_group_idx = num_row_groups - 1;
+                    }
                     if rec.num_rows() == 0 {
                         continue;
                     }
