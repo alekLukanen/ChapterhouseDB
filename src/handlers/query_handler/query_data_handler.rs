@@ -313,7 +313,7 @@ impl QueryDataHandler {
                             && current_file_row_group_idx == file_row_group_idx
                         {
                             if row_idx == std::u64::MAX {
-                                rec.num_rows() as u64
+                                (rec.num_rows() - 1) as u64
                             } else {
                                 row_idx
                             }
@@ -323,9 +323,16 @@ impl QueryDataHandler {
 
                         (
                             end_row_idx - std::cmp::min(end_row_idx, limit - total_rows_in_recs),
-                            std::cmp::min(end_row_idx + 1, limit - total_rows_in_recs),
+                            std::cmp::min(end_row_idx, limit - total_rows_in_recs),
                         )
                     };
+
+                    debug!(
+                        start_row_idx = start_row_idx,
+                        length = length,
+                        rec_num_rows = rec.num_rows(),
+                        "reverse"
+                    );
 
                     // prevent out of bounds access by the requester
                     if start_row_idx >= rec.num_rows() as u64 {
@@ -376,6 +383,8 @@ impl QueryDataHandler {
                             } else {
                                 break;
                             }
+                        } else if current_file_idx == 0 && current_file_row_group_idx == 0 {
+                            break;
                         } else if current_file_idx > 0 && current_file_row_group_idx == 0 {
                             current_file_idx -= 1;
                             current_file_row_group_idx = std::u64::MAX;
