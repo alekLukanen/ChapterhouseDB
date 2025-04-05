@@ -102,6 +102,7 @@ impl TuiQueryDataIterator {
                 row_idx,
                 self.limit,
                 forward,
+                true,
                 self.max_wait.clone(),
             )
             .await?;

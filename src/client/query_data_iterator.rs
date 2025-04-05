@@ -73,6 +73,7 @@ impl QueryDataIterator {
                 self.row_idx,
                 self.limit,
                 self.forward,
+                false,
                 self.max_wait.clone(),
             )
             .await?;

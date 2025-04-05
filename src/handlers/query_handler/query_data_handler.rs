@@ -140,6 +140,7 @@ impl QueryDataHandler {
                 get_data_msg.row_idx,
                 get_data_msg.limit,
                 get_data_msg.forward,
+                get_data_msg.allow_overflow,
             )
             .await
         {
@@ -232,9 +233,10 @@ impl QueryDataHandler {
         query_id: u128,
         file_idx: u64,
         file_row_group_idx: u64,
-        row_idx: u64,
+        mut row_idx: u64,
         limit: u64,
-        forward: bool,
+        mut forward: bool,
+        allow_overflow: bool,
     ) -> Result<Option<(arrow::array::RecordBatch, Vec<(u64, u64, u64)>)>> {
         if limit == 0 {
             return Ok(None);
@@ -251,9 +253,14 @@ impl QueryDataHandler {
 
         let query_uuid_id = Uuid::from_u128(query_id.clone());
 
-        let mut recs: Vec<arrow::array::RecordBatch> = Vec::new();
-        let mut rec_offsets: Vec<Vec<(u64, u64, u64)>> = Vec::new();
+        let mut forward_recs: Vec<arrow::array::RecordBatch> = Vec::new();
+        let mut forward_rec_offsets: Vec<Vec<(u64, u64, u64)>> = Vec::new();
+        let mut reverse_recs: Vec<arrow::array::RecordBatch> = Vec::new();
+        let mut reverse_rec_offsets: Vec<Vec<(u64, u64, u64)>> = Vec::new();
         let mut total_rows_in_recs: u64 = 0;
+
+        let mut first_file_num_row_groups: Option<u64> = None;
+        let mut first_file_num_rows: Option<u64> = None;
 
         let mut current_file_idx = file_idx;
         let mut current_file_row_group_idx = file_row_group_idx;
@@ -271,6 +278,13 @@ impl QueryDataHandler {
 
             match res {
                 Ok((rec, num_row_groups)) => {
+                    if current_file_idx == file_idx
+                        && current_file_row_group_idx == file_row_group_idx
+                    {
+                        first_file_num_rows = Some(rec.num_rows() as u64);
+                        first_file_num_row_groups = Some(num_row_groups);
+                    }
+
                     if current_file_row_group_idx == std::u64::MAX {
                         current_file_row_group_idx = num_row_groups - 1;
                     }
@@ -295,7 +309,7 @@ impl QueryDataHandler {
                             ),
                         )
                     } else {
-                        let start_row_idx = if current_file_idx == file_idx
+                        let end_row_idx = if current_file_idx == file_idx
                             && current_file_row_group_idx == file_row_group_idx
                         {
                             if row_idx == std::u64::MAX {
@@ -308,9 +322,8 @@ impl QueryDataHandler {
                         };
 
                         (
-                            start_row_idx
-                                - std::cmp::min(start_row_idx, limit - total_rows_in_recs),
-                            std::cmp::min(start_row_idx, limit - total_rows_in_recs),
+                            end_row_idx - std::cmp::min(end_row_idx, limit - total_rows_in_recs),
+                            std::cmp::min(end_row_idx + 1, limit - total_rows_in_recs),
                         )
                     };
 
@@ -325,8 +338,13 @@ impl QueryDataHandler {
                     let rec_slice = rec.slice(start_row_idx as usize, length as usize);
 
                     total_rows_in_recs += rec_slice.num_rows() as u64;
-                    recs.push(rec_slice);
-                    rec_offsets.push(offsets);
+                    if forward {
+                        forward_recs.push(rec_slice);
+                        forward_rec_offsets.push(offsets);
+                    } else {
+                        reverse_recs.push(rec_slice);
+                        reverse_rec_offsets.push(offsets);
+                    }
 
                     if forward {
                         if current_file_row_group_idx == num_row_groups - 1 {
@@ -336,8 +354,28 @@ impl QueryDataHandler {
                             current_file_row_group_idx += 1;
                         }
                     } else {
-                        if current_file_idx == 0 && current_file_row_group_idx == 0 {
-                            break;
+                        if current_file_idx == 0
+                            && current_file_row_group_idx == 0
+                            && start_row_idx == 0
+                        {
+                            if allow_overflow && total_rows_in_recs < limit {
+                                forward = true;
+                                if row_idx + 1 < first_file_num_rows.expect("first_file_num_rows") {
+                                    row_idx = row_idx + 1;
+                                    current_file_row_group_idx = file_row_group_idx;
+                                    current_file_idx = file_idx;
+                                } else if file_row_group_idx + 1
+                                    < first_file_num_row_groups.expect("first_file_num_row_groups")
+                                {
+                                    current_file_row_group_idx = file_row_group_idx + 1;
+                                    current_file_idx = file_idx;
+                                } else {
+                                    current_file_idx = file_idx + 1;
+                                    current_file_row_group_idx = 0;
+                                }
+                            } else {
+                                break;
+                            }
                         } else if current_file_idx > 0 && current_file_row_group_idx == 0 {
                             current_file_idx -= 1;
                             current_file_row_group_idx = std::u64::MAX;
@@ -364,27 +402,34 @@ impl QueryDataHandler {
         }
 
         assert_eq!(
-            recs.iter().map(|rec| rec.num_rows()).sum::<usize>(),
-            rec_offsets.iter().map(|item| item.len()).sum::<usize>()
+            forward_recs.iter().map(|rec| rec.num_rows()).sum::<usize>(),
+            forward_rec_offsets
+                .iter()
+                .map(|item| item.len())
+                .sum::<usize>()
+        );
+        assert_eq!(
+            reverse_recs.iter().map(|rec| rec.num_rows()).sum::<usize>(),
+            reverse_rec_offsets
+                .iter()
+                .map(|item| item.len())
+                .sum::<usize>()
         );
 
-        if let Some(first_rec) = recs.first() {
-            let final_rec = if forward {
-                arrow::compute::concat_batches(first_rec.schema_ref(), recs.iter())?
-            } else {
-                arrow::compute::concat_batches(first_rec.schema_ref(), recs.iter().rev())?
-            };
+        let all_recs = reverse_recs.iter().rev().chain(forward_recs.iter());
+        let all_rec_offsets = reverse_rec_offsets
+            .iter()
+            .rev()
+            .chain(forward_rec_offsets.iter());
+
+        if let Some(first_rec) = all_recs.clone().next() {
+            let final_rec = arrow::compute::concat_batches(first_rec.schema_ref(), all_recs)?;
 
             let mut final_rec_offsets = Vec::new();
-            if forward {
-                for offsets in rec_offsets.iter() {
-                    final_rec_offsets.extend(offsets);
-                }
-            } else {
-                for offsets in rec_offsets.iter().rev() {
-                    final_rec_offsets.extend(offsets);
-                }
+            for offsets in all_rec_offsets {
+                final_rec_offsets.extend(offsets);
             }
+
             Ok(Some((final_rec, final_rec_offsets)))
         } else {
             Ok(None)

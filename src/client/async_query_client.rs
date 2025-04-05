@@ -122,6 +122,7 @@ impl AsyncQueryClient {
         row_idx: u64,
         limit: u64,
         forward: bool,
+        allow_overflow: bool,
         max_wait: chrono::Duration,
     ) -> Result<messages::query::GetQueryDataResp> {
         let ct_task = CancellationToken::new();
@@ -139,6 +140,7 @@ impl AsyncQueryClient {
             row_idx,
             limit,
             forward,
+            allow_overflow,
         }));
 
         self.send_msg(ct_task.clone(), stream, msg, connection_id)

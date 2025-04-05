@@ -267,6 +267,7 @@ pub struct GetQueryData {
     pub row_idx: u64,
     pub limit: u64,
     pub forward: bool,
+    pub allow_overflow: bool,
 }
 
 impl GenericMessage for GetQueryData {
