@@ -300,7 +300,7 @@ impl QueriesAppState {
 
         // now create the data iterator and fetch the next record
         let mut query_data_iter =
-            TuiQueryDataIterator::new(client, query_id, 0, 0, 0, 50, chrono::Duration::seconds(1));
+            TuiQueryDataIterator::new(client, query_id, 0, 0, 0, 50, chrono::Duration::seconds(5));
 
         let rec = query_data_iter.first(ct.clone()).await?;
         match rec {

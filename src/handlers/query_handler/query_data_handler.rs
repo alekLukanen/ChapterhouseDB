@@ -233,7 +233,7 @@ impl QueryDataHandler {
         &self,
         query_id: u128,
         file_idx: u64,
-        file_row_group_idx: u64,
+        mut file_row_group_idx: u64,
         mut row_idx: u64,
         limit: u64,
         mut forward: bool,
@@ -284,8 +284,19 @@ impl QueryDataHandler {
                 .get_row_group_data(complete_file_path, current_file_row_group_idx)
                 .await;
 
+            //tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             match res {
                 Ok((rec, num_row_groups)) => {
+                    if current_file_row_group_idx == std::u64::MAX {
+                        current_file_row_group_idx = num_row_groups - 1;
+                    }
+                    if file_row_group_idx == std::u64::MAX {
+                        file_row_group_idx = num_row_groups - 1;
+                    }
+                    if row_idx == std::u64::MAX {
+                        row_idx = (rec.num_rows() - 1) as u64;
+                    }
+
                     if current_file_idx == file_idx
                         && current_file_row_group_idx == file_row_group_idx
                     {
@@ -293,10 +304,18 @@ impl QueryDataHandler {
                         first_file_num_row_groups = Some(num_row_groups);
                     }
 
-                    if current_file_row_group_idx == std::u64::MAX {
-                        current_file_row_group_idx = num_row_groups - 1;
-                    }
-                    if rec.num_rows() == 0 {
+                    if current_file_idx == file_idx
+                        && current_file_row_group_idx == file_row_group_idx
+                        && row_idx >= rec.num_rows() as u64
+                    {
+                        if forward {
+                            if current_file_row_group_idx == num_row_groups - 1 {
+                                current_file_idx += 1;
+                                current_file_row_group_idx = 0;
+                            } else {
+                                current_file_row_group_idx += 1;
+                            }
+                        }
                         continue;
                     }
 
@@ -336,6 +355,8 @@ impl QueryDataHandler {
                     };
 
                     debug!(
+                        file_idx = file_idx,
+                        file_row_group_idx = file_row_group_idx,
                         start_row_idx = start_row_idx,
                         length = length,
                         rec_num_rows = rec.num_rows(),
@@ -344,10 +365,7 @@ impl QueryDataHandler {
 
                     // prevent out of bounds access by the requester
                     if start_row_idx >= rec.num_rows() as u64 {
-                        continue;
-                    }
-                    if length == 0 {
-                        continue;
+                        break;
                     }
 
                     let offsets: Vec<(u64, u64, u64)> = (start_row_idx..(start_row_idx + length))
@@ -369,6 +387,10 @@ impl QueryDataHandler {
                     } else {
                         reverse_recs.push(rec_slice);
                         reverse_rec_offsets.push(offsets);
+                    }
+
+                    if total_rows_in_recs >= limit {
+                        break;
                     }
 
                     if forward {
@@ -409,10 +431,6 @@ impl QueryDataHandler {
                         } else {
                             current_file_row_group_idx -= 1;
                         }
-                    }
-
-                    if total_rows_in_recs >= limit {
-                        break;
                     }
                 }
                 Err(err) => match err.downcast_ref::<QueryDataHandlerError>() {
