@@ -58,7 +58,13 @@ impl TuiQueryDataIterator {
     pub async fn first(
         &mut self,
         ct: CancellationToken,
-    ) -> Result<Option<(Arc<arrow::array::RecordBatch>, Vec<(u64, u64, u64)>)>> {
+    ) -> Result<
+        Option<(
+            Arc<arrow::array::RecordBatch>,
+            Vec<(u64, u64, u64)>,
+            (u64, u64, u64),
+        )>,
+    > {
         self.get_next(
             ct.clone(),
             self.start_file_idx,
@@ -74,7 +80,13 @@ impl TuiQueryDataIterator {
         ct: CancellationToken,
         visible_window: VisibleWindow,
         forward: bool,
-    ) -> Result<Option<(Arc<arrow::array::RecordBatch>, Vec<(u64, u64, u64)>)>> {
+    ) -> Result<
+        Option<(
+            Arc<arrow::array::RecordBatch>,
+            Vec<(u64, u64, u64)>,
+            (u64, u64, u64),
+        )>,
+    > {
         match self.get_next_offset(visible_window, forward) {
             Some(offset) => {
                 self.get_next(ct.clone(), offset.0, offset.1, offset.2, forward)
@@ -91,7 +103,13 @@ impl TuiQueryDataIterator {
         file_row_group_idx: u64,
         row_idx: u64,
         forward: bool,
-    ) -> Result<Option<(Arc<arrow::array::RecordBatch>, Vec<(u64, u64, u64)>)>> {
+    ) -> Result<
+        Option<(
+            Arc<arrow::array::RecordBatch>,
+            Vec<(u64, u64, u64)>,
+            (u64, u64, u64),
+        )>,
+    > {
         let resp = self
             .client
             .get_query_data(
@@ -110,7 +128,8 @@ impl TuiQueryDataIterator {
             messages::query::GetQueryDataResp::Record {
                 record,
                 record_offsets,
-            } => Ok(Some((record, record_offsets))),
+                first_offset,
+            } => Ok(Some((record, record_offsets, first_offset))),
             messages::query::GetQueryDataResp::ReachedEndOfFiles => Ok(None),
             messages::query::GetQueryDataResp::QueryNotFound => {
                 Err(TuiQueryDataIteratorError::QueryNotFound(self.query_id.clone()).into())

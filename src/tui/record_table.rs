@@ -56,6 +56,7 @@ pub struct RecordTableState {
     // to the user and the first row will always be at
     // the "offset" position. You can paginate to the next
     // page which is a stiched view of the record data.
+    top_offset: Option<(u64, u64, u64)>,
     columns: Vec<String>,
     rows: Vec<TableRow>,
     row_heights: Vec<u16>,
@@ -76,6 +77,7 @@ impl Default for RecordTableState {
             desired_rows_to_buffer: 100,
             max_text_chars: 75,
             max_column_width: 50,
+            top_offset: None,
             columns: Vec::new(),
             rows: Vec::new(),
             row_heights: Vec::new(),
@@ -95,7 +97,12 @@ impl RecordTableState {
         self.area = Some(area);
 
         if updated {
-            self.refresh_view_data();
+            let top_offset = if let Some(offset) = self.top_offset {
+                offset
+            } else {
+                return;
+            };
+            self.refresh_view_data(top_offset, true);
         }
     }
 
@@ -111,10 +118,12 @@ impl RecordTableState {
         &mut self,
         record: Arc<arrow::array::RecordBatch>,
         offsets: Vec<(u64, u64, u64)>,
+        first_offset: (u64, u64, u64),
+        render_forward: bool,
     ) {
         let tab_rec = TableRecord { record, offsets };
         self.record = Some(tab_rec);
-        self.refresh_view_data();
+        self.refresh_view_data(first_offset, render_forward);
     }
 
     pub fn get_max_visible_offset(&self) -> Option<(u64, u64, u64)> {
@@ -143,14 +152,14 @@ impl RecordTableState {
         self.err = Some(err);
     }
 
-    fn refresh_view_data(&mut self) {
+    fn refresh_view_data(&mut self, first_offset: (u64, u64, u64), render_forward: bool) {
         let area = if let Some(area) = self.area {
             area
         } else {
             return;
         };
 
-        let res = self.set_columns_and_rows(area);
+        let res = self.set_columns_and_rows(area, first_offset, render_forward);
         match res {
             Ok(_) => {
                 self.err = None;
@@ -161,8 +170,18 @@ impl RecordTableState {
         }
     }
 
-    fn set_columns_and_rows(&mut self, area: Rect) -> Result<()> {
-        let (columns, rows, mut row_heights, max_column_widths) = self.get_render_data()?;
+    fn set_columns_and_rows(
+        &mut self,
+        area: Rect,
+        first_offset: (u64, u64, u64),
+        render_forward: bool,
+    ) -> Result<()> {
+        let (columns, mut rows, mut row_heights, max_column_widths) = self.get_render_data()?;
+
+        if !render_forward {
+            rows.reverse();
+            row_heights.reverse();
+        }
 
         // only show enough rows that will fit on the screen
         let mut stop_index: usize = 0;
@@ -175,8 +194,13 @@ impl RecordTableState {
             stop_index = idx;
         }
 
-        let rows = rows[0..stop_index].to_vec();
+        rows = rows[0..stop_index + 1].to_vec();
         row_heights = row_heights[0..stop_index + 1].to_vec();
+
+        if !render_forward {
+            rows.reverse();
+            row_heights.reverse();
+        }
 
         self.columns = columns;
         self.rows = rows;

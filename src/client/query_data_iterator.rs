@@ -81,6 +81,7 @@ impl QueryDataIterator {
             messages::query::GetQueryDataResp::Record {
                 record,
                 record_offsets,
+                first_offset,
             } => {
                 let new_offset = self.get_next_offset(&record_offsets);
                 if let Some(new_offset) = new_offset {

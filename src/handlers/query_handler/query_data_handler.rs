@@ -144,10 +144,11 @@ impl QueryDataHandler {
             )
             .await
         {
-            Ok(Some((rec, rec_offsets))) => {
+            Ok(Some((rec, rec_offsets, first_offset))) => {
                 let resp = msg.reply(Box::new(messages::query::GetQueryDataResp::Record {
                     record: Arc::new(rec),
                     record_offsets: rec_offsets,
+                    first_offset,
                 }));
                 self.router_pipe.send(resp).await?;
             }
@@ -237,7 +238,13 @@ impl QueryDataHandler {
         limit: u64,
         mut forward: bool,
         allow_overflow: bool,
-    ) -> Result<Option<(arrow::array::RecordBatch, Vec<(u64, u64, u64)>)>> {
+    ) -> Result<
+        Option<(
+            arrow::array::RecordBatch,
+            Vec<(u64, u64, u64)>,
+            (u64, u64, u64),
+        )>,
+    > {
         if limit == 0 {
             return Ok(None);
         }
@@ -259,6 +266,7 @@ impl QueryDataHandler {
         let mut reverse_rec_offsets: Vec<Vec<(u64, u64, u64)>> = Vec::new();
         let mut total_rows_in_recs: u64 = 0;
 
+        let mut first_offset: Option<(u64, u64, u64)> = None;
         let mut first_file_num_row_groups: Option<u64> = None;
         let mut first_file_num_rows: Option<u64> = None;
 
@@ -338,11 +346,21 @@ impl QueryDataHandler {
                     if start_row_idx >= rec.num_rows() as u64 {
                         continue;
                     }
+                    if length == 0 {
+                        continue;
+                    }
 
                     let offsets: Vec<(u64, u64, u64)> = (start_row_idx..(start_row_idx + length))
                         .map(|i| (current_file_idx, current_file_row_group_idx, i))
                         .collect();
                     let rec_slice = rec.slice(start_row_idx as usize, length as usize);
+                    if first_offset.is_none() {
+                        first_offset = if forward {
+                            Some(offsets.first().expect("expected first offset").clone())
+                        } else {
+                            Some(offsets.last().expect("expected first offset").clone())
+                        }
+                    }
 
                     total_rows_in_recs += rec_slice.num_rows() as u64;
                     if forward {
@@ -439,7 +457,9 @@ impl QueryDataHandler {
                 final_rec_offsets.extend(offsets);
             }
 
-            Ok(Some((final_rec, final_rec_offsets)))
+            let first_offset = first_offset.expect("expected first offset");
+
+            Ok(Some((final_rec, final_rec_offsets, first_offset)))
         } else {
             Ok(None)
         }

@@ -198,10 +198,14 @@ impl QueriesAppState {
         query_idx: usize,
         rec: Arc<arrow::array::RecordBatch>,
         offsets: Vec<(u64, u64, u64)>,
+        first_offset: (u64, u64, u64),
+        render_forward: bool,
     ) -> Result<()> {
         if let Some(queries) = &mut self.queries {
             if let Some(query) = queries.get_mut(query_idx) {
-                query.record_table_state.set_record(rec, offsets);
+                query
+                    .record_table_state
+                    .set_record(rec, offsets, first_offset, render_forward);
                 return Ok(());
             } else {
                 return Err(anyhow!("query at index {} does not exist", query_idx));
@@ -300,10 +304,10 @@ impl QueriesAppState {
 
         let rec = query_data_iter.first(ct.clone()).await?;
         match rec {
-            Some((rec, offsets)) => state
+            Some((rec, offsets, first_offset)) => state
                 .lock()
                 .map_err(|_| anyhow!("lock failed"))?
-                .add_record(query_idx.clone(), rec, offsets)?,
+                .add_record(query_idx.clone(), rec, offsets, first_offset, true)?,
             None => {}
         }
 
@@ -540,8 +544,10 @@ impl QueriesApp {
                 };
                 let rec = iter.next(self.ct.clone(), window, true).await?;
                 match rec {
-                    Some((rec, offsets)) => {
-                        query_info.record_table_state.set_record(rec, offsets);
+                    Some((rec, offsets, first_offset)) => {
+                        query_info
+                            .record_table_state
+                            .set_record(rec, offsets, first_offset, true);
                     }
                     None => {}
                 }
@@ -587,8 +593,10 @@ impl QueriesApp {
                 };
                 let rec = iter.next(self.ct.clone(), window, false).await?;
                 match rec {
-                    Some((rec, offsets)) => {
-                        query_info.record_table_state.set_record(rec, offsets);
+                    Some((rec, offsets, first_offset)) => {
+                        query_info
+                            .record_table_state
+                            .set_record(rec, offsets, first_offset, false);
                     }
                     None => {}
                 }

@@ -26,6 +26,7 @@ pub enum GetQueryDataResp {
         #[serde(skip_serializing)]
         record: Arc<arrow::array::RecordBatch>,
         record_offsets: Vec<(u64, u64, u64)>,
+        first_offset: (u64, u64, u64),
     },
     Error {
         err: String,
@@ -41,6 +42,7 @@ pub struct GetQueryDataRespError {
 #[derive(Debug, Deserialize)]
 pub struct GetQueryDataRespRecord {
     record_offsets: Vec<(u64, u64, u64)>,
+    first_offset: (u64, u64, u64),
 }
 
 impl GetQueryDataResp {
@@ -207,6 +209,7 @@ impl MessageParser for GetQueryDataRespParser {
             let msg = GetQueryDataResp::Record {
                 record: Arc::new(record),
                 record_offsets: meta.record_offsets,
+                first_offset: meta.first_offset,
             };
 
             Ok(Message::build_from_serialized_message(
