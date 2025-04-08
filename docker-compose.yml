@@ -1,0 +1,6 @@
+services:
+  chqe-example-node:
+    build:
+      context: ./
+    ports:
+      - "7000:7000"
