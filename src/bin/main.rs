@@ -56,7 +56,7 @@ fn main() {
     );
 
     let mut worker = QueryWorker::new(QueryWorkerConfig::new(
-        format!("127.0.0.1:{}", args.port),
+        format!("0.0.0.0:{}", args.port),
         args.connect_to_addresses,
         TotalOperatorCompute {
             instances: 10,

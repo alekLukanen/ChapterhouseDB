@@ -2,5 +2,6 @@ services:
   chqe-example-node:
     build:
       context: ./
+      dockerfile: example-node.Dockerfile
     ports:
       - "7000:7000"
