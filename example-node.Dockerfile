@@ -18,4 +18,4 @@ RUN chmod +x ./server-node
 
 EXPOSE 7000
 
-CMD ["./server-node", "--log-level=debug"]
+CMD ["./server-node", "--log-level=info"]
