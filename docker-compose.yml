@@ -1,7 +1,18 @@
 services:
-  chqe-example-node:
+  chqe-debug-node:
     build:
       context: ./
-      dockerfile: example-node.Dockerfile
+      dockerfile: Dockerfile
+      args:
+        PROFILE: debug
     ports:
       - "7000:7000"
+  chqe-release-node:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+      args:
+        PROFILE: release
+    ports:
+      - "7000:7000"
+
