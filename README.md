@@ -5,7 +5,34 @@ query optimization techniques.
 
 ![Query TUI](./imgs/query_tui_example.png)
 
-## 🚀 Running the Base System
+## 🚀 Running the Base System Using Docker
+
+1. Build the image
+```
+DOCKER_BUILDKIT=1 docker compose up chqe-debug-node
+```
+
+2. Start a container
+```
+DOCKER_BUILDKIT=1 docker compose up chqe-debug-node
+```
+
+At this point the system will be ready to accept requests. The image
+is built with a small set of example datasets that can be queried.
+
+## 🚀 Running the TUI
+
+You can run the TUI with a set of example queries using this command
+
+```
+cargo run --bin client_tui -- --sql-file="sample_queries/simple.sql" --connect-to-address="127.0.0.1"
+```
+
+The TUI will send the queries to the worker and allow you to visualize
+the result data of the queries in a table.
+
+
+## 🚀 Running the Base System Using Cargo
 
 1. Create the sample data by running the following command
 
@@ -19,16 +46,6 @@ query optimization techniques.
   cargo run --bin main -- -p=7000 -c=127.0.0.1:7001
   ```
 
-  Start second worker
-
-  ```bash
-  cargo run --bin main -- -p=7001 -c=127.0.0.1:7000
-  ```
-
-  The workers will each form a TCP connection with the other worker and 
-  begin transmitting messages back and forth in preparation for processing 
-  queries.
-
 3. To run a simple query you can run the client example
 
   ```bash
@@ -38,16 +55,6 @@ query optimization techniques.
   This client will connect to port 7000 and initiate a query. The result
   will show up in the `sample_data/query_results/` directory.
 
-## 🚀 Running the TUI
-
-You can run the TUI with a set of example queries using this command
-
-```
-cargo run --bin client_tui -- --sql-file="sample_queries/simple.sql" --connect-to-address="127.0.0.1"
-```
-
-The TUI will send the queries to the worker and allow you to visualize
-the result data of the queries in a table.
 
 ## 🛢️ Supported SQL
 
