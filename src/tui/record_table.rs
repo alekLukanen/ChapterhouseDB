@@ -13,7 +13,7 @@ use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
-    widgets::{Paragraph, StatefulWidget, Widget, Wrap},
+    widgets::{List, ListItem, Paragraph, StatefulWidget, Widget, Wrap},
 };
 
 #[derive(Debug, Clone)]
@@ -62,7 +62,8 @@ pub struct RecordTableState {
     row_heights: Vec<u16>,
     row_widths: Vec<u16>,
 
-    err: Option<String>,
+    errs: Vec<String>,
+    show_all_errs: bool,
 }
 
 impl Default for RecordTableState {
@@ -82,7 +83,8 @@ impl Default for RecordTableState {
             rows: Vec::new(),
             row_heights: Vec::new(),
             row_widths: Vec::new(),
-            err: None,
+            errs: Vec::new(),
+            show_all_errs: false,
         }
     }
 }
@@ -100,8 +102,10 @@ impl RecordTableState {
             let top_offset = if let Some(offset) = self.top_offset {
                 offset
             } else {
+                self.add_error("doesn't have a top offset".to_string());
                 return;
             };
+            self.add_error(format!("has offset: {:?}", top_offset));
             self.refresh_view_data(top_offset, true);
         }
     }
@@ -114,6 +118,19 @@ impl RecordTableState {
         return self.selected;
     }
 
+    pub fn set_show_all_errs(&mut self, show: bool) {
+        self.show_all_errs = show;
+    }
+
+    pub fn record_less_than_max_size(&mut self) -> Option<bool> {
+        self.add_error(format!("record : {:?}", self.record));
+        if let Some(rec) = &self.record {
+            Some(rec.record.num_rows() < self.max_rows_to_display)
+        } else {
+            None
+        }
+    }
+
     pub fn set_record(
         &mut self,
         record: Arc<arrow::array::RecordBatch>,
@@ -123,6 +140,7 @@ impl RecordTableState {
     ) {
         let tab_rec = TableRecord { record, offsets };
         self.record = Some(tab_rec);
+        self.top_offset = Some(first_offset);
         self.refresh_view_data(first_offset, render_forward);
     }
 
@@ -148,8 +166,8 @@ impl RecordTableState {
         self.alternate_selected = val;
     }
 
-    fn set_error(&mut self, err: String) {
-        self.err = Some(err);
+    fn add_error(&mut self, err: String) {
+        self.errs.push(err);
     }
 
     fn refresh_view_data(&mut self, first_offset: (u64, u64, u64), render_forward: bool) {
@@ -162,10 +180,10 @@ impl RecordTableState {
         let res = self.set_columns_and_rows(area, first_offset, render_forward);
         match res {
             Ok(_) => {
-                self.err = None;
+                self.errs.clear();
             }
             Err(err) => {
-                self.set_error(err.to_string());
+                self.add_error(err.to_string());
             }
         }
     }
@@ -424,8 +442,9 @@ impl RecordTable {
         }
     }
 
-    fn render_error(&self, area: Rect, buf: &mut Buffer, msg: String) {
-        Paragraph::new(msg).render(area, buf);
+    fn render_errors(&self, area: Rect, buf: &mut Buffer, msgs: Vec<String>) {
+        let items: Vec<ListItem> = msgs.into_iter().map(ListItem::new).collect();
+        Widget::render(&List::new(items), area, buf);
     }
 }
 
@@ -446,20 +465,19 @@ impl StatefulWidget for RecordTable {
     type State = RecordTableState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        let mut errs = state.errs.clone();
+
         if state.record.is_none() {
-            self.render_error(area, buf, "no record to display".to_string());
-            return;
+            errs.push("no record to display".to_string());
         }
         if state.rows.len() == 0 {
-            self.render_error(
-                area,
-                buf,
-                format!("no rendered row data to display. record={:?}", state.record),
-            );
-            return;
+            errs.push(format!(
+                "no rendered row data to display. record={:?}",
+                state.record
+            ));
         }
-        if let Some(err) = &state.err {
-            self.render_error(area, buf, err.clone());
+        if (state.errs.len() > 0 && state.show_all_errs) || errs.len() > state.errs.len() {
+            self.render_errors(area, buf, state.errs.clone());
             return;
         }
 

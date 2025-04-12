@@ -33,8 +33,8 @@ struct Args {
     #[arg(short, long, default_value_t = 7000)]
     port: u32,
 
-    /// Addresses to connect with
-    #[arg(short, long)]
+    /// Addresses to connect to
+    #[arg(short, long, default_value_t = String::from("0.0.0.0"))]
     connect_to_address: String,
 
     /// The logging level (debug, info, warning, error)
@@ -343,6 +343,7 @@ pub struct QueriesApp {
     table_colors: TableColors,
 
     selected_table: SelectedTable,
+    show_all_errs: bool,
 }
 
 impl QueriesApp {
@@ -359,6 +360,7 @@ impl QueriesApp {
             table_state: TableState::default().with_selected(0),
             table_colors: TableColors::new(),
             selected_table: SelectedTable::QueryTable,
+            show_all_errs: false,
         }
     }
 
@@ -446,11 +448,20 @@ impl QueriesApp {
             " Executing Queries ",
             ratatui::style::Style::default().bold().cyan(),
         )]);
+
+        let errs_msg = if self.show_all_errs {
+            "| Hide Errors "
+        } else {
+            "| Show Errors "
+        };
+
         let instructions = Line::from(vec![
             " Quit ".into(),
             "<Q> ".blue().bold(),
             "| Switch Table ".into(),
             "<Tab> ".blue().bold(),
+            errs_msg.into(),
+            "<E> ".blue().bold(),
         ]);
         let block = Block::default()
             .title(title.centered())
@@ -494,6 +505,9 @@ impl QueriesApp {
     async fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<()> {
         match key_event.code {
             KeyCode::Char('q') => self.exit(),
+            KeyCode::Char('e') => {
+                self.show_all_errs = !self.show_all_errs;
+            }
             KeyCode::Up => match self.selected_table {
                 SelectedTable::QueryTable => self.previous_row()?,
                 SelectedTable::DataTable => self.previous_data_page().await?,
@@ -719,6 +733,7 @@ impl QueriesApp {
                     let rec_table = RecordTable::default();
                     let rec_table_state = &mut query_info.record_table_state;
                     rec_table_state.set_area(area);
+                    rec_table_state.set_show_all_errs(self.show_all_errs);
                     frame.render_stateful_widget(
                         rec_table,
                         table_block.inner(area),

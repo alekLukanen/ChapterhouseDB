@@ -43,13 +43,13 @@ the result data of the queries in a table.
 2. Now start the workers to form a cluster. Start first worker
 
   ```bash
-  cargo run --bin main -- -p=7000 -c=127.0.0.1:7001
+  cargo run --bin main -- -p=7000 
   ```
 
 3. To run a simple query you can run the client example
 
   ```bash
-  cargo run --bin client_main
+  cargo run --bin client_main -- -p=7000
   ```
 
   This client will connect to port 7000 and initiate a query. The result

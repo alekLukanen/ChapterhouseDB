@@ -154,7 +154,7 @@ impl QueryDataHandler {
             }
             Ok(None) => {
                 let resp = msg.reply(Box::new(
-                    messages::query::GetQueryDataResp::RecordRowGroupNotFound,
+                    messages::query::GetQueryDataResp::ReachedEndOfFiles,
                 ));
                 self.router_pipe.send(resp).await?;
             }
