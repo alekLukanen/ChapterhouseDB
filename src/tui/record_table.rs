@@ -72,7 +72,7 @@ impl Default for RecordTableState {
             area: None,
             record: None,
             offsets: None,
-            selected: Some(0),
+            selected: None,
             alternate_selected: true,
             max_rows_to_display: 50,
             desired_rows_to_buffer: 100,
@@ -140,7 +140,11 @@ impl RecordTableState {
     ) {
         let tab_rec = TableRecord { record, offsets };
         self.record = Some(tab_rec);
-        self.top_offset = Some(first_offset);
+        // this must be the first record so set the top offset
+        // so that when the area is added the data will render
+        if first_offset == (0, 0, 0) && render_forward {
+            self.top_offset = Some(first_offset);
+        }
         self.refresh_view_data(first_offset, render_forward);
     }
 
@@ -196,30 +200,88 @@ impl RecordTableState {
     ) -> Result<()> {
         let (columns, mut rows, mut row_heights, max_column_widths) = self.get_render_data()?;
 
-        if !render_forward {
-            rows.reverse();
-            row_heights.reverse();
-        }
-
-        // only show enough rows that will fit on the screen
-        let mut stop_index: usize = 0;
-        let mut total_height: u16 = 0;
-        for (idx, row_height) in row_heights.iter().enumerate() {
-            if total_height + Self::total_row_height(*row_height) > Self::total_area_height(area) {
-                break;
+        // find the row representing the first offset
+        let first_row_idx = if render_forward {
+            0
+        } else {
+            let row = rows
+                .iter()
+                .enumerate()
+                .find(|(_, row)| row.offset == first_offset);
+            if let Some((idx, _)) = row {
+                idx
+            } else {
+                0
             }
-            total_height += *row_height + 1;
-            stop_index = idx;
+        };
+
+        if render_forward {
+            // only show enough rows that will fit on the screen
+            let mut stop_index: usize = first_row_idx;
+            let mut total_height: u16 = 0;
+            for (idx, row_height) in row_heights
+                .iter()
+                .enumerate()
+                .filter(|(idx, _)| *idx >= first_row_idx)
+            {
+                if total_height + Self::total_row_height(*row_height)
+                    > Self::total_area_height(area)
+                {
+                    break;
+                }
+                total_height += *row_height + 1;
+                stop_index = idx;
+            }
+
+            rows = rows[0..stop_index + 1].to_vec();
+            row_heights = row_heights[0..stop_index + 1].to_vec();
+        } else {
+            let mut stop_index_top: usize = 0;
+            let mut stop_index_bottom: usize = first_row_idx;
+            let mut total_height: u16 = 0;
+
+            // scan backward to top
+            for (idx, row_height) in row_heights
+                .iter()
+                .enumerate()
+                .rev()
+                .filter(|(idx, _)| *idx <= first_row_idx)
+            {
+                if total_height + Self::total_row_height(*row_height)
+                    > Self::total_area_height(area)
+                {
+                    break;
+                }
+                total_height += *row_height + 1;
+                stop_index_top = idx;
+            }
+
+            // scan forwards to bottom
+            for (idx, row_height) in row_heights
+                .iter()
+                .enumerate()
+                .filter(|(idx, _)| *idx > first_row_idx)
+            {
+                if total_height + Self::total_row_height(*row_height)
+                    > Self::total_area_height(area)
+                {
+                    break;
+                }
+                total_height += *row_height + 1;
+                stop_index_bottom = idx;
+            }
+
+            rows = rows[stop_index_top..stop_index_bottom + 1].to_vec();
+            row_heights = row_heights[stop_index_top..stop_index_bottom + 1].to_vec();
         }
 
-        rows = rows[0..stop_index + 1].to_vec();
-        row_heights = row_heights[0..stop_index + 1].to_vec();
-
-        if !render_forward {
-            rows.reverse();
-            row_heights.reverse();
-        }
-
+        // persist computation
+        self.top_offset = if let Some(row) = rows.first() {
+            Some(row.offset)
+        } else {
+            self.add_error("missing first row for self.top_offset".to_string());
+            None
+        };
         self.columns = columns;
         self.rows = rows;
         self.row_heights = row_heights;
@@ -261,7 +323,7 @@ impl RecordTableState {
             ));
         }
 
-        for idx in 0..std::cmp::min(self.max_rows_to_display, tab_rec.record.num_rows()) {
+        for idx in 0..tab_rec.record.num_rows() {
             let mut row = Vec::with_capacity(num_cols);
             for formatter in &record_formatters {
                 let value = formatter.value(idx);
