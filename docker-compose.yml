@@ -15,4 +15,18 @@ services:
         PROFILE: release
     ports:
       - "7000:7000"
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"   # MinIO API
+      - "9001:9001"   # MinIO Console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    chqe-volumes:
+      - minio-data:/data
 
+volumes:
+  chqe-minio-data:

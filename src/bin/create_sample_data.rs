@@ -1,22 +1,154 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use aws_config::meta::region::RegionProviderChain;
+use chapterhouseqe::handlers::operator_handler::operators::ConnectionRegistry;
 use rand::Rng;
-use std::fs::File;
 use std::sync::Arc;
+use std::{collections::HashMap, fs::File};
 use tracing::info;
 use tracing_subscriber;
+
+use clap::{Parser, Subcommand};
+use path_clean::PathClean;
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// A prefix or directory to store all data
+    path_prefix: String,
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+impl Args {
+    fn validate(&self) -> Result<()> {
+        if self.path_prefix.len() == 0 {
+            return Err(anyhow!("path_prefix must be a value"));
+        }
+        return Ok(());
+    }
+}
+
+#[derive(Subcommand, Debug, Clone)]
+enum Command {
+    S3 {
+        /// The endpoint that S3 is located at
+        endpoint: String,
+        /// The access key
+        access_key_id: String,
+        /// The secret key
+        secret_access_key_id: String,
+        /// The bucket to create data in
+        bucket: String,
+        /// region
+        region: String,
+    },
+    Fs,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let mut base_path = std::path::PathBuf::new();
-    base_path.push("./sample_data");
+    let args = Args::parse();
+    args.validate()?;
 
-    create_simple_data(base_path.clone())?;
-    create_simple_wide_string_data(base_path.clone())?;
+    // get the connection specfic base path
+    let base_path = match &args.command {
+        Some(Command::S3 { .. }) => std::path::PathBuf::from(args.path_prefix.clone()),
+        Some(Command::Fs) => std::path::PathBuf::from(args.path_prefix.clone()).clean(),
+        None => {
+            info!("You must set a command");
+            return Ok(());
+        }
+    };
 
-    create_large_simple_data(base_path.clone())?;
-    create_huge_simple_data(base_path.clone())?;
+    // setup initial resources
+    match &args.command {
+        Some(Command::S3 {
+            endpoint,
+            access_key_id,
+            secret_access_key_id,
+            bucket,
+            region,
+        }) => {
+            let region_provider =
+                RegionProviderChain::first_try(aws_sdk_s3::config::Region::new(region.clone()));
+            let region = region_provider.region().await.unwrap();
+
+            let config = aws_sdk_s3::config::Builder::new()
+                .region(region)
+                .endpoint_url(endpoint.clone())
+                .credentials_provider(aws_sdk_s3::config::Credentials::new(
+                    access_key_id.clone(),
+                    secret_access_key_id.clone(),
+                    None,
+                    None,
+                    "static",
+                ))
+                .build();
+
+            let client = aws_sdk_s3::Client::from_conf(config);
+
+            // Try to create the bucket (safe even if it already exists in MinIO)
+            client.create_bucket().bucket(bucket.clone()).send().await?;
+        }
+        Some(Command::Fs) => {
+            create_dir(&base_path)?;
+        }
+        None => {
+            info!("You must provide a valid command");
+            return Ok(());
+        }
+    }
+
+    // create the opendal connection
+    let mut conn_reg = ConnectionRegistry::new();
+    match &args.command {
+        Some(Command::S3 {
+            endpoint,
+            access_key_id,
+            secret_access_key_id,
+            bucket,
+            region,
+        }) => conn_reg.add_connection(
+            "default".to_string(),
+            opendal::Scheme::S3,
+            vec![
+                ("bucket".to_string(), bucket.clone()),
+                ("endpoint".to_string(), endpoint.clone()),
+                ("access_key_id".to_string(), access_key_id.clone()),
+                (
+                    "secret_access_key".to_string(),
+                    secret_access_key_id.clone(),
+                ),
+                ("enable_virtual_host_style".to_string(), "false".to_string()),
+                // Optional:
+                ("region".to_string(), region.clone()), // MinIO doesn’t enforce this
+            ]
+            .into_iter()
+            .collect::<HashMap<String, String>>(),
+        ),
+        Some(Command::Fs) => conn_reg.add_connection(
+            "default".to_string(),
+            opendal::Scheme::Fs,
+            vec![("root".to_string(), args.path_prefix)]
+                .into_iter()
+                .collect::<HashMap<String, String>>(),
+        ),
+        None => {
+            info!("You must provide a command");
+            return Ok(());
+        }
+    }
+
+    // get the operator
+    let operator = conn_reg.get_operator("default")?;
+
+    create_simple_data(&operator, base_path.clone()).await?;
+    create_simple_wide_string_data(&operator, base_path.clone()).await?;
+
+    create_large_simple_data(&operator, base_path.clone()).await?;
+    create_huge_simple_data(&operator, base_path.clone()).await?;
 
     Ok(())
 }
@@ -31,43 +163,53 @@ fn create_dir(base_path: &std::path::PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn create_large_simple_data(mut base_path: std::path::PathBuf) -> Result<()> {
+async fn create_large_simple_data(
+    operator: &opendal::Operator,
+    mut base_path: std::path::PathBuf,
+) -> Result<()> {
     base_path.push("large_simple");
-    create_dir(&base_path)?;
 
-    simple_data(&base_path, 10_000, 8, 1000)?;
+    simple_data(operator, &base_path, 10_000, 8, 1000).await?;
 
     Ok(())
 }
 
-fn create_huge_simple_data(mut base_path: std::path::PathBuf) -> Result<()> {
+async fn create_huge_simple_data(
+    operator: &opendal::Operator,
+    mut base_path: std::path::PathBuf,
+) -> Result<()> {
     base_path.push("huge_simple");
     create_dir(&base_path)?;
 
-    simple_data(&base_path, 1_000_000, 8, 10_000)?;
+    simple_data(operator, &base_path, 1_000_000, 8, 10_000).await?;
 
     Ok(())
 }
 
-fn create_simple_data(mut base_path: std::path::PathBuf) -> Result<()> {
+async fn create_simple_data(
+    operator: &opendal::Operator,
+    mut base_path: std::path::PathBuf,
+) -> Result<()> {
     base_path.push("simple");
-    create_dir(&base_path)?;
 
-    simple_data(&base_path, 100, 8, 33)?;
+    simple_data(operator, &base_path, 100, 8, 33).await?;
 
     Ok(())
 }
 
-fn create_simple_wide_string_data(mut base_path: std::path::PathBuf) -> Result<()> {
+async fn create_simple_wide_string_data(
+    operator: &opendal::Operator,
+    mut base_path: std::path::PathBuf,
+) -> Result<()> {
     base_path.push("simple_wide_string");
-    create_dir(&base_path)?;
 
-    simple_data(&base_path, 100, 100, 33)?;
+    simple_data(operator, &base_path, 100, 100, 33).await?;
 
     Ok(())
 }
 
-fn simple_data(
+async fn simple_data(
+    operator: &opendal::Operator,
     base_path: &std::path::PathBuf,
     size: usize,
     string_size: usize,
@@ -122,11 +264,18 @@ fn simple_data(
 
         let mut file_name = base_path.clone();
         file_name.push(format!("part_{}.parquet", i + 1));
-        let file = File::create(&file_name)?;
-        let mut writer = parquet::arrow::ArrowWriter::try_new(file, schema.clone(), None)?;
 
-        writer.write(&sliced_batch)?;
-        writer.close()?;
+        let writer = operator
+            .writer_with(file_name.to_str().expect("expected file_name"))
+            .chunk(16 * 1024 * 1024)
+            .concurrent(4)
+            .await?;
+
+        let parquet_writer = parquet_opendal::AsyncWriter::new(writer);
+        let mut arrow_parquet_writer =
+            parquet::arrow::AsyncArrowWriter::try_new(parquet_writer, sliced_batch.schema(), None)?;
+        arrow_parquet_writer.write(&sliced_batch).await?;
+        arrow_parquet_writer.close().await?;
 
         info!("Wrote {} rows to {:?}", sliced_batch.num_rows(), file_name);
     }
