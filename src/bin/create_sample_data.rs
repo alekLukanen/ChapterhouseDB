@@ -99,8 +99,25 @@ async fn main() -> Result<()> {
 
             let client = aws_sdk_s3::Client::from_conf(config);
 
-            // Try to create the bucket (safe even if it already exists in MinIO)
-            client.create_bucket().bucket(bucket.clone()).send().await?;
+            let exists = match client.head_bucket().bucket(bucket).send().await {
+                Ok(_) => true,
+                Err(e) => {
+                    if let aws_sdk_s3::operation::head_bucket::HeadBucketError::NotFound(_) =
+                        e.into_service_error()
+                    {
+                        false
+                    } else {
+                        return Err(anyhow!("unable to cast S3 error"));
+                    }
+                }
+            };
+
+            if !exists {
+                client.create_bucket().bucket(bucket).send().await?;
+                info!("Created bucket '{}'", bucket);
+            } else {
+                info!("Bucket '{}' already exists", bucket);
+            }
         }
         Some(Command::Fs) => {}
         None => {
