@@ -2,8 +2,8 @@ use anyhow::{anyhow, Result};
 use aws_config::meta::region::RegionProviderChain;
 use chapterhouseqe::handlers::operator_handler::operators::ConnectionRegistry;
 use rand::Rng;
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::{collections::HashMap, fs::File};
 use tracing::info;
 use tracing_subscriber;
 
@@ -13,10 +13,11 @@ use path_clean::PathClean;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// A prefix or directory to store all data
-    path_prefix: String,
     #[command(subcommand)]
     command: Option<Command>,
+    /// A prefix or directory to store all data
+    #[arg(short, long)]
+    path_prefix: String,
 }
 
 impl Args {
@@ -55,7 +56,7 @@ async fn main() -> Result<()> {
     // get the connection specfic base path
     let base_path = match &args.command {
         Some(Command::S3 { .. }) => std::path::PathBuf::from(args.path_prefix.clone()),
-        Some(Command::Fs) => std::path::PathBuf::from(args.path_prefix.clone()).clean(),
+        Some(Command::Fs) => std::path::PathBuf::new(),
         None => {
             info!("You must set a command");
             return Ok(());
@@ -131,9 +132,16 @@ async fn main() -> Result<()> {
         Some(Command::Fs) => conn_reg.add_connection(
             "default".to_string(),
             opendal::Scheme::Fs,
-            vec![("root".to_string(), args.path_prefix)]
-                .into_iter()
-                .collect::<HashMap<String, String>>(),
+            vec![(
+                "root".to_string(),
+                std::path::PathBuf::from(args.path_prefix.clone())
+                    .clean()
+                    .to_str()
+                    .expect("expected base_path")
+                    .to_string(),
+            )]
+            .into_iter()
+            .collect::<HashMap<String, String>>(),
         ),
         None => {
             info!("You must provide a command");
@@ -179,7 +187,6 @@ async fn create_huge_simple_data(
     mut base_path: std::path::PathBuf,
 ) -> Result<()> {
     base_path.push("huge_simple");
-    create_dir(&base_path)?;
 
     simple_data(operator, &base_path, 1_000_000, 8, 10_000).await?;
 

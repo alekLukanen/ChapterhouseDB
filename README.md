@@ -37,7 +37,7 @@ the result data of the queries in a table.
 1. Create the sample data by running the following command
 
   ```bash
-  cargo run --bin create_sample_data
+  cargo run --bin create_sample_data -- --path-prefix="./sample_data" fs
   ```
 
 2. Now start the workers to form a cluster. Start first worker
