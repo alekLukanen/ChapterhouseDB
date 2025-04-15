@@ -40,8 +40,10 @@ enum Command {
         secret_access_key_id: String,
         /// The bucket to create data in
         bucket: String,
-        /// region
+        /// Region
         region: String,
+        /// Should the path style be used
+        force_path_style: String,
     },
     Fs,
 }
@@ -71,14 +73,21 @@ async fn main() -> Result<()> {
             secret_access_key_id,
             bucket,
             region,
+            force_path_style,
         }) => {
             let region_provider =
                 RegionProviderChain::first_try(aws_sdk_s3::config::Region::new(region.clone()));
             let region = region_provider.region().await.unwrap();
 
-            let config = aws_sdk_s3::config::Builder::new()
+            let shared_config = aws_config::defaults(aws_config::BehaviorVersion::v2025_01_17())
+                .region(region_provider)
+                .load()
+                .await;
+
+            let config = aws_sdk_s3::config::Builder::from(&shared_config)
                 .region(region)
                 .endpoint_url(endpoint.clone())
+                .force_path_style(force_path_style.to_lowercase() == "true".to_string())
                 .credentials_provider(aws_sdk_s3::config::Credentials::new(
                     access_key_id.clone(),
                     secret_access_key_id.clone(),
@@ -93,9 +102,7 @@ async fn main() -> Result<()> {
             // Try to create the bucket (safe even if it already exists in MinIO)
             client.create_bucket().bucket(bucket.clone()).send().await?;
         }
-        Some(Command::Fs) => {
-            create_dir(&base_path)?;
-        }
+        Some(Command::Fs) => {}
         None => {
             info!("You must provide a valid command");
             return Ok(());
@@ -111,6 +118,7 @@ async fn main() -> Result<()> {
             secret_access_key_id,
             bucket,
             region,
+            force_path_style,
         }) => conn_reg.add_connection(
             "default".to_string(),
             opendal::Scheme::S3,
@@ -122,7 +130,10 @@ async fn main() -> Result<()> {
                     "secret_access_key".to_string(),
                     secret_access_key_id.clone(),
                 ),
-                ("enable_virtual_host_style".to_string(), "false".to_string()),
+                (
+                    "enable_virtual_host_style".to_string(),
+                    (force_path_style.to_lowercase() != "true".to_string()).to_string(),
+                ),
                 // Optional:
                 ("region".to_string(), region.clone()), // MinIO doesn’t enforce this
             ]
@@ -158,16 +169,6 @@ async fn main() -> Result<()> {
     create_large_simple_data(&operator, base_path.clone()).await?;
     create_huge_simple_data(&operator, base_path.clone()).await?;
 
-    Ok(())
-}
-
-fn create_dir(base_path: &std::path::PathBuf) -> Result<()> {
-    if !std::path::Path::new(&base_path).exists() {
-        std::fs::create_dir_all(&base_path)?;
-        info!("Directory created: {:?}", base_path);
-    } else {
-        info!("Directory already exists: {:?}", base_path);
-    }
     Ok(())
 }
 
@@ -273,7 +274,7 @@ async fn simple_data(
         file_name.push(format!("part_{}.parquet", i + 1));
 
         let writer = operator
-            .writer_with(file_name.to_str().expect("expected file_name"))
+            .writer_with(clean_path_for_dataset(&file_name))
             .chunk(16 * 1024 * 1024)
             .concurrent(4)
             .await?;
@@ -288,4 +289,9 @@ async fn simple_data(
     }
 
     Ok(())
+}
+
+fn clean_path_for_dataset(path: &std::path::PathBuf) -> &str {
+    let str_path = path.to_str().expect("expected path to_str() to work");
+    str_path.strip_prefix("./").unwrap_or(str_path)
 }
