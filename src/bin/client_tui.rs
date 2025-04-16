@@ -671,7 +671,7 @@ impl QueriesApp {
             let queries_completed = queries.iter().filter(|item| item.completed()).count();
             let queries_errored = queries.iter().filter(|item| item.errored()).count();
             let percent_complete = if queries.len() > 0 {
-                100 * (queries_completed as f32 / queries.len() as f32) as u16
+                (100.0 * (queries_completed as f32 / queries.len() as f32)) as u16
             } else {
                 0u16
             };
