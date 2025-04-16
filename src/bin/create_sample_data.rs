@@ -1,64 +1,26 @@
 use anyhow::{anyhow, Result};
 use aws_config::meta::region::RegionProviderChain;
-use chapterhouseqe::handlers::operator_handler::operators::ConnectionRegistry;
+
+use clap::Parser;
 use rand::Rng;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::info;
 use tracing_subscriber;
 
-use clap::{Parser, Subcommand};
-use path_clean::PathClean;
-
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
-    #[command(subcommand)]
-    command: Option<Command>,
-    /// A prefix or directory to store all data
-    #[arg(short, long)]
-    path_prefix: String,
-}
-
-impl Args {
-    fn validate(&self) -> Result<()> {
-        if self.path_prefix.len() == 0 {
-            return Err(anyhow!("path_prefix must be a value"));
-        }
-        return Ok(());
-    }
-}
-
-#[derive(Subcommand, Debug, Clone)]
-enum Command {
-    S3 {
-        /// The endpoint that S3 is located at
-        endpoint: String,
-        /// The access key
-        access_key_id: String,
-        /// The secret key
-        secret_access_key_id: String,
-        /// The bucket to create data in
-        bucket: String,
-        /// Region
-        region: String,
-        /// Should the path style be used
-        force_path_style: String,
-    },
-    Fs,
-}
+use chapterhouseqe::handlers::operator_handler::operators::ConnectionRegistry;
+use chapterhouseqe::tui::{ConnectionCommand, CreateSampleDataArgs};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let args = Args::parse();
+    let args = CreateSampleDataArgs::parse();
     args.validate()?;
 
     // get the connection specfic base path
     let base_path = match &args.command {
-        Some(Command::S3 { .. }) => std::path::PathBuf::from(args.path_prefix.clone()),
-        Some(Command::Fs) => std::path::PathBuf::new(),
+        Some(ConnectionCommand::S3 { .. }) => std::path::PathBuf::from(args.path_prefix.clone()),
+        Some(ConnectionCommand::Fs) => std::path::PathBuf::new(),
         None => {
             info!("You must set a command");
             return Ok(());
@@ -67,7 +29,7 @@ async fn main() -> Result<()> {
 
     // setup initial resources
     match &args.command {
-        Some(Command::S3 {
+        Some(ConnectionCommand::S3 {
             endpoint,
             access_key_id,
             secret_access_key_id,
@@ -119,7 +81,7 @@ async fn main() -> Result<()> {
                 info!("Bucket '{}' already exists", bucket);
             }
         }
-        Some(Command::Fs) => {}
+        Some(ConnectionCommand::Fs) => {}
         None => {
             info!("You must provide a valid command");
             return Ok(());
@@ -129,48 +91,25 @@ async fn main() -> Result<()> {
     // create the opendal connection
     let mut conn_reg = ConnectionRegistry::new();
     match &args.command {
-        Some(Command::S3 {
+        Some(ConnectionCommand::S3 {
             endpoint,
             access_key_id,
             secret_access_key_id,
             bucket,
             region,
             force_path_style,
-        }) => conn_reg.add_connection(
+        }) => conn_reg.add_s3_connection(
             "default".to_string(),
-            opendal::Scheme::S3,
-            vec![
-                ("bucket".to_string(), bucket.clone()),
-                ("endpoint".to_string(), endpoint.clone()),
-                ("access_key_id".to_string(), access_key_id.clone()),
-                (
-                    "secret_access_key".to_string(),
-                    secret_access_key_id.clone(),
-                ),
-                (
-                    "enable_virtual_host_style".to_string(),
-                    (force_path_style.to_lowercase() != "true".to_string()).to_string(),
-                ),
-                // Optional:
-                ("region".to_string(), region.clone()), // MinIO doesn’t enforce this
-            ]
-            .into_iter()
-            .collect::<HashMap<String, String>>(),
-        ),
-        Some(Command::Fs) => conn_reg.add_connection(
-            "default".to_string(),
-            opendal::Scheme::Fs,
-            vec![(
-                "root".to_string(),
-                std::path::PathBuf::from(args.path_prefix.clone())
-                    .clean()
-                    .to_str()
-                    .expect("expected base_path")
-                    .to_string(),
-            )]
-            .into_iter()
-            .collect::<HashMap<String, String>>(),
-        ),
+            endpoint.clone(),
+            access_key_id.clone(),
+            secret_access_key_id.clone(),
+            bucket.clone(),
+            force_path_style.clone(),
+            region.clone(),
+        )?,
+        Some(ConnectionCommand::Fs) => {
+            conn_reg.add_fs_connection("default".to_string(), args.path_prefix.clone())?
+        }
         None => {
             info!("You must provide a command");
             return Ok(());

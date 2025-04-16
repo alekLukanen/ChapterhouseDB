@@ -5,11 +5,11 @@ query optimization techniques.
 
 ![Query TUI](./imgs/query_tui_example.png)
 
-## 🚀 Running the Base System Using Docker
+## Running the Base System Using Docker
 
 1. Build the image
 ```
-DOCKER_BUILDKIT=1 docker compose up chqe-debug-node
+DOCKER_BUILDKIT=1 docker compose build chqe-debug-node
 ```
 
 2. Start a container
@@ -20,7 +20,7 @@ DOCKER_BUILDKIT=1 docker compose up chqe-debug-node
 At this point the system will be ready to accept requests. The image
 is built with a small set of example datasets that can be queried.
 
-## 🚀 Running the TUI
+## Running the TUI
 
 You can run the TUI with a set of example queries using this command
 
@@ -32,7 +32,7 @@ The TUI will send the queries to the worker and allow you to visualize
 the result data of the queries in a table.
 
 
-## 🚀 Running the Base System Using Cargo
+## Running the Base System Using Cargo
 
 1. Create the sample data by running the following command
 
@@ -54,6 +54,20 @@ the result data of the queries in a table.
 
   This client will connect to port 7000 and initiate a query. The result
   will show up in the `sample_data/query_results/` directory.
+
+
+## Using the Sample Data Script
+
+Create sample data in a local directory
+```bash
+  cargo run --bin create_sample_data -- --path-prefix="./sample_data" fs
+```
+
+Create sample data in Minio
+```bash
+docker compose up -d minio
+cargo run --bin create_sample_data -- --path-prefix="./sample_data" s3 "http://localhost:9000" "minioadmin" "minioadmin" "chqe" "us-east-1" "true"
+```
 
 
 ## 🛢️ Supported SQL

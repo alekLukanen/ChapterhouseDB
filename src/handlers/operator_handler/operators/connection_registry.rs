@@ -7,12 +7,17 @@ use opendal::services;
 use opendal::Builder;
 use opendal::Operator;
 use opendal::Scheme;
+use path_clean::PathClean;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ConnectionRegistryError {
     #[error("connection name not found: {0}")]
     ConnectionNameNotFound(String),
+    #[error("connection with name '{0}' already exists")]
+    ConnectionNameAlreadyExists(String),
+    #[error("failed to clean fs root dir: {0}")]
+    FailedToCleanFsRootDir(String),
     #[error("not implemented: {0}")]
     NotImplemented(String),
 }
@@ -41,12 +46,22 @@ impl ConnectionRegistry {
         name: String,
         scheme: Scheme,
         config: HashMap<String, String>,
-    ) {
+    ) -> Result<()> {
+        if self
+            .connections
+            .iter()
+            .find(|conn| conn.name == name)
+            .is_some()
+        {
+            return Err(ConnectionRegistryError::ConnectionNameAlreadyExists(name).into());
+        }
+
         self.connections.push(Connection {
             name,
             scheme,
             config,
         });
+        Ok(())
     }
 
     pub fn find_connection(&self, name: &str) -> Option<&Connection> {
@@ -69,6 +84,60 @@ impl ConnectionRegistry {
             ))
             .into()),
         }
+    }
+
+    // common connection types //////////////////////////////
+
+    pub fn add_fs_connection(&mut self, name: String, root: String) -> Result<()> {
+        let cleaned_root =
+            if let Some(cleaned_root) = std::path::PathBuf::from(root.clone()).clean().to_str() {
+                cleaned_root.to_string()
+            } else {
+                return Err(ConnectionRegistryError::FailedToCleanFsRootDir(root.clone()).into());
+            };
+
+        self.add_connection(
+            name,
+            opendal::Scheme::Fs,
+            vec![("root".to_string(), cleaned_root)]
+                .into_iter()
+                .collect::<HashMap<String, String>>(),
+        )?;
+        Ok(())
+    }
+
+    pub fn add_s3_connection(
+        &mut self,
+        name: String,
+        endpoint: String,
+        access_key_id: String,
+        secret_access_key_id: String,
+        bucket: String,
+        force_path_style: String,
+        region: String,
+    ) -> Result<()> {
+        self.add_connection(
+            name,
+            opendal::Scheme::S3,
+            vec![
+                ("endpoint".to_string(), endpoint.clone()),
+                ("access_key_id".to_string(), access_key_id.clone()),
+                (
+                    "secret_access_key".to_string(),
+                    secret_access_key_id.clone(),
+                ),
+                ("bucket".to_string(), bucket.clone()),
+                (
+                    "enable_virtual_host_style".to_string(),
+                    (force_path_style.to_lowercase() != "true".to_string()).to_string(),
+                ),
+                // Optional:
+                ("region".to_string(), region.clone()),
+            ]
+            .into_iter()
+            .collect::<HashMap<String, String>>(),
+        )?;
+        Ok(())
     }
 }
 

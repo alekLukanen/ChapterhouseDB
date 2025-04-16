@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
+use anyhow::{anyhow, Result};
 use clap;
+use tracing::error;
 use tracing_subscriber;
 
 use chapterhouseqe::{
@@ -26,7 +28,7 @@ struct Args {
     log_level: String,
 }
 
-fn main() {
+fn main() -> Result<()> {
     let args = Args::parse();
 
     let log_level = if args.log_level.to_lowercase() == "info" {
@@ -38,7 +40,8 @@ fn main() {
     } else if args.log_level.to_lowercase() == "error" {
         tracing::Level::ERROR
     } else {
-        panic!("unknown log level")
+        error!("unknown log level");
+        return Err(anyhow!("worker exited with error"));
     };
 
     tracing_subscriber::fmt()
@@ -47,13 +50,19 @@ fn main() {
         .init();
 
     let mut conn_reg = operators::ConnectionRegistry::new();
-    conn_reg.add_connection(
+    match conn_reg.add_connection(
         "default".to_string(),
         opendal::Scheme::Fs,
         vec![("root".to_string(), "./sample_data".to_string())]
             .into_iter()
             .collect::<HashMap<String, String>>(),
-    );
+    ) {
+        Ok(_) => (),
+        Err(err) => {
+            error!("{}", err);
+            return Err(anyhow!("worker exited with error"));
+        }
+    }
 
     let mut worker = QueryWorker::new(QueryWorkerConfig::new(
         format!("0.0.0.0:{}", args.port),
@@ -67,7 +76,10 @@ fn main() {
     ));
 
     match worker.start() {
-        Ok(_) => return,
-        Err(e) => println!("error: {}", e),
+        Ok(_) => Ok(()),
+        Err(e) => {
+            error!("{}", e);
+            Err(anyhow!("worker exited with error"))
+        }
     }
 }
