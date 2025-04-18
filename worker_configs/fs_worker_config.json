@@ -1,0 +1,14 @@
+{
+  "log_level": "info",
+  "port": 7000,
+  "connect_to_addresses": [],
+  "connections": [
+    {
+      "name": "default",
+      "path_prefix": "./sample_data",
+      "connection_type": {
+        "Fs": {}
+      }
+    }
+  ]
+}

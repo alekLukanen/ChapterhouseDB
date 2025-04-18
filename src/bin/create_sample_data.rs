@@ -104,7 +104,7 @@ async fn main() -> Result<()> {
             access_key_id.clone(),
             secret_access_key_id.clone(),
             bucket.clone(),
-            force_path_style.clone(),
+            force_path_style.to_lowercase() == "true",
             region.clone(),
         )?,
         Some(ConnectionCommand::Fs) => {

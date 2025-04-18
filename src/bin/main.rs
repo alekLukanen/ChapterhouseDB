@@ -6,50 +6,52 @@ use tracing::error;
 use tracing_subscriber;
 
 use chapterhouseqe::{
+    config::{ConnectionType, WorkerConfig},
     handlers::operator_handler::{operators, TotalOperatorCompute},
+    tui::WorkerArgs,
     worker::{QueryWorker, QueryWorkerConfig},
 };
 
 use clap::Parser;
 
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
-    /// The port used to accept incoming connections
-    #[arg(short, long, default_value_t = 7000)]
-    port: u32,
-
-    /// Addresses to connect with
-    #[arg(short, long)]
-    connect_to_addresses: Vec<String>,
-
-    /// The logging level (debug, info, warning, error)
-    #[arg(short, long, default_value_t = String::from("info"))]
-    log_level: String,
-}
-
 fn main() -> Result<()> {
-    let args = Args::parse();
-
-    let log_level = if args.log_level.to_lowercase() == "info" {
-        tracing::Level::INFO
-    } else if args.log_level.to_lowercase() == "debug" {
-        tracing::Level::DEBUG
-    } else if args.log_level.to_lowercase() == "warning" {
-        tracing::Level::WARN
-    } else if args.log_level.to_lowercase() == "error" {
-        tracing::Level::ERROR
-    } else {
-        error!("unknown log level");
-        return Err(anyhow!("worker exited with error"));
-    };
+    let args = WorkerArgs::parse();
+    let config = WorkerConfig::from_file(args.config_file)?;
 
     tracing_subscriber::fmt()
         .with_line_number(true)
-        .with_max_level(log_level)
+        .with_max_level(config.log_level()?)
         .init();
 
+    // add all connections
     let mut conn_reg = operators::ConnectionRegistry::new();
+
+    for connection in config.connections {
+        match connection.connection_type {
+            ConnectionType::S3 {
+                endpoint,
+                access_key_id,
+                secret_access_key_id,
+                bucket,
+                region,
+                force_path_style,
+            } => {
+                conn_reg.add_s3_connection(
+                    connection.name,
+                    endpoint,
+                    access_key_id,
+                    secret_access_key_id,
+                    bucket,
+                    force_path_style,
+                    region,
+                )?;
+            }
+            ConnectionType::Fs => {
+                conn_reg.add_fs_connection(connection.name, connection.path_prefix)?;
+            }
+        }
+    }
+
     match conn_reg.add_connection(
         "default".to_string(),
         opendal::Scheme::Fs,
@@ -65,8 +67,8 @@ fn main() -> Result<()> {
     }
 
     let mut worker = QueryWorker::new(QueryWorkerConfig::new(
-        format!("0.0.0.0:{}", args.port),
-        args.connect_to_addresses,
+        format!("0.0.0.0:{}", config.port),
+        config.connect_to_addresses,
         TotalOperatorCompute {
             instances: 10,
             memory_in_mib: 1 << 12, // 4096 mebibytes

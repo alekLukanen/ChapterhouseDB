@@ -1,0 +1,21 @@
+{
+  "log_level": "info",
+  "port": 7000,
+  "connect_to_addresses": [],
+  "connections": [
+    {
+      "name": "default",
+      "path_prefix": "./chqe-data",
+      "connection_type": {
+        "S3": {
+          "endpoint": "http://localhost:9000",
+          "access_key_id": "minioadmin",
+          "secret_access_key_id": "minioadmin",
+          "bucket": "chqe",
+          "region": "us-east-1",
+          "force_path_style": true,
+        }
+      }
+    }
+  ]
+}

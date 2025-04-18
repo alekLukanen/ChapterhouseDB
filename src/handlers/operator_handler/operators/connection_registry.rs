@@ -113,7 +113,7 @@ impl ConnectionRegistry {
         access_key_id: String,
         secret_access_key_id: String,
         bucket: String,
-        force_path_style: String,
+        force_path_style: bool,
         region: String,
     ) -> Result<()> {
         self.add_connection(
@@ -129,7 +129,7 @@ impl ConnectionRegistry {
                 ("bucket".to_string(), bucket.clone()),
                 (
                     "enable_virtual_host_style".to_string(),
-                    (force_path_style.to_lowercase() != "true".to_string()).to_string(),
+                    (!force_path_style).to_string(),
                 ),
                 // Optional:
                 ("region".to_string(), region.clone()),

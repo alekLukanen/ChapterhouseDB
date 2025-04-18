@@ -46,10 +46,7 @@ impl CreateSampleDataArgs {
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct WorkerArgs {
-    /// The default connection type
-    #[command(subcommand)]
-    pub default_connection: Option<ConnectionCommand>,
-    /// A prefix or directory to store all data
+    /// Path to a .json configuration file
     #[arg(short, long)]
-    pub path_prefix: String,
+    pub config_file: String,
 }
