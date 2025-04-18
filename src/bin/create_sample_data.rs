@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use aws_config::meta::region::RegionProviderChain;
 
+use chapterhouseqe::config::{ConnectionType, WorkerConfig};
 use clap::Parser;
 use rand::Rng;
 use std::sync::Arc;
@@ -8,7 +9,7 @@ use tracing::info;
 use tracing_subscriber;
 
 use chapterhouseqe::handlers::operator_handler::operators::ConnectionRegistry;
-use chapterhouseqe::tui::{ConnectionCommand, CreateSampleDataArgs};
+use chapterhouseqe::tui::CreateSampleDataArgs;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -17,26 +18,34 @@ async fn main() -> Result<()> {
     let args = CreateSampleDataArgs::parse();
     args.validate()?;
 
+    let worker_config = WorkerConfig::from_file(args.config_file)?;
+
+    let connection = if let Some(conn) = worker_config
+        .connections
+        .iter()
+        .find(|conn| conn.name == args.connection_name)
+    {
+        conn
+    } else {
+        return Err(anyhow!("connection not found"));
+    };
+
     // get the connection specfic base path
-    let base_path = match &args.command {
-        Some(ConnectionCommand::S3 { .. }) => std::path::PathBuf::from(args.path_prefix.clone()),
-        Some(ConnectionCommand::Fs) => std::path::PathBuf::new(),
-        None => {
-            info!("You must set a command");
-            return Ok(());
-        }
+    let base_path = match &connection.connection_type {
+        ConnectionType::S3 { .. } => std::path::PathBuf::from(args.path_prefix.clone()),
+        ConnectionType::Fs { .. } => std::path::PathBuf::new(),
     };
 
     // setup initial resources
-    match &args.command {
-        Some(ConnectionCommand::S3 {
+    match &connection.connection_type {
+        ConnectionType::S3 {
             endpoint,
             access_key_id,
             secret_access_key_id,
             bucket,
             region,
             force_path_style,
-        }) => {
+        } => {
             let region_provider =
                 RegionProviderChain::first_try(aws_sdk_s3::config::Region::new(region.clone()));
             let region = region_provider.region().await.unwrap();
@@ -49,7 +58,7 @@ async fn main() -> Result<()> {
             let config = aws_sdk_s3::config::Builder::from(&shared_config)
                 .region(region)
                 .endpoint_url(endpoint.clone())
-                .force_path_style(force_path_style.to_lowercase() == "true".to_string())
+                .force_path_style(force_path_style.clone())
                 .credentials_provider(aws_sdk_s3::config::Credentials::new(
                     access_key_id.clone(),
                     secret_access_key_id.clone(),
@@ -81,43 +90,15 @@ async fn main() -> Result<()> {
                 info!("Bucket '{}' already exists", bucket);
             }
         }
-        Some(ConnectionCommand::Fs) => {}
-        None => {
-            info!("You must provide a valid command");
-            return Ok(());
-        }
+        ConnectionType::Fs { .. } => {}
     }
 
     // create the opendal connection
     let mut conn_reg = ConnectionRegistry::new();
-    match &args.command {
-        Some(ConnectionCommand::S3 {
-            endpoint,
-            access_key_id,
-            secret_access_key_id,
-            bucket,
-            region,
-            force_path_style,
-        }) => conn_reg.add_s3_connection(
-            "default".to_string(),
-            endpoint.clone(),
-            access_key_id.clone(),
-            secret_access_key_id.clone(),
-            bucket.clone(),
-            force_path_style.to_lowercase() == "true",
-            region.clone(),
-        )?,
-        Some(ConnectionCommand::Fs) => {
-            conn_reg.add_fs_connection("default".to_string(), args.path_prefix.clone())?
-        }
-        None => {
-            info!("You must provide a command");
-            return Ok(());
-        }
-    }
+    conn_reg.add_worker_connections(&worker_config)?;
 
     // get the operator
-    let operator = conn_reg.get_operator("default")?;
+    let operator = conn_reg.get_operator(args.connection_name.as_str())?;
 
     create_simple_data(&operator, base_path.clone()).await?;
     create_simple_wide_string_data(&operator, base_path.clone()).await?;

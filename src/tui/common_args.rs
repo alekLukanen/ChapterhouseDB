@@ -1,35 +1,20 @@
 use anyhow::{anyhow, Result};
-use clap::{Parser, Subcommand};
-
-#[derive(Subcommand, Debug, Clone)]
-pub enum ConnectionCommand {
-    S3 {
-        /// The endpoint that S3 is located at
-        endpoint: String,
-        /// The access key
-        access_key_id: String,
-        /// The secret key
-        secret_access_key_id: String,
-        /// The bucket to create data in
-        bucket: String,
-        /// Region
-        region: String,
-        /// Should the path style be used
-        force_path_style: String,
-    },
-    Fs,
-}
+use clap::Parser;
 
 // sample data args //////////////////////////////////
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct CreateSampleDataArgs {
-    #[command(subcommand)]
-    pub command: Option<ConnectionCommand>,
+    /// The connection to create the sample data in
+    #[arg(short, long)]
+    pub connection_name: String,
     /// A prefix or directory to store all data
     #[arg(short, long)]
     pub path_prefix: String,
+    /// Path to a .json configuration file
+    #[arg(short, long)]
+    pub config_file: String,
 }
 
 impl CreateSampleDataArgs {
@@ -37,7 +22,10 @@ impl CreateSampleDataArgs {
         if self.path_prefix.len() == 0 {
             return Err(anyhow!("path_prefix must be a value"));
         }
-        return Ok(());
+        if self.config_file.len() == 0 {
+            return Err(anyhow!("config_file must be a value"));
+        }
+        Ok(())
     }
 }
 
@@ -49,4 +37,13 @@ pub struct WorkerArgs {
     /// Path to a .json configuration file
     #[arg(short, long)]
     pub config_file: String,
+}
+
+impl WorkerArgs {
+    pub fn validate(&self) -> Result<()> {
+        if self.config_file.len() == 0 {
+            return Err(anyhow!("config_file must be a value"));
+        }
+        Ok(())
+    }
 }

@@ -10,6 +10,8 @@ use opendal::Scheme;
 use path_clean::PathClean;
 use thiserror::Error;
 
+use crate::config;
+
 #[derive(Debug, Error)]
 pub enum ConnectionRegistryError {
     #[error("connection name not found: {0}")]
@@ -39,6 +41,35 @@ impl ConnectionRegistry {
         ConnectionRegistry {
             connections: Vec::new(),
         }
+    }
+
+    pub fn add_worker_connections(&mut self, worker_config: &config::WorkerConfig) -> Result<()> {
+        for connection in &worker_config.connections {
+            match &connection.connection_type {
+                config::ConnectionType::S3 {
+                    endpoint,
+                    access_key_id,
+                    secret_access_key_id,
+                    bucket,
+                    region,
+                    force_path_style,
+                } => {
+                    self.add_s3_connection(
+                        connection.name.clone(),
+                        endpoint.clone(),
+                        access_key_id.clone(),
+                        secret_access_key_id.clone(),
+                        bucket.clone(),
+                        force_path_style.clone(),
+                        region.clone(),
+                    )?;
+                }
+                config::ConnectionType::Fs { root } => {
+                    self.add_fs_connection(connection.name.clone(), root.clone())?;
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn add_connection(

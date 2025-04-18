@@ -5,9 +5,10 @@
   "connections": [
     {
       "name": "default",
-      "path_prefix": "./sample_data",
       "connection_type": {
-        "Fs": {}
+        "Fs": {
+          "root": "./sample_data"
+        }
       }
     }
   ]

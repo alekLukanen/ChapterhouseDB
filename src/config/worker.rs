@@ -25,6 +25,7 @@ impl WorkerConfig {
         let file = std::fs::File::open(file_path)?;
         let reader = std::io::BufReader::new(file);
         let config: Self = serde_json::from_reader(reader)?;
+        config.validate()?;
         Ok(config)
     }
 
@@ -82,7 +83,6 @@ impl WorkerConfig {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ConnectionConfig {
     pub name: String,
-    pub path_prefix: String,
     pub connection_type: ConnectionType,
 }
 
@@ -92,13 +92,6 @@ impl ConnectionConfig {
             return Err(
                 WorkerConfigError::ValidationFailed(format!("name - '{}'", self.name)).into(),
             );
-        }
-        if self.path_prefix.len() == 0 {
-            return Err(WorkerConfigError::ValidationFailed(format!(
-                "path_prefix - '{}'",
-                self.path_prefix,
-            ))
-            .into());
         }
 
         self.connection_type.validate()?;
@@ -123,7 +116,10 @@ pub enum ConnectionType {
         /// Should the path style be used
         force_path_style: bool,
     },
-    Fs,
+    Fs {
+        /// The root directory this connection has access to
+        root: String,
+    },
 }
 
 impl ConnectionType {
@@ -150,7 +146,13 @@ impl ConnectionType {
                     .into());
                 }
             }
-            Self::Fs => {}
+            Self::Fs { root } => {
+                if root.len() == 0 {
+                    return Err(
+                        WorkerConfigError::ValidationFailed(format!("root - '{}'", root,)).into(),
+                    );
+                }
+            }
         }
 
         Ok(())
