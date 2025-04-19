@@ -1,7 +1,8 @@
 # 📖 ChapterhouseQE
-A simple SQL query engine capable of distributing work across a set of
-workers. The intent of this project is to allow me to test out various 
-query optimization techniques.
+A simple distributed SQL query engine written in Rust. Currently this project
+is in early development but the end goals is to create a SQL based development
+environment where engineers can deploy data processing applications in Rust connected
+by SQL.
 
 ![Query TUI](./imgs/query_tui_example.png)
 
@@ -119,7 +120,7 @@ create table filtered_api_stream as (
 ```
 
 The query will consume data when 10,000 rows are available or when 5 seconds have passed, whichever comes first. 
-The data will be loaded into a table named `filtered_api_stream` which can then by other queries and so on. 
+The data will be loaded into a table named `filtered_api_stream` which can then be used by other queries. 
 Since this query subscribes to a stream it has a lifetime dependent upon the steam. If the stream
 is dropped then the query will also be dropped but the table it has create will remain. If the deployment
 every restarts the streaming query will also restart. Here's how you would drop the deployment:
@@ -129,7 +130,7 @@ every restarts the streaming query will also restart. Here's how you would drop 
 drop deploy special_api_stream;
 ```
 
-The system will also be able to distribute a deployment set using a select statement like this
+The system will also be able to distribute a deployment using a select statement like this
 
 ```sql
 -- create single deployment with many tasks
@@ -147,6 +148,9 @@ This query will create a single deployment `read_from_api_stream` with multiple 
 deployment. Each task in the deployment will distribute data to the same exchange and all tasks have the same
 lifetime. When the deployment is dropped all tasks will be dropped. In this case the query creates at most 100
 tasks each reading data from an API with a page size of 1,000 every 5 minutes.
+
+In theory you could deploy any kind of application inside of the cluster including web applications that 
+serve webpages or API endpoints.
 
 
 ## 🛠 Architecture
