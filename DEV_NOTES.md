@@ -24,7 +24,7 @@ parquet file.
 monitor query status and view the result data. The user should be able to point the program
 to a file of SQL queries and have it run those queries.
   * Docs: https://ratatui.rs/ 
-- [ ] Add an support for using Minio as an object storage. The workers should be able to connect
+- [X] Add an support for using Minio as an object storage. The workers should be able to connect
 to the storage and read and write data to it. The script to create sample data should also be
 able to write data to Minio just like it can write to the file system.
 - [ ] Materializing files should be be able to compact the records into a larger parquet file

@@ -98,6 +98,57 @@ that connection.
     - [ ] JSON
   - [ ] Read from table
 
+## Future Functionality
+
+- [ ] Support common SQL operations such as those listed in the "Supported SQL" section.
+- [ ] The system should be able to handle distributing "generators" across the network of workers.
+These generators are simply a Rust function which produces data of a known schema. The data is 
+sent to an exchange which allows others queries to subscribe to that data. This will allow for composable workflows
+where engineers can define their entire software and data stack inside of the same system. Here's an
+example of what that could look like:
+
+```sql
+-- deploy the function to the cluster
+deploy read_from_my_special_api(1000, '1 minute') as special_api_stream;
+
+-- start a query that subscribes to that function
+create table filtered_api_stream as (
+  select id, lower(message) as lower_message, created_ts from batch(deploy.special_api_stream, 10_000, '5 seconds')
+    where created_ts > now() - interval '5 minutes'
+);
+```
+
+The query will consume data when 10,000 rows are available or when 5 seconds have passed, whichever comes first. 
+The data will be loaded into a table named `filtered_api_stream` which can then by other queries and so on. 
+Since this query subscribes to a stream it has a lifetime dependent upon the steam. If the stream
+is dropped then the query will also be dropped but the table it has create will remain. If the deployment
+every restarts the streaming query will also restart. Here's how you would drop the deployment:
+
+```sql
+-- drop deployment
+drop deploy special_api_stream;
+```
+
+The system will also be able to distribute a deployment set using a select statement like this
+
+```sql
+-- create single deployment with many tasks
+select
+  deploy(
+    read_from_api(config.url, 1000, '5 minutes'),
+    'read_from_api'
+  )
+from read_files('config/api_deployments.json') as config
+  where config.enabled = true
+  limit 100;
+```
+
+This query will create a single deployment `read_from_api_stream` with multiple tasks associated to that same
+deployment. Each task in the deployment will distribute data to the same exchange and all tasks have the same
+lifetime. When the deployment is dropped all tasks will be dropped. In this case the query creates at most 100
+tasks each reading data from an API with a page size of 1,000 every 5 minutes.
+
+
 ## 🛠 Architecture
 
 The system is built upon a set of distributed actors that communicate through
