@@ -5,6 +5,7 @@ query optimization techniques.
 
 ![Query TUI](./imgs/query_tui_example.png)
 
+
 ## Running the Base System Using Docker
 
 1. Build the image
@@ -19,6 +20,7 @@ DOCKER_BUILDKIT=1 docker compose up chqe-debug-node
 
 At this point the system will be ready to accept requests. The image
 is built with a small set of example datasets that can be queried.
+
 
 ## Running the TUI
 
@@ -37,37 +39,33 @@ the result data of the queries in a table.
 1. Create the sample data by running the following command
 
   ```bash
-  cargo run --bin create_sample_data -- --path-prefix="./sample_data" fs
+cargo run --bin create_sample_data -- --connection-name="default" --config-file="worker_configs/fs_worker_config.json" --path-prefix="./"
   ```
 
 2. Now start the workers to form a cluster. Start first worker
 
   ```bash
-  cargo run --bin main -- -p=7000 
+cargo run --bin main -- --config-file="worker_configs/fs_worker_config.json"
   ```
 
-3. To run a simple query you can run the client example
-
-  ```bash
-  cargo run --bin client_main -- -p=7000
-  ```
-
-  This client will connect to port 7000 and initiate a query. The result
-  will show up in the `sample_data/query_results/` directory.
+Query results for this worker configuration will be stored in the `./sample_data` directory.
 
 
 ## Using the Sample Data Script
 
 Create sample data in a local directory
 ```bash
-  cargo run --bin create_sample_data -- --path-prefix="./sample_data" fs
+cargo run --bin create_sample_data -- --connection-name="default" --config-file="worker_configs/fs_worker_config.json" --path-prefix="./"
 ```
 
 Create sample data in Minio
 ```bash
 docker compose up -d minio
-cargo run --bin create_sample_data -- --path-prefix="./sample_data" s3 "http://localhost:9000" "minioadmin" "minioadmin" "chqe" "us-east-1" "true"
+cargo run --bin create_sample_data -- --connection-name="default" --config-file="worker_configs/s3_worker_config.json" --path-prefix="sample_data"
 ```
+If you want to use the script to create sample data in S3 or another S3 compatible
+object storage you'll need to create a new worker configuration file that contains
+that connection.
 
 
 ## 🛢️ Supported SQL

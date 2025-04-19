@@ -13,7 +13,7 @@
           "secret_access_key_id": "minioadmin",
           "bucket": "chqe",
           "region": "us-east-1",
-          "force_path_style": true,
+          "force_path_style": true
         }
       }
     }

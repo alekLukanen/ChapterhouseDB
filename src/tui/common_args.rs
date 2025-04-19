@@ -7,13 +7,13 @@ use clap::Parser;
 #[command(version, about, long_about = None)]
 pub struct CreateSampleDataArgs {
     /// The connection to create the sample data in
-    #[arg(short, long)]
+    #[arg(long)]
     pub connection_name: String,
     /// A prefix or directory to store all data
-    #[arg(short, long)]
+    #[arg(long)]
     pub path_prefix: String,
     /// Path to a .json configuration file
-    #[arg(short, long)]
+    #[arg(long)]
     pub config_file: String,
 }
 
@@ -35,7 +35,7 @@ impl CreateSampleDataArgs {
 #[command(version, about, long_about = None)]
 pub struct WorkerArgs {
     /// Path to a .json configuration file
-    #[arg(short, long)]
+    #[arg(long)]
     pub config_file: String,
 }
 
