@@ -40,7 +40,7 @@ the result data of the queries in a table.
 1. Create the sample data by running the following command
 
   ```bash
-cargo run --bin create_sample_data -- --connection-name="default" --config-file="worker_configs/fs_worker_config.json" --path-prefix="./"
+cargo run --bin create_sample_data -- --connection-name="default" --config-file="worker_configs/fs_worker_config.json" --path-prefix="sample_data"
   ```
 
 2. Now start the workers to form a cluster. Start first worker
@@ -56,7 +56,7 @@ Query results for this worker configuration will be stored in the `./sample_data
 
 Create sample data in a local directory
 ```bash
-cargo run --bin create_sample_data -- --connection-name="default" --config-file="worker_configs/fs_worker_config.json" --path-prefix="./"
+cargo run --bin create_sample_data -- --connection-name="default" --config-file="worker_configs/fs_worker_config.json" --path-prefix="sample_data"
 ```
 
 Create sample data in Minio
