@@ -155,7 +155,7 @@ The system is built upon a set of distributed actors that communicate through
 messages. Each worker can communicate with all other workers connected to it
 and any worker can accept and manage queries. Queries create operators, a type of actor
 capable of performing the tasks necessary to compute a query result. For example, the query:
-```
+```sql
 select * from read_files('simple/*.parquet')
   where value2 > 10.0;
 ```
