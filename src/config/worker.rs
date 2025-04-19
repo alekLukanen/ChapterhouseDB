@@ -111,6 +111,8 @@ pub enum ConnectionType {
         secret_access_key_id: String,
         /// The bucket to create data in
         bucket: String,
+        /// The root directory
+        root: String,
         /// Region
         region: String,
         /// Should the path style be used
@@ -128,7 +130,7 @@ impl ConnectionType {
             Self::S3 {
                 endpoint,
                 bucket,
-                force_path_style,
+                root,
                 ..
             } => {
                 if endpoint.len() == 0 {
@@ -144,6 +146,11 @@ impl ConnectionType {
                         bucket
                     ))
                     .into());
+                }
+                if root.len() == 0 {
+                    return Err(
+                        WorkerConfigError::ValidationFailed(format!("root - '{}'", root,)).into(),
+                    );
                 }
             }
             Self::Fs { root } => {

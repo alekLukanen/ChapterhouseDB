@@ -33,7 +33,7 @@ async fn main() -> Result<()> {
     // get the connection specfic base path
     let base_path = match &connection.connection_type {
         ConnectionType::S3 { .. } => std::path::PathBuf::from(args.path_prefix.clone()),
-        ConnectionType::Fs { .. } => std::path::PathBuf::new(),
+        ConnectionType::Fs { .. } => std::path::PathBuf::from(args.path_prefix.clone()),
     };
 
     // setup initial resources
@@ -45,6 +45,7 @@ async fn main() -> Result<()> {
             bucket,
             region,
             force_path_style,
+            ..
         } => {
             let region_provider =
                 RegionProviderChain::first_try(aws_sdk_s3::config::Region::new(region.clone()));

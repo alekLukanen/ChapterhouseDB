@@ -7,7 +7,7 @@
       "name": "default",
       "connection_type": {
         "Fs": {
-          "root": "./sample_data"
+          "root": "./chqe-data"
         }
       }
     }

@@ -51,6 +51,7 @@ impl ConnectionRegistry {
                     access_key_id,
                     secret_access_key_id,
                     bucket,
+                    root,
                     region,
                     force_path_style,
                 } => {
@@ -60,6 +61,7 @@ impl ConnectionRegistry {
                         access_key_id.clone(),
                         secret_access_key_id.clone(),
                         bucket.clone(),
+                        root.clone(),
                         force_path_style.clone(),
                         region.clone(),
                     )?;
@@ -144,6 +146,7 @@ impl ConnectionRegistry {
         access_key_id: String,
         secret_access_key_id: String,
         bucket: String,
+        root: String,
         force_path_style: bool,
         region: String,
     ) -> Result<()> {
@@ -162,6 +165,7 @@ impl ConnectionRegistry {
                     "enable_virtual_host_style".to_string(),
                     (!force_path_style).to_string(),
                 ),
+                ("root".to_string(), root),
                 // Optional:
                 ("region".to_string(), region.clone()),
             ]
