@@ -100,6 +100,34 @@ that connection.
     - [ ] JSON
   - [ ] Read from table
 
+
+## 🛠 Architecture
+
+The system is built upon a set of distributed actors that communicate through
+messages. Each worker can communicate with all other workers connected to it
+and any worker can accept and manage queries. Queries create operators, a type of actor
+capable of performing the tasks necessary to compute a query result. For example, the query:
+```sql
+select * from read_files('simple/*.parquet')
+  where value2 > 10.0;
+```
+
+will produce these operators
+```
+[read files] -> [exchange] -> [filter] -> [exchange] -> [materialize] -> [exchange]
+```
+
+Each of the operators in this query can also have individual instances of themselves so that
+its task can be computed in parallel. These operators perform some operation
+on an Apache Arrow record batch. The read files operator reads records from the parquet
+files and pushes them to the exchange operator. Then the filter operator pulls the next
+available record from that exchange operator and produces a record containing only
+the data matching the "where" expression. And so on until the DAG of operators has completed. By 
+structuring the operators in this way it makes it relatively easy to create new operators
+as each operator either pulls data from an exchange or an external source, and pushes
+data to an exchanges.
+
+
 ## Future Functionality
 
 - [ ] Support common SQL operations such as those listed in the "Supported SQL" section.
@@ -157,30 +185,6 @@ serve webpages or API endpoints.
 to communicate their cluster IP through S3.
 
 
-## 🛠 Architecture
 
-The system is built upon a set of distributed actors that communicate through
-messages. Each worker can communicate with all other workers connected to it
-and any worker can accept and manage queries. Queries create operators, a type of actor
-capable of performing the tasks necessary to compute a query result. For example, the query:
-```sql
-select * from read_files('simple/*.parquet')
-  where value2 > 10.0;
-```
-
-will produce these operators
-```
-[read files] -> [exchange] -> [filter] -> [exchange] -> [materialize] -> [exchange]
-```
-
-Each of the operators in this query can also have individual instances of themselves so that
-its task can be computed in parallel. These operators perform some operation
-on an Apache Arrow record batch. The read files operator reads records from the parquet
-files and pushes them to the exchange operator. Then the filter operator pulls the next
-available record from that exchange operator and produces a record containing only
-the data matching the "where" expression. And so on until the DAG of operators has completed. By 
-structuring the operators in this way it makes it relatively easy to create new operators
-as each operator either pulls data from an exchange or an external source, and pushes
-data to an exchanges.
 
 
