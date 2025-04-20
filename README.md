@@ -153,6 +153,9 @@ tasks each reading data from an API with a page size of 1,000 every 5 minutes.
 In theory you could deploy any kind of application inside of the cluster including web applications that 
 serve webpages or API endpoints.
 
+- [ ] Create a Kubernetes integration which allows the system to scale based on demand. The nodes will need
+to communicate their cluster IP through S3.
+
 
 ## 🛠 Architecture
 
