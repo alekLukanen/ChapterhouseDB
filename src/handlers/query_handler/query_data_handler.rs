@@ -10,7 +10,7 @@ use parquet_opendal::AsyncReader;
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::handlers::{
@@ -205,6 +205,13 @@ impl QueryDataHandler {
             ArrowReaderMetadata::load_async(parquet_reader_for_meta, ArrowReaderOptions::new())
                 .await?;
         let num_row_groups = meta_data.metadata().num_row_groups() as u64;
+        if num_row_groups == 0 {
+            return Err(QueryDataHandlerError::RowGroupDoesNotExistInTheFile(
+                0,
+                file_path.to_string(),
+            )
+            .into());
+        }
 
         let file_row_group_idx = if file_row_group_idx == std::u64::MAX {
             num_row_groups - 1
@@ -233,8 +240,8 @@ impl QueryDataHandler {
         &self,
         query_id: u128,
         file_idx: u64,
-        mut file_row_group_idx: u64,
-        mut row_idx: u64,
+        file_row_group_idx: u64,
+        row_idx: u64,
         limit: u64,
         mut forward: bool,
         allow_overflow: bool,
@@ -272,7 +279,15 @@ impl QueryDataHandler {
 
         let mut current_file_idx = file_idx;
         let mut current_file_row_group_idx = file_row_group_idx;
-        loop {
+        let mut current_row_idx = row_idx;
+        for _ in 0..1000 {
+            debug!(
+                current_file_idx = current_file_idx,
+                current_file_row_group_idx = current_file_row_group_idx,
+                current_row_idx = current_row_idx,
+                "top of loop"
+            );
+
             let mut file_path = PathBuf::from("/query_results");
             file_path.push(format!("{}", query_uuid_id));
             file_path.push(format!("rec_{}.parquet", current_file_idx));
@@ -290,11 +305,8 @@ impl QueryDataHandler {
                     if current_file_row_group_idx == std::u64::MAX {
                         current_file_row_group_idx = num_row_groups - 1;
                     }
-                    if file_row_group_idx == std::u64::MAX {
-                        file_row_group_idx = num_row_groups - 1;
-                    }
-                    if row_idx == std::u64::MAX {
-                        row_idx = (rec.num_rows() - 1) as u64;
+                    if current_row_idx == std::u64::MAX {
+                        current_row_idx = (rec.num_rows() - 1) as u64;
                     }
 
                     if current_file_idx == file_idx
@@ -306,14 +318,16 @@ impl QueryDataHandler {
 
                     if current_file_idx == file_idx
                         && current_file_row_group_idx == file_row_group_idx
-                        && row_idx >= rec.num_rows() as u64
+                        && current_row_idx >= rec.num_rows() as u64
                     {
                         if forward {
                             if current_file_row_group_idx == num_row_groups - 1 {
                                 current_file_idx += 1;
                                 current_file_row_group_idx = 0;
+                                current_row_idx = 0;
                             } else {
                                 current_file_row_group_idx += 1;
+                                current_row_idx = 0;
                             }
                         }
                         continue;
@@ -323,7 +337,7 @@ impl QueryDataHandler {
                         let start_row_idx = if current_file_idx == file_idx
                             && current_file_row_group_idx == file_row_group_idx
                         {
-                            row_idx
+                            current_row_idx
                         } else {
                             0u64
                         };
@@ -339,10 +353,10 @@ impl QueryDataHandler {
                         let end_row_idx = if current_file_idx == file_idx
                             && current_file_row_group_idx == file_row_group_idx
                         {
-                            if row_idx == std::u64::MAX {
+                            if current_row_idx == std::u64::MAX {
                                 (rec.num_rows() - 1) as u64
                             } else {
-                                row_idx
+                                current_row_idx
                             }
                         } else {
                             (rec.num_rows() - 1) as u64
@@ -355,12 +369,13 @@ impl QueryDataHandler {
                     };
 
                     debug!(
-                        file_idx = file_idx,
-                        file_row_group_idx = file_row_group_idx,
+                        current_file_idx = current_file_idx,
+                        current_file_row_group_idx = current_file_row_group_idx,
+                        current_row_idx = current_row_idx,
                         start_row_idx = start_row_idx,
                         length = length,
                         rec_num_rows = rec.num_rows(),
-                        "reverse"
+                        "before slice"
                     );
 
                     // prevent out of bounds access by the requester
@@ -397,8 +412,10 @@ impl QueryDataHandler {
                         if current_file_row_group_idx == num_row_groups - 1 {
                             current_file_idx += 1;
                             current_file_row_group_idx = 0;
+                            current_row_idx = 0;
                         } else {
                             current_file_row_group_idx += 1;
+                            current_row_idx = 0;
                         }
                     } else {
                         if current_file_idx == 0
@@ -407,18 +424,28 @@ impl QueryDataHandler {
                         {
                             if allow_overflow && total_rows_in_recs < limit {
                                 forward = true;
-                                if row_idx + 1 < first_file_num_rows.expect("first_file_num_rows") {
-                                    row_idx = row_idx + 1;
-                                    current_file_row_group_idx = file_row_group_idx;
-                                    current_file_idx = file_idx;
-                                } else if file_row_group_idx + 1
-                                    < first_file_num_row_groups.expect("first_file_num_row_groups")
+                                if let (
+                                    Some(first_file_num_rows),
+                                    Some(first_file_num_row_groups),
+                                ) = (first_file_num_rows, first_file_num_row_groups)
                                 {
-                                    current_file_row_group_idx = file_row_group_idx + 1;
-                                    current_file_idx = file_idx;
+                                    if row_idx + 1 < first_file_num_rows {
+                                        current_row_idx = row_idx + 1;
+                                        current_file_row_group_idx = file_row_group_idx;
+                                        current_file_idx = file_idx;
+                                    } else if file_row_group_idx + 1 < first_file_num_row_groups {
+                                        current_file_row_group_idx = file_row_group_idx + 1;
+                                        current_file_idx = file_idx;
+                                        current_row_idx = 0;
+                                    } else {
+                                        current_file_idx = file_idx + 1;
+                                        current_file_row_group_idx = 0;
+                                        current_row_idx = 0;
+                                    }
                                 } else {
-                                    current_file_idx = file_idx + 1;
-                                    current_file_row_group_idx = 0;
+                                    current_file_idx = file_idx;
+                                    current_file_row_group_idx = file_row_group_idx;
+                                    current_row_idx = row_idx;
                                 }
                             } else {
                                 break;
@@ -428,22 +455,82 @@ impl QueryDataHandler {
                         } else if current_file_idx > 0 && current_file_row_group_idx == 0 {
                             current_file_idx -= 1;
                             current_file_row_group_idx = std::u64::MAX;
+                            current_row_idx = std::u64::MAX;
                         } else {
                             current_file_row_group_idx -= 1;
+                            current_row_idx = std::u64::MAX;
                         }
                     }
                 }
                 Err(err) => match err.downcast_ref::<QueryDataHandlerError>() {
-                    Some(cast_err)
-                        if matches!(cast_err, QueryDataHandlerError::QueryFileDoesNotExist) =>
-                    {
-                        break;
-                    }
-                    Some(_) | None => {
+                    Some(cast_err) => match cast_err {
+                        QueryDataHandlerError::QueryFileDoesNotExist => {
+                            break;
+                        }
+                        QueryDataHandlerError::RowGroupDoesNotExistInTheFile(
+                            missing_row_group_idx,
+                            _,
+                        ) => {
+                            warn!("{}", cast_err);
+                            if forward {
+                                current_file_idx += 1;
+                                current_file_row_group_idx = 0;
+                                current_row_idx = 0;
+                            } else {
+                                if current_file_idx == 0 && *missing_row_group_idx == 0 {
+                                    if allow_overflow && total_rows_in_recs < limit {
+                                        forward = true;
+                                        if let (
+                                            Some(first_file_num_rows),
+                                            Some(first_file_num_row_groups),
+                                        ) = (first_file_num_rows, first_file_num_row_groups)
+                                        {
+                                            if row_idx + 1 < first_file_num_rows {
+                                                current_row_idx = row_idx + 1;
+                                                current_file_row_group_idx = file_row_group_idx;
+                                                current_file_idx = file_idx;
+                                            } else if file_row_group_idx + 1
+                                                < first_file_num_row_groups
+                                            {
+                                                current_file_row_group_idx = file_row_group_idx + 1;
+                                                current_file_idx = file_idx;
+                                                current_row_idx = 0;
+                                            } else {
+                                                current_file_idx = file_idx + 1;
+                                                current_file_row_group_idx = 0;
+                                                current_row_idx = 0;
+                                            }
+                                        } else {
+                                            current_file_idx = file_idx;
+                                            current_file_row_group_idx = file_row_group_idx;
+                                            current_row_idx = row_idx;
+                                        }
+                                    } else {
+                                        break;
+                                    }
+                                } else if current_file_idx > 0 && *missing_row_group_idx == 0 {
+                                    current_file_idx -= 1;
+                                    current_file_row_group_idx = std::u64::MAX;
+                                    current_row_idx = std::u64::MAX;
+                                } else {
+                                    current_file_row_group_idx -= 1;
+                                    current_row_idx = std::u64::MAX;
+                                }
+                            }
+                        }
+                    },
+                    None => {
                         return Err(err);
                     }
                 },
             }
+
+            debug!(
+                current_file_idx = current_file_idx,
+                current_file_row_group_idx = current_file_row_group_idx,
+                current_row_idx = current_row_idx,
+                "end of loop"
+            );
         }
 
         assert_eq!(

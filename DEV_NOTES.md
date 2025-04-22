@@ -27,12 +27,31 @@ to a file of SQL queries and have it run those queries.
 - [X] Add an support for using Minio as an object storage. The workers should be able to connect
 to the storage and read and write data to it. The script to create sample data should also be
 able to write data to Minio just like it can write to the file system.
+- [ ] Implement the heartbeat for records received from an exchange. When requesting a record
+the operator will construct a handler which pings the exchange with a new heartbeat every 
+(heartbeat limit)/2 seconds. This will allow the record to be re-queued if the worker fails to 
+process it. Then in the exchange make sure that the record re-queuing process is implemented
+and runs every few seconds. 
+- [ ] Harden the operator instance liveness tracking.
+  - [ ] Implement a method for killing a query. It should be able to send out messages to all of the 
+  operator instances telling them to stop running.
+  - [ ] Implement operator instance heartbeat. The heartbeat will ping the query handler every few seconds
+  to tell it that it is alive. The query handler will then need to react to cases where the heartbeat 
+  hasn't been seen for a period of time. The query handler should response back will a terminate response
+  if the query has completed for any reason.
+  - [ ] Implement operator instance restarts such that when an operator instance misses a heartbeat
+  it will be restarted.
+  - [ ] If an exchange's heartbeat hasn't been seen for a period of time then kill the whole query.
+- [ ] Improve query scheduling
+  - [ ] Make sure that a query doesn't start until there is enough room in the cluster for it to start.
+  - [ ] The operator handler 
 - [ ] Materializing files should be be able to compact the records into a larger parquet file
 with a max number of row groups and rows in each group. The task should be
 able to take many records from the exchange until it has enough to fit into a row group,
 then write that to the row group and continue on until the max number of row groups
 have been reached or there is no more data left. 
   * Think about adding record slicing to the exchange, description in TODO item below.
+- [ ] Only read columns used in the query when reading parquet files.
 - [ ] Test out on large dataset stored in S3 or Minio.
 - [ ] Implement message shedding so that a slow consumer doesn't block the message router from
 reading or sending messages. Since each consumer has a cap on the number of messages that
