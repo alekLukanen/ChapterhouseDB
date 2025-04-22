@@ -1,11 +1,11 @@
 
 -- query 1
-select * from read_files('sample_data/simple/*.parquet')
-  where id < 25;
-
--- query 2
 select * from read_files('sample_data/simple_wide_string/*.parquet')
   where id > 25;
+
+-- query 2 - query doesn't show data
+select * from read_files('sample_data/simple/*.parquet')
+  where id < 25;
 
 -- query 3
 select id, value2 from read_files('sample_data/simple/*.parquet')

@@ -52,6 +52,8 @@ then write that to the row group and continue on until the max number of row gro
 have been reached or there is no more data left. 
   * Think about adding record slicing to the exchange, description in TODO item below.
 - [ ] Only read columns used in the query when reading parquet files.
+- [ ] Look into bug where queries don't show data in the TUI when running multiple queries at once. 
+  The file `simple-error-case.sql` has an example of this.
 - [ ] Test out on large dataset stored in S3 or Minio.
 - [ ] Implement message shedding so that a slow consumer doesn't block the message router from
 reading or sending messages. Since each consumer has a cap on the number of messages that
