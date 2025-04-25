@@ -276,8 +276,6 @@ impl<'a> IdentifyExchangeRequest<'a> {
             })
             .await?;
 
-        debug!("received list response");
-
         let resp_msg: &messages::query::QueryHandlerRequests =
             self.msg_reg.try_cast_msg(&resp_msg)?;
         match resp_msg {

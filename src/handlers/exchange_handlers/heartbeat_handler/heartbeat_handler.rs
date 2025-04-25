@@ -9,7 +9,7 @@ use crate::handlers::{
     operator_handler::operators::requests,
 };
 
-pub struct RecordHeartbeatHandler<'a> {
+pub struct RecordHandler<'a> {
     operator_id: String,
     exchange_operator_instance_id: u128,
     exchange_worker_id: u128,
@@ -19,7 +19,7 @@ pub struct RecordHeartbeatHandler<'a> {
     msg_reg: Arc<MessageRegistry>,
 }
 
-impl<'a> RecordHeartbeatHandler<'a> {
+impl<'a> RecordHandler<'a> {
     pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
         debug!(
             operator_id = self.operator_id,
