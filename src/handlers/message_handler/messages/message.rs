@@ -556,6 +556,7 @@ pub enum MessageName {
     GetQueryStatusResp,
     GetQueryData,
     GetQueryDataResp,
+    ExchangeRecordHeartbeat,
 }
 
 impl MessageName {
@@ -578,6 +579,7 @@ impl MessageName {
             Self::GetQueryStatusResp => "GetQueryStatusResp",
             Self::GetQueryData => "GetQueryData",
             Self::GetQueryDataResp => "GetQueryDataResp",
+            Self::ExchangeRecordHeartbeat => "ExchangeRecordHeartbeat",
         }
     }
     pub fn as_u16(&self) -> u16 {
@@ -599,6 +601,7 @@ impl MessageName {
             Self::GetQueryStatusResp => 14,
             Self::GetQueryData => 15,
             Self::GetQueryDataResp => 16,
+            Self::ExchangeRecordHeartbeat => 17,
         }
     }
 }

@@ -14,6 +14,24 @@ use super::message::{
 //
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RecordHeartbeat {
+    Ping { operator_id: String, record_id: u64 },
+}
+
+impl GenericMessage for RecordHeartbeat {
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: RecordHeartbeat = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
+    }
+    fn msg_name() -> MessageName {
+        MessageName::ExchangeRecordHeartbeat
+    }
+}
+
+////////////////////////////////////////////////////////////
+//
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OperatorStatusChange {
     Complete { operator_id: String },
 }

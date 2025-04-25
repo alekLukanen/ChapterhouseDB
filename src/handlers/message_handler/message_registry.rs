@@ -95,6 +95,9 @@ impl MessageRegistry {
         self.add(Box::new(GenericMessageParser::<
             messages::exchange::OperatorStatusChange,
         >::new()));
+        self.add(Box::new(GenericMessageParser::<
+            messages::exchange::RecordHeartbeat,
+        >::new()));
     }
 
     pub async fn build_msg(&self, buf: &mut BytesMut) -> Result<Option<Message>> {

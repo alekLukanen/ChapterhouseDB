@@ -1,7 +1,7 @@
 use anyhow::Result;
 use thiserror::Error;
 
-use crate::planner::{self, OperatorTask};
+use crate::planner;
 
 #[derive(Debug, Error)]
 pub enum GetRecordTableAliasesError {
