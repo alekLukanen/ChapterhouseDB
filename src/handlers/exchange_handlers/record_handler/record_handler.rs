@@ -1,18 +1,33 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::handlers::{
     message_handler::{MessageRegistry, Pipe},
-    operator_handler::operators::requests,
+    operator_handler::{operators::requests, OperatorInstanceConfig},
 };
 
-pub struct RecordHandler<'a> {
+#[derive(Debug, Error)]
+pub enum RecordHandlerError {
+    #[error("operator type not implemented: {0}")]
+    OperatorTypeNotImplemented(String),
+}
+
+struct exchangeIdentity {
     operator_id: String,
-    input_exchange_operator_id: String,
-    output_exchange_operator_id: String,
+    worker_id: String,
+    operator_instance_id: String,
+}
+
+pub struct RecordHandler<'a> {
+    inbound_exchange_ids: Vec<String>,
+    inbound_exchanges: Vec<exchangeIdentity>,
+
+    outbound_exchange_id: String,
+    outbound_exchange: Option<exchangeIdentity>,
 
     pipe: &'a mut Pipe,
     msg_reg: Arc<MessageRegistry>,
@@ -20,19 +35,34 @@ pub struct RecordHandler<'a> {
 
 impl<'a> RecordHandler<'a> {
     pub fn new(
-        operator_id: String,
-        input_exchange_operator_id: String,
-        output_exchange_operator_id: String,
+        op_in_config: &OperatorInstanceConfig,
         pipe: &'a mut Pipe,
         msg_reg: Arc<MessageRegistry>,
-    ) -> RecordHandler<'a> {
-        RecordHandler {
-            operator_id,
-            input_exchange_operator_id,
-            output_exchange_operator_id,
+    ) -> Result<RecordHandler<'a>> {
+        let (inbound_exchange_ids, outbound_exchange_id) =
+            match &op_in_config.operator.operator_type {
+                crate::planner::OperatorType::Producer {
+                    inbound_exchange_ids,
+                    outbound_exchange_id,
+                    ..
+                } => (inbound_exchange_ids.clone(), outbound_exchange_id.clone()),
+                crate::planner::OperatorType::Exchange { .. } => {
+                    return Err(RecordHandlerError::OperatorTypeNotImplemented(format!(
+                        "{:?}",
+                        op_in_config.operator.operator_type
+                    ))
+                    .into());
+                }
+            };
+
+        Ok(RecordHandler {
+            inbound_exchange_ids,
+            inbound_exchanges: Vec::new(),
+            outbound_exchange_id,
+            outbound_exchange: None,
             pipe,
             msg_reg,
-        }
+        })
     }
 
     pub fn next_record(&mut self) {}
