@@ -18,11 +18,13 @@ pub enum RecordHandlerError {
 
 struct exchangeIdentity {
     operator_id: String,
-    worker_id: String,
-    operator_instance_id: String,
+    worker_id: u128,
+    operator_instance_id: u128,
 }
 
 pub struct RecordHandler<'a> {
+    query_id: u128,
+
     inbound_exchange_ids: Vec<String>,
     inbound_exchanges: Vec<exchangeIdentity>,
 
@@ -56,6 +58,7 @@ impl<'a> RecordHandler<'a> {
             };
 
         Ok(RecordHandler {
+            query_id: op_in_config.query_id,
             inbound_exchange_ids,
             inbound_exchanges: Vec::new(),
             outbound_exchange_id,
@@ -69,11 +72,18 @@ impl<'a> RecordHandler<'a> {
 
     pub fn complete_record(&mut self) {}
 
-    /*
+    pub fn send_record(
+        &mut self,
+        record: arrow::array::RecordBatch,
+        table_aliases: Vec<Vec<String>>,
+    ) {
+    }
+
     async fn find_inbound_exchange(&mut self, ct: CancellationToken) -> Result<()> {
         let ref mut operator_pipe = self.pipe;
         let req = requests::IdentifyExchangeRequest::request_inbound_exchanges(
-            &self.operator_instance_config,
+            self.query_id.clone(),
+            self.inbound_exchange_ids.clone(),
             operator_pipe,
             self.msg_reg.clone(),
         );
@@ -81,12 +91,15 @@ impl<'a> RecordHandler<'a> {
             resp = req => {
                 match resp {
                     Ok(resp) => {
-                        if resp.len() != 1 {
-                            return Err(FilterTaskError::MoreThanOneExchangeIsCurrentlyNotImplemented.into());
+                        for exchange in resp {
+                            self.inbound_exchanges.push(
+                                exchangeIdentity {
+                                    operator_id: exchange.exchange_id,
+                                    worker_id: exchange.exchange_worker_id,
+                                    operator_instance_id: exchange.exchange_operator_instance_id,
+                                }
+                            )
                         }
-                        let resp = resp.get(0).unwrap();
-                        self.inbound_exchange_operator_instance_id = Some(resp.exchange_operator_instance_id);
-                        self.inbound_exchange_worker_id = Some(resp.exchange_worker_id);
                         Ok(())
                     }
                     Err(err) => {
@@ -101,9 +114,10 @@ impl<'a> RecordHandler<'a> {
     }
 
     async fn find_outbound_exchange(&mut self, ct: CancellationToken) -> Result<()> {
-        let ref mut operator_pipe = self.operator_pipe;
+        let ref mut operator_pipe = self.pipe;
         let req = requests::IdentifyExchangeRequest::request_outbound_exchange(
-            &self.operator_instance_config,
+            self.query_id.clone(),
+            self.outbound_exchange_id.clone(),
             operator_pipe,
             self.msg_reg.clone(),
         );
@@ -111,8 +125,11 @@ impl<'a> RecordHandler<'a> {
             resp = req => {
                 match resp {
                     Ok(resp) => {
-                        self.outbound_exchange_operator_instance_id = Some(resp.exchange_operator_instance_id);
-                        self.outbound_exchange_worker_id = Some(resp.exchange_worker_id);
+                        self.outbound_exchange = Some(exchangeIdentity {
+                            operator_id: self.outbound_exchange_id.clone(),
+                            worker_id: resp.exchange_worker_id,
+                            operator_instance_id: resp.exchange_operator_instance_id,
+                        });
                         Ok(())
                     }
                     Err(err) => {
@@ -125,5 +142,4 @@ impl<'a> RecordHandler<'a> {
             }
         }
     }
-    */
 }

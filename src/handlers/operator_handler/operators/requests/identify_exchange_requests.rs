@@ -30,6 +30,7 @@ pub enum IdentifyExchangeRequestError {
 }
 
 pub struct IdentifyExchangeResponse {
+    pub exchange_id: String,
     pub exchange_operator_instance_id: u128,
     pub exchange_worker_id: u128,
 }
@@ -45,68 +46,25 @@ pub struct IdentifyExchangeRequest<'a> {
 
 impl<'a> IdentifyExchangeRequest<'a> {
     pub async fn request_outbound_exchange(
-        op_in_config: &OperatorInstanceConfig,
+        query_id: u128,
+        exchange_id: String,
         pipe: &'a mut Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> Result<IdentifyExchangeResponse> {
-        let exchange_id = match &op_in_config.operator.operator_type {
-            crate::planner::OperatorType::Producer {
-                outbound_exchange_id,
-                ..
-            } => outbound_exchange_id.clone(),
-            crate::planner::OperatorType::Exchange { .. } => {
-                return Err(
-                    IdentifyExchangeRequestError::OperatorTypeNotImplemented(format!(
-                        "{:?}",
-                        op_in_config.operator.operator_type
-                    ))
-                    .into(),
-                );
-            }
-        };
-
-        Self::request(
-            op_in_config.query_id.clone(),
-            exchange_id,
-            pipe,
-            msg_reg.clone(),
-        )
-        .await
+        Self::request(query_id, exchange_id, pipe, msg_reg.clone()).await
     }
 
     pub async fn request_inbound_exchanges(
-        op_in_config: &OperatorInstanceConfig,
+        query_id: u128,
+        exchange_ids: Vec<String>,
         pipe: &'a mut Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> Result<Vec<IdentifyExchangeResponse>> {
         debug!("request inbound exchange");
-        let exchange_ids = match &op_in_config.operator.operator_type {
-            crate::planner::OperatorType::Producer {
-                inbound_exchange_ids,
-                ..
-            } => inbound_exchange_ids.clone(),
-            crate::planner::OperatorType::Exchange { .. } => {
-                return Err(
-                    IdentifyExchangeRequestError::OperatorTypeNotImplemented(format!(
-                        "{:?}",
-                        op_in_config.operator.operator_type
-                    ))
-                    .into(),
-                );
-            }
-        };
 
         let mut res: Vec<IdentifyExchangeResponse> = Vec::new();
         for exchange_id in exchange_ids {
-            res.push(
-                Self::request(
-                    op_in_config.query_id.clone(),
-                    exchange_id,
-                    pipe,
-                    msg_reg.clone(),
-                )
-                .await?,
-            );
+            res.push(Self::request(query_id.clone(), exchange_id, pipe, msg_reg.clone()).await?);
         }
 
         Ok(res)
@@ -123,7 +81,7 @@ impl<'a> IdentifyExchangeRequest<'a> {
         let mut res = IdentifyExchangeRequest {
             exchange_operator_instance_id: None,
             exchange_worker_id: None,
-            exchange_id,
+            exchange_id: exchange_id.clone(),
             query_id,
             pipe,
             msg_reg,
@@ -131,6 +89,7 @@ impl<'a> IdentifyExchangeRequest<'a> {
         res.identify_exchange().await?;
         if res.exchange_operator_instance_id.is_some() && res.exchange_worker_id.is_some() {
             Ok(IdentifyExchangeResponse {
+                exchange_id: exchange_id.clone(),
                 exchange_operator_instance_id: res.exchange_operator_instance_id.unwrap(),
                 exchange_worker_id: res.exchange_worker_id.unwrap(),
             })
