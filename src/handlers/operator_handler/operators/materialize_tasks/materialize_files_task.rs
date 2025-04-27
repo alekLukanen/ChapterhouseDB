@@ -1,12 +1,14 @@
 use anyhow::{Error, Result};
 use std::{path::PathBuf, sync::Arc};
 use thiserror::Error;
+use tokio::sync::Mutex;
 use tracing::{debug, error};
 use uuid::Uuid;
 
 use crate::handlers::message_handler::messages;
 use crate::handlers::message_handler::messages::message::{Message, MessageName};
 use crate::handlers::message_handler::{MessageRegistry, Pipe};
+use crate::handlers::message_router_handler::MessageRouterState;
 use crate::handlers::{
     message_router_handler::MessageConsumer,
     operator_handler::{
@@ -228,6 +230,7 @@ impl TaskBuilder for MaterializeFilesTaskBuilder {
         operator_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
         conn_reg: Arc<ConnectionRegistry>,
+        _: Arc<Mutex<MessageRouterState>>,
         tt: &mut RestrictedOperatorTaskTracker,
         ct: tokio_util::sync::CancellationToken,
     ) -> Result<(

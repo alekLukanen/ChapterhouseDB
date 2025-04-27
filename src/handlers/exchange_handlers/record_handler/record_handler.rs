@@ -2,12 +2,14 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use thiserror::Error;
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
 use crate::handlers::{
     exchange_handlers::heartbeat_handler::RecordHeartbeatHandler,
     message_handler::{MessageRegistry, Pipe},
+    message_router_handler::MessageRouterState,
     operator_handler::{operators::requests, OperatorInstanceConfig},
 };
 
@@ -56,6 +58,7 @@ pub struct RecordHandler<'a> {
     /////////////////////////
     pipe: &'a mut Pipe,
     msg_reg: Arc<MessageRegistry>,
+    msg_router_state: Arc<Mutex<MessageRouterState>>,
 }
 
 impl<'a> RecordHandler<'a> {
@@ -64,6 +67,7 @@ impl<'a> RecordHandler<'a> {
         op_in_config: &OperatorInstanceConfig,
         pipe: &'a mut Pipe,
         msg_reg: Arc<MessageRegistry>,
+        msg_router_state: Arc<Mutex<MessageRouterState>>,
     ) -> Result<RecordHandler<'a>> {
         let (inbound_exchange_ids, outbound_exchange_id) =
             match &op_in_config.operator.operator_type {
@@ -93,6 +97,7 @@ impl<'a> RecordHandler<'a> {
             tracker_ct: ct.child_token(),
             pipe,
             msg_reg,
+            msg_router_state,
         };
         rec_handler.find_inbound_exchanges(ct.child_token()).await?;
         rec_handler.find_outbound_exchange(ct.child_token()).await?;

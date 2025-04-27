@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use thiserror::Error;
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
+use crate::handlers::message_router_handler::MessageRouterState;
 use crate::handlers::operator_handler::operators::record_utils;
 use crate::handlers::{
     message_handler::{
@@ -191,6 +193,7 @@ impl TaskBuilder for FilterTaskBuilder {
         operator_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
         conn_reg: Arc<ConnectionRegistry>,
+        _: Arc<Mutex<MessageRouterState>>,
         tt: &mut RestrictedOperatorTaskTracker,
         ct: tokio_util::sync::CancellationToken,
     ) -> Result<(

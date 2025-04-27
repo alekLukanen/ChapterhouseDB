@@ -3,13 +3,14 @@ use std::sync::Arc;
 use anyhow::{Context, Error, Result};
 use futures::StreamExt;
 use thiserror::Error;
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
 use crate::handlers::message_handler::messages;
 use crate::handlers::message_handler::messages::message::{Message, MessageName};
 use crate::handlers::message_handler::{MessageRegistry, Pipe};
-use crate::handlers::message_router_handler::MessageConsumer;
+use crate::handlers::message_router_handler::{MessageConsumer, MessageRouterState};
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
 use crate::handlers::operator_handler::operators::operator_task_trackers::RestrictedOperatorTaskTracker;
 use crate::handlers::operator_handler::operators::requests::{
@@ -322,6 +323,7 @@ impl TaskBuilder for ReadFilesTaskBuilder {
         operator_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
         conn_reg: Arc<ConnectionRegistry>,
+        _: Arc<Mutex<MessageRouterState>>,
         tt: &mut RestrictedOperatorTaskTracker,
         ct: CancellationToken,
     ) -> Result<(

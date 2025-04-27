@@ -150,6 +150,7 @@ impl OperatorBuilder {
             pipe2,
             self.msg_reg.clone(),
             self.conn_reg.clone(),
+            self.message_router_state.clone(),
             &mut restricted_tt,
             task_ct,
         )?;

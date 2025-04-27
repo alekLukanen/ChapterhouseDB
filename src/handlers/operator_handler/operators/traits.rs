@@ -2,11 +2,12 @@ use core::fmt;
 use std::sync::Arc;
 
 use anyhow::{Error, Result};
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::handlers::{
     message_handler::{MessageRegistry, Pipe},
-    message_router_handler::MessageConsumer,
+    message_router_handler::{MessageConsumer, MessageRouterState},
     operator_handler::operator_handler_state::OperatorInstanceConfig,
 };
 
@@ -25,6 +26,7 @@ pub trait TaskBuilder: fmt::Debug + Send + Sync {
         operator_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
         conn_reg: Arc<ConnectionRegistry>,
+        message_router_state: Arc<Mutex<MessageRouterState>>,
         tt: &mut RestrictedOperatorTaskTracker,
         ct: CancellationToken,
     ) -> Result<(
