@@ -70,7 +70,7 @@ impl<'a> OperatorStatusChangeRequest<'a> {
             .send_request(Request {
                 msg,
                 expect_response_msg_name: MessageName::CommonGenericResponse,
-                timeout: chrono::Duration::seconds(3),
+                timeout: chrono::Duration::seconds(1),
             })
             .await?;
 

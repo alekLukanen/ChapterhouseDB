@@ -4,12 +4,9 @@ use anyhow::Result;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
-use crate::handlers::{
-    message_handler::{MessageRegistry, Pipe},
-    operator_handler::operators::requests,
-};
+use crate::handlers::message_handler::{MessageRegistry, Pipe};
 
-pub struct RecordHandler<'a> {
+pub struct RecordHeartbeatHandler<'a> {
     operator_id: String,
     exchange_operator_instance_id: u128,
     exchange_worker_id: u128,
@@ -19,12 +16,30 @@ pub struct RecordHandler<'a> {
     msg_reg: Arc<MessageRegistry>,
 }
 
-impl<'a> RecordHandler<'a> {
+impl<'a> RecordHeartbeatHandler<'a> {
+    pub fn new(
+        operator_id: String,
+        exchange_operator_instance_id: u128,
+        exchange_worker_id: u128,
+        record_id: u64,
+        pipe: &'a mut Pipe,
+        msg_reg: Arc<MessageRegistry>,
+    ) -> RecordHeartbeatHandler<'a> {
+        RecordHeartbeatHandler {
+            operator_id,
+            exchange_operator_instance_id,
+            exchange_worker_id,
+            record_id,
+            pipe,
+            msg_reg,
+        }
+    }
+
     pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
         debug!(
             operator_id = self.operator_id,
             record_id = self.record_id,
-            "starting record heartbeat"
+            "started record heartbeat"
         );
 
         loop {
@@ -34,6 +49,12 @@ impl<'a> RecordHandler<'a> {
                 }
             }
         }
+
+        debug!(
+            operator_id = self.operator_id,
+            record_id = self.record_id,
+            "completed record heartbeat"
+        );
 
         Ok(())
     }

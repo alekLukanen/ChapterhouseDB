@@ -87,10 +87,6 @@ impl FilterTask {
             "started task",
         );
 
-        // find the inbound exchange
-        self.find_inbound_exchange(ct.clone()).await?;
-        self.find_outbound_exchange(ct.clone()).await?;
-
         assert!(self.inbound_exchange_operator_instance_id.is_some());
         assert!(self.inbound_exchange_worker_id.is_some());
         assert!(self.outbound_exchange_operator_instance_id.is_some());
@@ -173,62 +169,6 @@ impl FilterTask {
             "closed task",
         );
         Ok(())
-    }
-
-    async fn find_inbound_exchange(&mut self, ct: CancellationToken) -> Result<()> {
-        let ref mut operator_pipe = self.operator_pipe;
-        let req = requests::IdentifyExchangeRequest::request_inbound_exchanges(
-            &self.operator_instance_config,
-            operator_pipe,
-            self.msg_reg.clone(),
-        );
-        tokio::select! {
-            resp = req => {
-                match resp {
-                    Ok(resp) => {
-                        if resp.len() != 1 {
-                            return Err(FilterTaskError::MoreThanOneExchangeIsCurrentlyNotImplemented.into());
-                        }
-                        let resp = resp.get(0).unwrap();
-                        self.inbound_exchange_operator_instance_id = Some(resp.exchange_operator_instance_id);
-                        self.inbound_exchange_worker_id = Some(resp.exchange_worker_id);
-                        Ok(())
-                    }
-                    Err(err) => {
-                        Err(err)
-                    }
-                }
-            }
-            _ = ct.cancelled() => {
-                Ok(())
-            }
-        }
-    }
-
-    async fn find_outbound_exchange(&mut self, ct: CancellationToken) -> Result<()> {
-        let ref mut operator_pipe = self.operator_pipe;
-        let req = requests::IdentifyExchangeRequest::request_outbound_exchange(
-            &self.operator_instance_config,
-            operator_pipe,
-            self.msg_reg.clone(),
-        );
-        tokio::select! {
-            resp = req => {
-                match resp {
-                    Ok(resp) => {
-                        self.outbound_exchange_operator_instance_id = Some(resp.exchange_operator_instance_id);
-                        self.outbound_exchange_worker_id = Some(resp.exchange_worker_id);
-                        Ok(())
-                    }
-                    Err(err) => {
-                        Err(err)
-                    }
-                }
-            }
-            _ = ct.cancelled() => {
-                Ok(())
-            }
-        }
     }
 }
 

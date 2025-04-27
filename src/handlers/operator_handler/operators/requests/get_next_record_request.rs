@@ -79,7 +79,7 @@ impl<'a> GetNextRecordRequest<'a> {
             .send_request(Request {
                 msg: get_next_msg,
                 expect_response_msg_name: MessageName::ExchangeRequests,
-                timeout: chrono::Duration::seconds(10),
+                timeout: chrono::Duration::seconds(1),
             })
             .await?;
 
