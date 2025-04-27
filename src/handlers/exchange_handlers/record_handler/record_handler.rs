@@ -32,6 +32,7 @@ struct ExchangeIdentity {
 struct TrackedRecord {
     record_id: u64,
     exchange_identity_idx: u64,
+    ct: CancellationToken,
 }
 
 pub struct ExchangeRecord {
@@ -137,33 +138,38 @@ impl<'a> RecordHandler<'a> {
                         record,
                         table_aliases,
                     } => {
-                        let exchange_rec = ExchangeRecord {
-                            record_id,
-                            record,
-                            table_aliases,
-                        };
-                        let tracked_rec = TrackedRecord {
-                            record_id,
-                            exchange_identity_idx: inbound_exchange_idx,
-                        };
-
                         let mut record_heartbeat_handler = RecordHeartbeatHandler::new(
+                            self.query_id.clone(),
                             self.operator_id.clone(),
                             inbound_exchange.operator_instance_id.clone(),
                             inbound_exchange.worker_id.clone(),
                             record_id.clone(),
-                            self.pipe,
                             self.msg_reg.clone(),
-                        );
+                            self.msg_router_state.clone(),
+                        )
+                        .await;
                         let tt_ct = self.tracker_ct.child_token();
+                        let tt_ct_clone = tt_ct.clone();
                         self.task_tracker.spawn(async move {
-                            if let Err(err) = record_heartbeat_handler.async_main(tt_ct).await {
+                            if let Err(err) = record_heartbeat_handler.async_main(tt_ct_clone).await
+                            {
                                 error!("{}", err);
                             }
                         });
 
-                        self.tracked_records.insert(record_id.clone(), tracked_rec);
-                        return Ok(Some(exchange_rec));
+                        self.tracked_records.insert(
+                            record_id.clone(),
+                            TrackedRecord {
+                                record_id,
+                                exchange_identity_idx: inbound_exchange_idx,
+                                ct: tt_ct,
+                            },
+                        );
+                        return Ok(Some(ExchangeRecord {
+                            record_id,
+                            record,
+                            table_aliases,
+                        }));
                     }
                     requests::GetNextRecordResponse::NoneAvailable => {
                         tokio::time::sleep(chrono::Duration::milliseconds(100).to_std()?).await;

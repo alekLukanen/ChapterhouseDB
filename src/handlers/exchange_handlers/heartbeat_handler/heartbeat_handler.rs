@@ -91,9 +91,8 @@ impl RecordHeartbeatHandler {
 
         let inner_ct = ct.child_token();
 
-        if let Err(err) = self.inner_async_main(inner_ct.clone()).await {
-            error!("{}", err);
-        }
+        // propogate the error up to the creator
+        self.inner_async_main(inner_ct.clone()).await?;
 
         self.msg_router_state
             .lock()
