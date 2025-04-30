@@ -233,12 +233,12 @@ impl ReadFilesTask {
         Ok(())
     }
 
-    async fn read_records<'a>(
+    async fn read_records(
         &mut self,
         ct: CancellationToken,
         path: &str,
         conn: &opendal::Operator,
-        rec_handler: &'a mut exchange_handlers::record_handler::RecordHandler<'a>,
+        rec_handler: &mut exchange_handlers::record_handler::RecordHandler,
     ) -> Result<()> {
         let reader = conn
             .reader_with(path)
@@ -260,16 +260,19 @@ impl ReadFilesTask {
             }
             match record_res {
                 Ok(record) => {
-                    let record_id = self.record_id;
-                    self.record_id += 1;
-
+                    let record_id = self.next_record_id();
                     let table_aliases = record_utils::get_record_table_aliases(
                         &self.operator_instance_config.operator.operator_type,
                         &record,
                     )?;
 
                     rec_handler
-                        .send_record_to_outbound_exchange(record_id, record, table_aliases)
+                        .send_record_to_outbound_exchange(
+                            &mut self.operator_pipe,
+                            record_id,
+                            record,
+                            table_aliases,
+                        )
                         .await?;
                 }
                 Err(err) => {
@@ -279,6 +282,12 @@ impl ReadFilesTask {
         }
 
         Ok(())
+    }
+
+    fn next_record_id(&mut self) -> u64 {
+        let rec_id = self.record_id;
+        self.record_id += 1;
+        rec_id
     }
 }
 

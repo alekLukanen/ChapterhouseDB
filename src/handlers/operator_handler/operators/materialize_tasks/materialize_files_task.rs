@@ -96,7 +96,9 @@ impl MaterializeFilesTask {
 
         // loop over all records in the exchange
         loop {
-            let exchange_rec = rec_handler.next_record(ct.child_token(), None).await?;
+            let exchange_rec = rec_handler
+                .next_record(ct.child_token(), operator_pipe, None)
+                .await?;
 
             match exchange_rec {
                 Some(exchange_rec) => {
