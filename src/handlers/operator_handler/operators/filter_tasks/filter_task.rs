@@ -6,6 +6,7 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
+use crate::handlers::exchange_handlers;
 use crate::handlers::message_router_handler::MessageRouterState;
 use crate::handlers::operator_handler::operators::record_utils;
 use crate::handlers::{
@@ -42,12 +43,7 @@ struct FilterTask {
     operator_pipe: Pipe,
     msg_reg: Arc<MessageRegistry>,
     conn_reg: Arc<ConnectionRegistry>,
-
-    inbound_exchange_worker_id: Option<u128>,
-    inbound_exchange_operator_instance_id: Option<u128>,
-
-    outbound_exchange_worker_id: Option<u128>,
-    outbound_exchange_operator_instance_id: Option<u128>,
+    msg_router_state: Arc<Mutex<MessageRouterState>>,
 }
 
 impl FilterTask {
@@ -57,6 +53,7 @@ impl FilterTask {
         operator_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
         conn_reg: Arc<ConnectionRegistry>,
+        msg_router_state: Arc<Mutex<MessageRouterState>>,
     ) -> FilterTask {
         FilterTask {
             operator_instance_config: op_in_config,
@@ -64,10 +61,7 @@ impl FilterTask {
             operator_pipe,
             msg_reg,
             conn_reg,
-            inbound_exchange_worker_id: None,
-            inbound_exchange_operator_instance_id: None,
-            outbound_exchange_worker_id: None,
-            outbound_exchange_operator_instance_id: None,
+            msg_router_state,
         }
     }
 
@@ -89,73 +83,52 @@ impl FilterTask {
             "started task",
         );
 
-        assert!(self.inbound_exchange_operator_instance_id.is_some());
-        assert!(self.inbound_exchange_worker_id.is_some());
-        assert!(self.outbound_exchange_operator_instance_id.is_some());
-        assert!(self.outbound_exchange_worker_id.is_some());
+        let mut rec_handler = exchange_handlers::record_handler::RecordHandler::initiate(
+            ct.child_token(),
+            &self.operator_instance_config,
+            &mut self.operator_pipe,
+            self.msg_reg.clone(),
+            self.msg_router_state.clone(),
+        )
+        .await?;
 
-        let ref mut operator_pipe = self.operator_pipe;
         loop {
-            let resp = requests::GetNextRecordRequest::get_next_record_request(
-                self.operator_instance_config.operator.id.clone(),
-                self.inbound_exchange_operator_instance_id.unwrap().clone(),
-                self.inbound_exchange_worker_id.unwrap().clone(),
-                operator_pipe,
-                self.msg_reg.clone(),
-            )
-            .await?;
+            let exchange_rec = rec_handler
+                .next_record(ct.child_token(), &mut self.operator_pipe, None)
+                .await?;
 
-            match &resp {
-                requests::GetNextRecordResponse::Record {
-                    record_id,
-                    record,
-                    table_aliases,
-                } => {
+            match exchange_rec {
+                Some(exchange_rec) => {
                     debug!(
-                        record_id = record_id,
-                        record_num_rows = record.num_rows(),
+                        record_id = exchange_rec.record_id,
+                        record_num_rows = exchange_rec.record.num_rows(),
                         "received record"
                     );
                     // filter the record
                     let filtered_rec = record_utils::filter_record(
-                        record.clone(),
-                        table_aliases,
+                        exchange_rec.record.clone(),
+                        &exchange_rec.table_aliases,
                         &self.filter_config.expr,
                     )?;
 
                     // send the record to the outbound exchange
-                    requests::SendRecordRequest::send_record_request(
-                        record_id.clone(),
-                        filtered_rec,
-                        table_aliases.clone(),
-                        self.outbound_exchange_operator_instance_id
-                            .expect("outbound instance id"),
-                        self.outbound_exchange_worker_id
-                            .expect("outbound worker id"),
-                        operator_pipe,
-                        self.msg_reg.clone(),
-                    )
-                    .await?;
+                    rec_handler
+                        .send_record_to_outbound_exchange(
+                            &mut self.operator_pipe,
+                            exchange_rec.record_id.clone(),
+                            filtered_rec,
+                            exchange_rec.table_aliases.clone(),
+                        )
+                        .await?;
 
                     // confirm processing of the record with the inbound exchange
-                    requests::OperatorCompletedRecordProcessingRequest::request(
-                        self.operator_instance_config.operator.id.clone(),
-                        record_id.clone(),
-                        self.inbound_exchange_operator_instance_id
-                            .expect("inbound instance id"),
-                        self.inbound_exchange_worker_id.expect("inbound worker id"),
-                        operator_pipe,
-                        self.msg_reg.clone(),
-                    )
-                    .await?;
+                    rec_handler
+                        .complete_record(&mut self.operator_pipe, exchange_rec)
+                        .await?;
                 }
-                requests::GetNextRecordResponse::NoneLeft => {
+                None => {
                     debug!("read all records from the exchange");
                     break;
-                }
-                requests::GetNextRecordResponse::NoneAvailable => {
-                    debug!("exchange does not have any record available; waiting 100 ms");
-                    tokio::time::sleep(chrono::Duration::milliseconds(100).to_std()?).await;
                 }
             }
         }
@@ -193,7 +166,7 @@ impl TaskBuilder for FilterTaskBuilder {
         operator_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
         conn_reg: Arc<ConnectionRegistry>,
-        _: Arc<Mutex<MessageRouterState>>,
+        msg_router_state: Arc<Mutex<MessageRouterState>>,
         tt: &mut RestrictedOperatorTaskTracker,
         ct: tokio_util::sync::CancellationToken,
     ) -> Result<(
@@ -207,6 +180,7 @@ impl TaskBuilder for FilterTaskBuilder {
             operator_pipe,
             msg_reg.clone(),
             conn_reg.clone(),
+            msg_router_state.clone(),
         );
 
         let consumer = op.consumer();

@@ -25,6 +25,8 @@ pub enum RecordHandlerError {
     CancellationTokenCancelled,
     #[error("unable to find tracked record {0}")]
     UnableToFindTrackedRecord(u64),
+    #[error("unable to find exchange identity {0}")]
+    UnableToFindExchangeIdentity(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -37,7 +39,7 @@ struct ExchangeIdentity {
 #[derive(Debug, Clone)]
 struct TrackedRecord {
     record_id: u64,
-    exchange_identity_idx: u64,
+    exchange_identity_idx: usize,
     ct: CancellationToken,
 }
 
@@ -206,7 +208,7 @@ impl RecordHandler {
         res
     }
 
-    pub fn complete_record(&mut self, rec: ExchangeRecord) -> Result<()> {
+    pub async fn complete_record(&mut self, pipe: &mut Pipe, rec: ExchangeRecord) -> Result<()> {
         let tracked_rec = if let Some(tracked_rec) = self.tracked_records.remove(&rec.record_id) {
             tracked_rec
         } else {
@@ -215,6 +217,29 @@ impl RecordHandler {
             );
         };
 
+        let inbound_exchange = if let Some(exchange) = self
+            .inbound_exchanges
+            .get(tracked_rec.exchange_identity_idx as usize)
+        {
+            exchange
+        } else {
+            return Err(RecordHandlerError::UnableToFindExchangeIdentity(
+                tracked_rec.exchange_identity_idx.clone(),
+            )
+            .into());
+        };
+
+        requests::OperatorCompletedRecordProcessingRequest::request(
+            self.operator_id.clone(),
+            rec.record_id.clone(),
+            inbound_exchange.operator_instance_id.clone(),
+            inbound_exchange.worker_id.clone(),
+            pipe,
+            self.msg_reg.clone(),
+        )
+        .await?;
+
+        // cancel any heartbeat tasks
         tracked_rec.ct.cancel();
 
         Ok(())

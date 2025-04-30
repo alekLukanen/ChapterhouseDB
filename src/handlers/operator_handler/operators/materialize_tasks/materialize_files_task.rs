@@ -84,11 +84,10 @@ impl MaterializeFilesTask {
 
         let query_uuid_id = Uuid::from_u128(self.operator_instance_config.query_id.clone());
 
-        let ref mut operator_pipe = self.operator_pipe;
         let mut rec_handler = exchange_handlers::record_handler::RecordHandler::initiate(
             ct.child_token(),
             &self.operator_instance_config,
-            operator_pipe,
+            &mut self.operator_pipe,
             self.msg_reg.clone(),
             self.msg_router_state.clone(),
         )
@@ -97,7 +96,7 @@ impl MaterializeFilesTask {
         // loop over all records in the exchange
         loop {
             let exchange_rec = rec_handler
-                .next_record(ct.child_token(), operator_pipe, None)
+                .next_record(ct.child_token(), &mut self.operator_pipe, None)
                 .await?;
 
             match exchange_rec {
@@ -144,7 +143,9 @@ impl MaterializeFilesTask {
                     arrow_parquet_writer.close().await?;
 
                     // confirm processing of the record
-                    rec_handler.complete_record(exchange_rec)?;
+                    rec_handler
+                        .complete_record(&mut self.operator_pipe, exchange_rec)
+                        .await?;
                 }
                 None => {
                     debug!("complete materialization; read all records from the exchange");
