@@ -7,6 +7,7 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
+use crate::handlers::exchange_handlers;
 use crate::handlers::message_handler::messages;
 use crate::handlers::message_handler::messages::message::{Message, MessageName};
 use crate::handlers::message_handler::{MessageRegistry, Pipe};
@@ -124,6 +125,7 @@ pub struct ReadFilesTask {
     operator_pipe: Pipe,
     msg_reg: Arc<MessageRegistry>,
     conn_reg: Arc<ConnectionRegistry>,
+    msg_router_state: Arc<Mutex<MessageRouterState>>,
 
     exchange_worker_id: Option<u128>,
     exchange_operator_instance_id: Option<u128>,
@@ -137,6 +139,7 @@ impl ReadFilesTask {
         operator_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
         conn_reg: Arc<ConnectionRegistry>,
+        msg_router_state: Arc<Mutex<MessageRouterState>>,
     ) -> ReadFilesTask {
         ReadFilesTask {
             operator_instance_config: op_in_config,
@@ -144,6 +147,7 @@ impl ReadFilesTask {
             operator_pipe,
             msg_reg,
             conn_reg,
+            msg_router_state,
             exchange_worker_id: None,
             exchange_operator_instance_id: None,
             record_id: 0,
@@ -168,6 +172,15 @@ impl ReadFilesTask {
             "started task",
         );
 
+        let mut rec_handler = exchange_handlers::record_handler::RecordHandler::initiate(
+            ct.child_token(),
+            &self.operator_instance_config,
+            &mut self.operator_pipe,
+            self.msg_reg.clone(),
+            self.msg_router_state.clone(),
+        )
+        .await?;
+
         let conn = match &self.read_files_config.connection {
             Some(conn_name) => self.conn_reg.get_operator(conn_name.as_str())?,
             None => self.conn_reg.get_operator("default")?,
@@ -181,6 +194,7 @@ impl ReadFilesTask {
         let path_matcher =
             globset::Glob::new(self.read_files_config.path.as_str())?.compile_matcher();
 
+        let ref mut rec_handler_ref = rec_handler;
         loop {
             tokio::select! {
                 entry = lister.next() => {
@@ -191,7 +205,7 @@ impl ReadFilesTask {
                                 continue;
                             }
 
-                            self.read_records(ct.clone(), path, &conn).await?;
+                            self.read_records(ct.clone(), path, &conn, rec_handler_ref).await?;
                         },
                         Some(Err(err)) => return Err(err.into()),
                         None => {
@@ -219,14 +233,13 @@ impl ReadFilesTask {
         Ok(())
     }
 
-    async fn read_records(
+    async fn read_records<'a>(
         &mut self,
         ct: CancellationToken,
         path: &str,
         conn: &opendal::Operator,
+        rec_handler: &'a mut exchange_handlers::record_handler::RecordHandler<'a>,
     ) -> Result<()> {
-        debug!("read_records(path={})", path);
-
         let reader = conn
             .reader_with(path)
             .gap(512 * 1024)
@@ -241,16 +254,23 @@ impl ReadFilesTask {
             .with_batch_size(self.read_files_config.max_rows_per_batch)
             .build()?;
 
-        debug!("reading records from file");
         while let Some(record_res) = rec_stream.next().await {
             if ct.is_cancelled() {
                 return Err(ReadFilesError::Cancelled.into());
             }
             match record_res {
                 Ok(record) => {
-                    self.send_record(record)
-                        .await
-                        .context("unable to send record to the exchange")?;
+                    let record_id = self.record_id;
+                    self.record_id += 1;
+
+                    let table_aliases = record_utils::get_record_table_aliases(
+                        &self.operator_instance_config.operator.operator_type,
+                        &record,
+                    )?;
+
+                    rec_handler
+                        .send_record_to_outbound_exchange(record_id, record, table_aliases)
+                        .await?;
                 }
                 Err(err) => {
                     return Err(err.into());
@@ -259,48 +279,6 @@ impl ReadFilesTask {
         }
 
         Ok(())
-    }
-
-    async fn send_record(&mut self, record: arrow::array::RecordBatch) -> Result<()> {
-        if self.exchange_worker_id == None {
-            let ref mut pipe = self.operator_pipe;
-            let resp = IdentifyExchangeRequest::request_outbound_exchange(
-                &self.operator_instance_config,
-                pipe,
-                self.msg_reg.clone(),
-            )
-            .await?;
-            self.exchange_operator_instance_id = Some(resp.exchange_operator_instance_id);
-            self.exchange_worker_id = Some(resp.exchange_worker_id);
-        }
-
-        assert!(self.exchange_worker_id.is_some());
-
-        let msg_record_id = self.next_record_id();
-        let table_aliases = record_utils::get_record_table_aliases(
-            &self.operator_instance_config.operator.operator_type,
-            &record,
-        )?;
-
-        let ref mut pipe = self.operator_pipe;
-        SendRecordRequest::send_record_request(
-            msg_record_id,
-            record,
-            table_aliases,
-            self.exchange_operator_instance_id.unwrap().clone(),
-            self.exchange_worker_id.unwrap().clone(),
-            pipe,
-            self.msg_reg.clone(),
-        )
-        .await?;
-
-        Ok(())
-    }
-
-    fn next_record_id(&mut self) -> u64 {
-        let record_id = self.record_id;
-        self.record_id += 1;
-        record_id
     }
 }
 
@@ -323,7 +301,7 @@ impl TaskBuilder for ReadFilesTaskBuilder {
         operator_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
         conn_reg: Arc<ConnectionRegistry>,
-        _: Arc<Mutex<MessageRouterState>>,
+        msg_router_state: Arc<Mutex<MessageRouterState>>,
         tt: &mut RestrictedOperatorTaskTracker,
         ct: CancellationToken,
     ) -> Result<(
@@ -338,6 +316,7 @@ impl TaskBuilder for ReadFilesTaskBuilder {
             operator_pipe,
             msg_reg.clone(),
             conn_reg.clone(),
+            msg_router_state.clone(),
         );
 
         let consumer = op.consumer();

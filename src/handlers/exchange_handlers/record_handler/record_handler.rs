@@ -19,16 +19,22 @@ pub enum RecordHandlerError {
     OperatorTypeNotImplemented(String),
     #[error("inbound exchanges is empty")]
     InboundExhcnagesIsEmpty,
+    #[error("outbound exchange is none")]
+    OutboundExchangeIsNone,
     #[error("cancellation token cancelled")]
     CancellationTokenCancelled,
+    #[error("unable to find tracked record {0}")]
+    UnableToFindTrackedRecord(u64),
 }
 
+#[derive(Debug, Clone)]
 struct ExchangeIdentity {
     operator_id: String,
     worker_id: u128,
     operator_instance_id: u128,
 }
 
+#[derive(Debug, Clone)]
 struct TrackedRecord {
     record_id: u64,
     exchange_identity_idx: u64,
@@ -36,14 +42,17 @@ struct TrackedRecord {
 }
 
 pub struct ExchangeRecord {
-    record_id: u64,
-    record: Arc<arrow::array::RecordBatch>,
-    table_aliases: Vec<Vec<String>>,
+    pub(crate) record_id: u64,
+    pub(crate) record: Arc<arrow::array::RecordBatch>,
+    pub(crate) table_aliases: Vec<Vec<String>>,
 }
 
 pub struct RecordHandler<'a> {
     query_id: u128,
     operator_id: String,
+
+    // config
+    none_available_wait_time_in_ms: chrono::TimeDelta,
 
     // exchanges can never be removed
     inbound_exchange_ids: Vec<String>,
@@ -89,6 +98,7 @@ impl<'a> RecordHandler<'a> {
         let mut rec_handler = RecordHandler {
             query_id: op_in_config.query_id,
             operator_id: op_in_config.operator.id.clone(),
+            none_available_wait_time_in_ms: chrono::Duration::milliseconds(50),
             inbound_exchange_ids,
             inbound_exchanges: Vec::new(),
             outbound_exchange_id,
@@ -109,7 +119,7 @@ impl<'a> RecordHandler<'a> {
     pub async fn next_record(
         &mut self,
         ct: CancellationToken,
-        max_wait: chrono::Duration,
+        max_wait: Option<chrono::Duration>,
     ) -> Result<Option<ExchangeRecord>> {
         let (inbound_exchange_idx, inbound_exchange) =
             if let Some(id) = self.inbound_exchanges.first() {
@@ -117,6 +127,13 @@ impl<'a> RecordHandler<'a> {
             } else {
                 return Err(RecordHandlerError::InboundExhcnagesIsEmpty.into());
             };
+
+        let max_wait = if let Some(max_wait) = max_wait {
+            max_wait
+        } else {
+            // use 100 years
+            chrono::Duration::days(365 * 100)
+        };
 
         let res = tokio::time::timeout(max_wait.to_std()?, async {
             loop {
@@ -172,7 +189,7 @@ impl<'a> RecordHandler<'a> {
                         }));
                     }
                     requests::GetNextRecordResponse::NoneAvailable => {
-                        tokio::time::sleep(chrono::Duration::milliseconds(100).to_std()?).await;
+                        tokio::time::sleep(self.none_available_wait_time_in_ms.to_std()?).await;
                         continue;
                     }
                     requests::GetNextRecordResponse::NoneLeft => {
@@ -187,14 +204,43 @@ impl<'a> RecordHandler<'a> {
     }
 
     pub fn complete_record(&mut self, rec: ExchangeRecord) -> Result<()> {
+        let tracked_rec = if let Some(tracked_rec) = self.tracked_records.remove(&rec.record_id) {
+            tracked_rec
+        } else {
+            return Err(
+                RecordHandlerError::UnableToFindTrackedRecord(rec.record_id.clone()).into(),
+            );
+        };
+
+        tracked_rec.ct.cancel();
+
         Ok(())
     }
 
-    pub fn send_record(
+    pub async fn send_record_to_outbound_exchange(
         &mut self,
+        record_id: u64,
         record: arrow::array::RecordBatch,
         table_aliases: Vec<Vec<String>>,
-    ) {
+    ) -> Result<()> {
+        let outbound_exchange = if let Some(id) = &self.outbound_exchange {
+            id.clone()
+        } else {
+            return Err(RecordHandlerError::OutboundExchangeIsNone.into());
+        };
+
+        requests::SendRecordRequest::send_record_request(
+            record_id.clone(),
+            record,
+            table_aliases.clone(),
+            outbound_exchange.operator_instance_id.clone(),
+            outbound_exchange.worker_id.clone(),
+            self.pipe,
+            self.msg_reg.clone(),
+        )
+        .await?;
+
+        Ok(())
     }
 
     async fn find_inbound_exchanges(&mut self, ct: CancellationToken) -> Result<()> {

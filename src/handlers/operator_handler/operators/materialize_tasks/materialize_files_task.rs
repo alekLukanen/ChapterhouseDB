@@ -5,6 +5,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, error};
 use uuid::Uuid;
 
+use crate::handlers::exchange_handlers;
 use crate::handlers::message_handler::messages;
 use crate::handlers::message_handler::messages::message::{Message, MessageName};
 use crate::handlers::message_handler::{MessageRegistry, Pipe};
@@ -14,7 +15,7 @@ use crate::handlers::{
     operator_handler::{
         operator_handler_state::OperatorInstanceConfig,
         operators::{
-            operator_task_trackers::RestrictedOperatorTaskTracker, record_utils, requests,
+            operator_task_trackers::RestrictedOperatorTaskTracker, record_utils,
             traits::TaskBuilder, ConnectionRegistry,
         },
     },
@@ -38,9 +39,7 @@ struct MaterializeFilesTask {
     operator_pipe: Pipe,
     msg_reg: Arc<MessageRegistry>,
     conn_reg: Arc<ConnectionRegistry>,
-
-    exchange_worker_id: Option<u128>,
-    exchange_operator_instance_id: Option<u128>,
+    msg_router_state: Arc<Mutex<MessageRouterState>>,
 }
 
 impl MaterializeFilesTask {
@@ -50,6 +49,7 @@ impl MaterializeFilesTask {
         operator_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
         conn_reg: Arc<ConnectionRegistry>,
+        msg_router_state: Arc<Mutex<MessageRouterState>>,
     ) -> MaterializeFilesTask {
         MaterializeFilesTask {
             operator_instance_config: op_in_config,
@@ -57,8 +57,7 @@ impl MaterializeFilesTask {
             operator_pipe,
             msg_reg,
             conn_reg,
-            exchange_worker_id: None,
-            exchange_operator_instance_id: None,
+            msg_router_state,
         }
     }
 
@@ -83,75 +82,42 @@ impl MaterializeFilesTask {
         // get the default connection
         let storage_conn = self.conn_reg.get_operator("default")?;
 
-        // find the exchange
+        let query_uuid_id = Uuid::from_u128(self.operator_instance_config.query_id.clone());
+
         let ref mut operator_pipe = self.operator_pipe;
-        let req = requests::IdentifyExchangeRequest::request_inbound_exchanges(
+        let mut rec_handler = exchange_handlers::record_handler::RecordHandler::initiate(
+            ct.child_token(),
             &self.operator_instance_config,
             operator_pipe,
             self.msg_reg.clone(),
-        );
-        tokio::select! {
-            resp = req => {
-                match resp {
-                    Ok(resp) => {
-                        if resp.len() != 1 {
-                            return Err(MaterializeFilesTaskError::MoreThanOneExchangeIsCurrentlyNotImplemented.into());
-                        }
-                        let resp = resp.get(0).unwrap();
-                        self.exchange_operator_instance_id = Some(resp.exchange_operator_instance_id);
-                        self.exchange_worker_id = Some(resp.exchange_worker_id);
-                    }
-                    Err(err) => {
-                        return Err(err);
-                    }
-                }
-            }
-            _ = ct.cancelled() => {
-                return Ok(());
-            }
-        }
-
-        assert!(self.exchange_operator_instance_id.is_some());
-        assert!(self.exchange_worker_id.is_some());
-
-        let query_uuid_id = Uuid::from_u128(self.operator_instance_config.query_id.clone());
+            self.msg_router_state.clone(),
+        )
+        .await?;
 
         // loop over all records in the exchange
         loop {
-            let resp = requests::GetNextRecordRequest::get_next_record_request(
-                self.operator_instance_config.operator.id.clone(),
-                self.exchange_operator_instance_id.unwrap().clone(),
-                self.exchange_worker_id.unwrap().clone(),
-                operator_pipe,
-                self.msg_reg.clone(),
-            )
-            .await?;
+            let exchange_rec = rec_handler.next_record(ct.child_token(), None).await?;
 
-            match &resp {
-                requests::GetNextRecordResponse::Record {
-                    record_id,
-                    record,
-                    table_aliases,
-                } => {
+            match exchange_rec {
+                Some(exchange_rec) => {
                     debug!(
-                        record_id = record_id,
-                        record_num_rows = record.num_rows(),
+                        record_id = exchange_rec.record_id,
+                        record_num_rows = exchange_rec.record.num_rows(),
                         "received record"
                     );
-                    // TODO: implement heartbeat for record processing
                     // TODO: use thread-pool for record operations
                     // evalute the expressions for each column and materialize the result
                     // to a parquet file
                     let proj_rec = record_utils::project_record(
                         &self.materialize_file_config.fields,
-                        record.clone(),
-                        table_aliases,
+                        exchange_rec.record.clone(),
+                        &exchange_rec.table_aliases,
                     )?;
 
                     // materialize the projected record
                     let mut rec_path_buf = PathBuf::from("/query_results");
                     rec_path_buf.push(format!("{}", query_uuid_id));
-                    rec_path_buf.push(format!("rec_{}.parquet", record_id));
+                    rec_path_buf.push(format!("rec_{}.parquet", exchange_rec.record_id));
                     let rec_path = if let Some(rec_path) = rec_path_buf.to_str() {
                         rec_path
                     } else {
@@ -176,23 +142,11 @@ impl MaterializeFilesTask {
                     arrow_parquet_writer.close().await?;
 
                     // confirm processing of the record
-                    requests::OperatorCompletedRecordProcessingRequest::request(
-                        self.operator_instance_config.operator.id.clone(),
-                        record_id.clone(),
-                        self.exchange_operator_instance_id.unwrap().clone(),
-                        self.exchange_worker_id.unwrap().clone(),
-                        operator_pipe,
-                        self.msg_reg.clone(),
-                    )
-                    .await?;
+                    rec_handler.complete_record(exchange_rec)?;
                 }
-                requests::GetNextRecordResponse::NoneLeft => {
+                None => {
                     debug!("complete materialization; read all records from the exchange");
                     break;
-                }
-                requests::GetNextRecordResponse::NoneAvailable => {
-                    debug!("exchange does not have any record available; waiting 100 ms");
-                    tokio::time::sleep(chrono::Duration::milliseconds(100).to_std()?).await;
                 }
             }
         }
@@ -230,7 +184,7 @@ impl TaskBuilder for MaterializeFilesTaskBuilder {
         operator_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
         conn_reg: Arc<ConnectionRegistry>,
-        _: Arc<Mutex<MessageRouterState>>,
+        msg_router_state: Arc<Mutex<MessageRouterState>>,
         tt: &mut RestrictedOperatorTaskTracker,
         ct: tokio_util::sync::CancellationToken,
     ) -> Result<(
@@ -244,6 +198,7 @@ impl TaskBuilder for MaterializeFilesTaskBuilder {
             operator_pipe,
             msg_reg.clone(),
             conn_reg.clone(),
+            msg_router_state.clone(),
         );
 
         let consumer = op.consumer();
