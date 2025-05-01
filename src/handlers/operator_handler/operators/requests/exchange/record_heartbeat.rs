@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use thiserror::Error;
-use tracing::{debug, error};
+use tracing::debug;
 
 use crate::handlers::{
     message_handler::{
@@ -14,12 +13,6 @@ use crate::handlers::{
     },
     operator_handler::operators::requests::retry,
 };
-
-#[derive(Debug, Error)]
-pub enum RecordHeartbeatRequestError {
-    #[error("received error response: {0}")]
-    ReceivedErrorResponse(String),
-}
 
 #[derive(PartialEq)]
 pub enum RecordHeartbeatResponse {
@@ -82,7 +75,7 @@ impl<'a> RecordHeartbeatRequest<'a> {
             .send_request(Request {
                 msg: req_msg,
                 expect_response_msg_name: MessageName::ExchangeRecordHeartbeat,
-                timeout: chrono::Duration::seconds(3),
+                timeout: chrono::Duration::milliseconds(250),
             })
             .await?;
 

@@ -7,12 +7,9 @@ use tracing::debug;
 use crate::handlers::message_handler::messages;
 use crate::handlers::message_handler::messages::message::{Message, MessageName};
 use crate::handlers::message_handler::{MessageRegistry, Pipe, Request};
-use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
 
 #[derive(Debug, Error)]
 pub enum IdentifyExchangeRequestError {
-    #[error("operator type not implemented: {0}")]
-    OperatorTypeNotImplemented(String),
     #[error("received the wrong message type")]
     ReceivedTheWrongMessageType,
     #[error("received multiple operator instances for the exchange")]

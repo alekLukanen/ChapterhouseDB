@@ -8,12 +8,11 @@ macro_rules! retry_request {
                     return Ok(val);
                 }
                 Err(err) => {
-                    error!("{:?}", err);
                     last_err = Some(err);
 
-                    tokio::time::sleep(std::time::Duration::from_secs(std::cmp::min(
+                    tokio::time::sleep(std::time::Duration::from_millis(std::cmp::min(
                         (retry_idx + 1) * $interval_in_millis as u64,
-                        5,
+                        1,
                     )))
                     .await;
                 }

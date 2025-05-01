@@ -55,7 +55,9 @@ and runs every few seconds.
     which the router receives and handles. The send will contain the message the operator wants to 
     pass. By structuring the message passing in a request pattern I can add support for routing exceptions
     such as not being able to route the message the operator instance. The execution context should 
-    have a method called `send` which returns a `SendResponse` enum which will either be an Ok or Err.
+    have a method called `send` which returns a `SendResponse` enum which will either be an Ok or Err. The
+    `send` method should also handle waiting for a message based on how long the caller expects the response
+    to take.
 - [ ] Harden the operator instance liveness tracking.
   - [ ] Implement a method for killing a query. It should be able to send out messages to all of the 
   operator instances telling them to stop running.

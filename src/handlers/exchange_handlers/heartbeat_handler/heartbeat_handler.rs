@@ -4,7 +4,7 @@ use anyhow::Result;
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use crate::handlers::{
@@ -137,6 +137,7 @@ impl RecordHeartbeatHandler {
             match resp {
                 Ok(resp) => match resp {
                     requests::exchange::RecordHeartbeatResponse::Ok => {
+                        info!("received ok response");
                         continue;
                     }
                     requests::exchange::RecordHeartbeatResponse::Error(err) => {
@@ -145,6 +146,9 @@ impl RecordHeartbeatHandler {
                     }
                 },
                 Err(err) => {
+                    if ct.is_cancelled() {
+                        break;
+                    }
                     self.request_runtime_errors += 1;
                     error!("{}", err);
 
