@@ -2,8 +2,8 @@
 A simple distributed SQL query engine written in Rust. Currently this project
 is in early development but the end goals is to create a SQL based development
 environment where engineers can deploy Rust data processing applications connected
-and operated using SQL. You can use Rust to handle reading data from API's, transforming
-complex data types, etc. And you use SQL to clean, move and store data.
+and operated using SQL. You will use Rust to handle reading data from API's, transforming
+complex data types, etc. And you will use SQL to clean, move and store data.
 
 ![Query TUI](./imgs/query_tui_example.png)
 
