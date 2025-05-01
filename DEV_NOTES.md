@@ -31,20 +31,43 @@ able to write data to Minio just like it can write to the file system.
 the operator will construct a handler which pings the exchange with a new heartbeat every 
 (heartbeat limit)/2 seconds. This will allow the record to be re-queued if the worker fails to 
 process it. Then in the exchange make sure that the record re-queuing process is implemented
-and runs every few seconds. 
+and runs every few seconds.
+- [ ] Improve the message passing construct. 
+  - [ ] Each operator should be given an "execution context" which stores all communication 
+    related dependencies. 
+  - [ ] Add the operator id to the message
+  - [ ] The message router handler should be operator and operator instance aware. When registering an 
+    internal subscriber you will provide the execution context which will allow you to subscribe
+    to messages. The router will then know about subscribers based on their operator and operator
+    instance ids.
+  - [ ] The message router handler should be able to communicate with other workers and identify
+    where an operator instance exists. If the operator instance is provided on a message but a worker 
+    id isn't provided then the handler will first send a message to each worker asking if it has the
+    operator instance. The worker with the operator instance will send back a true or false message if 
+    it has the operator instance. The router will then send the message to the worker that first responded
+    back with yes. And the location of that operator instance will be cached for later use. The next time
+    a message is requested to be sent to that operator instance the router will route the message to that
+    worker. That workers router will either route it to the operator instance or if that operator instance
+    doesn't exist it will send back an "unroutable message" response message with the message id. The 
+    router will then perform the operator instance search again before sending the message to the worker
+    with the operator instance.
+  - [ ] Update the message passing request workflow such that the operator can perform a send operation
+    which the router receives and handles. The send will contain the message the operator wants to 
+    pass. By structuring the message passing in a request pattern I can add support for routing exceptions
+    such as not being able to route the message the operator instance. The execution context should 
+    have a method called `send` which returns a `SendResponse` enum which will either be an Ok or Err.
 - [ ] Harden the operator instance liveness tracking.
   - [ ] Implement a method for killing a query. It should be able to send out messages to all of the 
   operator instances telling them to stop running.
   - [ ] Implement operator instance heartbeat. The heartbeat will ping the query handler every few seconds
   to tell it that it is alive. The query handler will then need to react to cases where the heartbeat 
-  hasn't been seen for a period of time. The query handler should response back will a terminate response
+  hasn't been seen for a period of time. The query handler should response back with a terminate response
   if the query has completed for any reason.
   - [ ] Implement operator instance restarts such that when an operator instance misses a heartbeat
   it will be restarted.
   - [ ] If an exchange's heartbeat hasn't been seen for a period of time then kill the whole query.
 - [ ] Improve query scheduling
   - [ ] Make sure that a query doesn't start until there is enough room in the cluster for it to start.
-  - [ ] The operator handler 
 - [ ] Materializing files should be be able to compact the records into a larger parquet file
 with a max number of row groups and rows in each group. The task should be
 able to take many records from the exchange until it has enough to fit into a row group,

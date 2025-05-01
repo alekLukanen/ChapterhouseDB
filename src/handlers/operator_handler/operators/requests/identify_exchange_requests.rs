@@ -148,7 +148,7 @@ impl<'a> IdentifyExchangeRequest<'a> {
             .send_request(Request {
                 msg,
                 expect_response_msg_name: MessageName::Ping,
-                timeout: chrono::Duration::seconds(10),
+                timeout: chrono::Duration::seconds(3),
             })
             .await?;
 
