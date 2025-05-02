@@ -4,6 +4,7 @@
 ```
 ffmpeg -i vid_for_gif.webm -vf "fps=10,scale=1600:-1:flags=lanczos,palettegen" -y palette.png
 ffmpeg -i vid_for_gif.webm -i palette.png -filter_complex "fps=10,scale=1600:-1:flags=lanczos[x];[x][1:v]paletteuse" -y output.gif
+gifsicle -O3 --colors 128 output.gif > optimized.gif
 ```
 
 
