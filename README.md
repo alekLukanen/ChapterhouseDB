@@ -99,6 +99,9 @@ that connection.
     - [ ] CSV
     - [ ] JSON
   - [ ] Read from table
+- [ ] Functions
+  - [ ] User-defined functions
+  - [ ] Standard SQL functions
 
 
 ## 🛠 Architecture
