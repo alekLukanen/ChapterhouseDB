@@ -143,7 +143,9 @@ deploy read_from_my_special_api(1000, '1 minute') as special_api_stream;
 
 -- start a query that subscribes to that function
 create table filtered_api_stream as (
-  select id, lower(message) as lower_message, created_ts from batch(deploy.special_api_stream, 10_000, '5 seconds')
+  select 
+    id, lower(message) as lower_message, created_ts 
+  from batch(deploy.special_api_stream, 10_000, '5 seconds')
     where created_ts > now() - interval '5 minutes'
 );
 ```
