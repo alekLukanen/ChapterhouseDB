@@ -187,6 +187,7 @@ impl RecordHandler {
                                 ct: tt_ct,
                             },
                         );
+
                         return Ok(Some(ExchangeRecord {
                             record_id,
                             record,

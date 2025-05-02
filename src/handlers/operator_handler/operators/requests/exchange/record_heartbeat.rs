@@ -74,7 +74,7 @@ impl<'a> RecordHeartbeatRequest<'a> {
             .pipe
             .send_request(Request {
                 msg: req_msg,
-                expect_response_msg_name: MessageName::ExchangeRecordHeartbeat,
+                expect_response_msg_name: MessageName::CommonGenericResponse,
                 timeout: chrono::Duration::milliseconds(250),
             })
             .await?;

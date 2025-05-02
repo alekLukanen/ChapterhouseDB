@@ -4,7 +4,7 @@ use anyhow::Result;
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info};
+use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 use crate::handlers::{
@@ -24,11 +24,15 @@ pub enum RecordHeartbeatHandlerError {
 
 pub struct RecordHeartbeatHandler {
     // working on behalf of
+    query_id: u128,
     operator_id: String,
     // communicating with
     exchange_operator_instance_id: u128,
     exchange_worker_id: u128,
     record_id: u64,
+
+    last_heartbeat_confirmation: Option<chrono::DateTime<chrono::Utc>>,
+    max_heartbeat_interval: chrono::Duration,
 
     heartbeat_interval_in_ms: chrono::TimeDelta,
     error_delay_in_msg: chrono::TimeDelta,
@@ -59,19 +63,19 @@ impl RecordHeartbeatHandler {
         pipe.set_sent_from_operation_id(subscriber_operator_id.clone());
 
         msg_router_state.lock().await.add_internal_subscriber(
-            Box::new(HeartbeatHandlerSubscriber {
-                sender,
-                msg_reg: msg_reg.clone(),
-            }),
+            Box::new(HeartbeatHandlerSubscriber { sender }),
             subscriber_operator_id.clone(),
         );
 
         RecordHeartbeatHandler {
+            query_id,
             operator_id,
             exchange_operator_instance_id,
             exchange_worker_id,
             record_id,
             subscriber_operator_id,
+            last_heartbeat_confirmation: None,
+            max_heartbeat_interval: chrono::Duration::seconds(1),
             heartbeat_interval_in_ms: chrono::Duration::milliseconds(100),
             error_delay_in_msg: chrono::Duration::milliseconds(100),
             request_runtime_errors: 0,
@@ -111,6 +115,7 @@ impl RecordHeartbeatHandler {
     }
 
     pub async fn inner_async_main(&mut self, ct: CancellationToken) -> Result<()> {
+        let start_time = chrono::Utc::now();
         loop {
             if self.request_runtime_errors >= self.max_request_runtime_errors {
                 return Err(
@@ -137,8 +142,7 @@ impl RecordHeartbeatHandler {
             match resp {
                 Ok(resp) => match resp {
                     requests::exchange::RecordHeartbeatResponse::Ok => {
-                        info!("received ok response");
-                        continue;
+                        debug!("heartbeat ok");
                     }
                     requests::exchange::RecordHeartbeatResponse::Error(err) => {
                         error!("error from exchange: {}", err);
@@ -156,6 +160,29 @@ impl RecordHeartbeatHandler {
                 }
             }
 
+            if let Some(last_heartbeat_confirmation) = self.last_heartbeat_confirmation {
+                if chrono::Utc::now().signed_duration_since(last_heartbeat_confirmation)
+                    > self.max_heartbeat_interval
+                {
+                    warn!(
+                        query_id = self.query_id.clone(),
+                        operator_id = self.operator_id,
+                        record_id = self.record_id,
+                        "record heartbeat passed allowed interval"
+                    );
+                    break;
+                }
+            } else if chrono::Utc::now().signed_duration_since(start_time)
+                > self.max_heartbeat_interval
+            {
+                warn!(
+                    query_id = self.query_id.clone(),
+                    operator_id = self.operator_id,
+                    record_id = self.record_id,
+                    "record hearbeat never delivered"
+                );
+            }
+
             tokio::time::sleep(self.heartbeat_interval_in_ms.to_std()?).await;
         }
         Ok(())
@@ -168,7 +195,6 @@ impl RecordHeartbeatHandler {
 #[derive(Debug, Clone)]
 pub struct HeartbeatHandlerSubscriber {
     sender: mpsc::Sender<Message>,
-    msg_reg: Arc<MessageRegistry>,
 }
 
 impl Subscriber for HeartbeatHandlerSubscriber {}

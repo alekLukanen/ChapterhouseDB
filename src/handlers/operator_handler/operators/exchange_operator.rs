@@ -5,7 +5,7 @@ use anyhow::Result;
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use crate::handlers::message_handler::messages;
 use crate::handlers::message_handler::messages::exchange::ExchangeRequests;
@@ -81,7 +81,7 @@ impl ExchangeOperator {
         let record_pool = RecordPool::new(
             outbound_producer_ids,
             RecordPoolConfig {
-                max_heartbeat_interval: chrono::Duration::seconds(10),
+                max_heartbeat_interval: chrono::Duration::seconds(1),
             },
         );
 
@@ -254,6 +254,10 @@ impl ExchangeOperator {
                 self.handle_operator_status_change(msg).await?;
                 Ok(true)
             }
+            MessageName::ExchangeRecordHeartbeat => {
+                self.handle_exchange_record_heartbeat(msg).await?;
+                Ok(true)
+            }
             _ => Ok(false),
         }
     }
@@ -266,6 +270,30 @@ impl ExchangeOperator {
         self.router_pipe.send(resp_msg).await?;
 
         // TODO: do some cleanup here...
+        Ok(())
+    }
+
+    async fn handle_exchange_record_heartbeat(&mut self, msg: &Message) -> Result<()> {
+        let cast_msg: &messages::exchange::RecordHeartbeat = self.msg_reg.try_cast_msg(msg)?;
+        match cast_msg {
+            messages::exchange::RecordHeartbeat::Ping {
+                operator_id,
+                record_id,
+            } => {
+                info!(
+                    operator_id = operator_id,
+                    record_id = record_id,
+                    "updating reserved record heartbeat"
+                );
+
+                self.record_pool
+                    .update_reserved_record_heartbeat(operator_id, record_id);
+
+                self.router_pipe
+                    .send(msg.reply(Box::new(messages::common::GenericResponse::Ok)))
+                    .await?;
+            }
+        }
         Ok(())
     }
 
@@ -436,6 +464,7 @@ impl MessageConsumer for ExchangeOperatorSubscriber {
             MessageName::ExchangeOperatorStatusChange => true,
             MessageName::OperatorShutdown => true,
             MessageName::CommonGenericResponse => true,
+            MessageName::ExchangeRecordHeartbeat => true,
             _ => false,
         }
     }
@@ -602,14 +631,14 @@ impl RecordPool {
         }
     }
 
-    fn update_reserved_record_heartbeat(&mut self, operator_id: &String, record_id: u64) {
+    fn update_reserved_record_heartbeat(&mut self, operator_id: &String, record_id: &u64) {
         self.operator_record_queues
             .iter_mut()
             .filter(|item| item.operator_id == *operator_id)
             .for_each(|item| {
                 item.records_reserved_by_operator
                     .iter_mut()
-                    .filter(|item2| item2.1.record_id == record_id)
+                    .filter(|item2| item2.1.record_id == *record_id)
                     .take(1)
                     .for_each(|item2| {
                         item2.1.last_heartbeat_time = Some(chrono::Utc::now());
