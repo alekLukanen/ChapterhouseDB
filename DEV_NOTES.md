@@ -1,4 +1,12 @@
 
+## How to Create gif
+
+```
+ffmpeg -i vid_for_gif.webm -vf "fps=10,scale=1600:-1:flags=lanczos,palettegen" -y palette.png
+ffmpeg -i vid_for_gif.webm -i palette.png -filter_complex "fps=10,scale=1600:-1:flags=lanczos[x];[x][1:v]paletteuse" -y output.gif
+```
+
+
 ## Next work
 
 - [X] Implement computation of the where filter and projection expressions. For each Arrow record

@@ -5,7 +5,7 @@ environment where engineers can deploy Rust data processing applications connect
 and operated using SQL. You will use Rust to handle reading data from API's, transforming
 complex data types, etc. And you will use SQL to clean, move and store data.
 
-![Query TUI](./imgs/query_tui_example.png)
+![Query TUI](./imgs/query_tui_example.gif)
 
 
 ## Running the Base System Using Docker
