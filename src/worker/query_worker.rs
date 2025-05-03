@@ -6,47 +6,27 @@ use tokio_util::task::TaskTracker;
 use tracing::{error, info};
 use uuid::Uuid;
 
+use crate::config::WorkerConfig;
 use crate::handlers::message_handler::{ConnectionPoolHandler, MessageRegistry};
 use crate::handlers::message_router_handler::MessageRouterHandler;
-use crate::handlers::operator_handler::operators;
-use crate::handlers::operator_handler::{OperatorHandler, TotalOperatorCompute};
+use crate::handlers::operator_handler::operators::{self, ConnectionRegistry};
+use crate::handlers::operator_handler::OperatorHandler;
 use crate::handlers::query_handler::{QueryDataHandler, QueryHandler};
-
-pub struct QueryWorkerConfig {
-    address: String,
-    connect_to_addresses: Vec<String>,
-    allowed_compute: TotalOperatorCompute,
-    conn_reg: Arc<operators::ConnectionRegistry>,
-}
-
-impl QueryWorkerConfig {
-    pub fn new(
-        address: String,
-        connect_to_addresses: Vec<String>,
-        allowed_compute: TotalOperatorCompute,
-        conn_reg: operators::ConnectionRegistry,
-    ) -> QueryWorkerConfig {
-        QueryWorkerConfig {
-            address,
-            connect_to_addresses,
-            allowed_compute,
-            conn_reg: Arc::new(conn_reg),
-        }
-    }
-}
 
 pub struct QueryWorker {
     worker_id: u128,
-    config: QueryWorkerConfig,
+    config: WorkerConfig,
+    conn_reg: Arc<ConnectionRegistry>,
     cancelation_token: CancellationToken,
 }
 
 impl QueryWorker {
-    pub fn new(config: QueryWorkerConfig) -> QueryWorker {
+    pub fn new(config: WorkerConfig, conn_reg: Arc<ConnectionRegistry>) -> QueryWorker {
         let ct = CancellationToken::new();
         return QueryWorker {
             worker_id: Uuid::new_v4().as_u128(),
             config,
+            conn_reg,
             cancelation_token: ct,
         };
     }
@@ -68,12 +48,12 @@ impl QueryWorker {
 
         let msg_reg = Arc::new(MessageRegistry::new());
         let op_reg = Arc::new(operators::build_default_operator_task_registry()?);
-        let conn_reg = self.config.conn_reg.clone();
+        let conn_reg = self.conn_reg.clone();
 
         // Connect Pool and Router ////////////////////////
         let (mut connection_pool_handler, connection_msg_pipe) = ConnectionPoolHandler::new(
             self.worker_id,
-            self.config.address.clone(),
+            format!("0.0.0.0:{}", self.config.port),
             self.config.connect_to_addresses.clone(),
             msg_reg.clone(),
         );
@@ -97,7 +77,7 @@ impl QueryWorker {
             msg_reg.clone(),
             op_reg.clone(),
             conn_reg.clone(),
-            self.config.allowed_compute.clone(),
+            self.config.operator_handler_config.compute.clone(),
         )
         .await;
 

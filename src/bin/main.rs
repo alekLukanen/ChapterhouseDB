@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::{anyhow, Result};
 use clap;
 use tracing::error;
@@ -7,7 +9,7 @@ use chapterhouseqe::{
     config::WorkerConfig,
     handlers::operator_handler::{operators, TotalOperatorCompute},
     tui::WorkerArgs,
-    worker::{QueryWorker, QueryWorkerConfig},
+    worker::QueryWorker,
 };
 
 use clap::Parser;
@@ -27,17 +29,7 @@ fn main() -> Result<()> {
     let mut conn_reg = operators::ConnectionRegistry::new();
     conn_reg.add_worker_connections(&worker_config)?;
 
-    let mut worker = QueryWorker::new(QueryWorkerConfig::new(
-        format!("0.0.0.0:{}", worker_config.port),
-        worker_config.connect_to_addresses,
-        TotalOperatorCompute {
-            instances: 10,
-            memory_in_mib: 1 << 12, // 4096 mebibytes
-            cpu_in_thousandths: 4_000,
-        },
-        conn_reg,
-    ));
-
+    let mut worker = QueryWorker::new(worker_config, Arc::new(conn_reg));
     match worker.start() {
         Ok(_) => Ok(()),
         Err(e) => {

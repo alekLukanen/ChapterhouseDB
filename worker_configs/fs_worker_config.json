@@ -11,5 +11,15 @@
         }
       }
     }
-  ]
+  ],
+  "enable_query_handler": false,
+  "enable_query_data_handler": false,
+  "enable_operator_handler": true,
+  "operator_handler_config": {
+    "compute": {
+      "instances": 10,
+      "memory_in_mib": 4069,
+      "cpu_in_thousandths": 4000
+    }
+  }
 }

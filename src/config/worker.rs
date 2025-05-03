@@ -2,6 +2,8 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::handlers::operator_handler::TotalOperatorCompute;
+
 #[derive(Debug, Error)]
 pub enum WorkerConfigError {
     #[error("validation failed: {0}")]
@@ -18,6 +20,11 @@ pub struct WorkerConfig {
     pub connect_to_addresses: Vec<String>,
     /// Connections
     pub connections: Vec<ConnectionConfig>,
+    /// Persistent operators
+    pub enable_query_handler: bool,
+    pub enable_query_data_handler: bool,
+    pub enable_operator_handler: bool,
+    pub operator_handler_config: OperatorHandlerConfig,
 }
 
 impl WorkerConfig {
@@ -78,6 +85,11 @@ impl WorkerConfig {
         };
         Ok(log_level)
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OperatorHandlerConfig {
+    pub compute: TotalOperatorCompute,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
