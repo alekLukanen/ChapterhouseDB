@@ -69,7 +69,7 @@ impl Connection {
         msg_reg: Arc<MessageRegistry>,
         is_inbound: bool,
     ) -> (Connection, ConnectionComm) {
-        let (pipe, sender_to_conn) = Pipe::new_with_existing_sender(sender, 1);
+        let (pipe, sender_to_conn) = Pipe::new_with_existing_sender(sender, 10);
         let conn = Connection {
             worker_id,
             stream_id: Uuid::new_v4().as_u128(),

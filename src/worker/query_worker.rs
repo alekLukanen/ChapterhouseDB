@@ -62,24 +62,6 @@ impl QueryWorker {
             MessageRouterHandler::new(self.worker_id.clone(), connection_msg_pipe, msg_reg.clone());
 
         // add internal subscribers
-        let mut query_handler =
-            QueryHandler::new(message_router_state.clone(), msg_reg.clone()).await;
-
-        let mut query_data_handler = QueryDataHandler::new(
-            message_router_state.clone(),
-            msg_reg.clone(),
-            conn_reg.clone(),
-        )
-        .await;
-
-        let mut operator_handler = OperatorHandler::new(
-            message_router_state.clone(),
-            msg_reg.clone(),
-            op_reg.clone(),
-            conn_reg.clone(),
-            self.config.operator_handler_config.compute.clone(),
-        )
-        .await;
 
         let conn_pool_ct = self.cancelation_token.child_token();
         tt.spawn(async move {
@@ -95,26 +77,51 @@ impl QueryWorker {
             }
         });
 
-        let query_handler_ct = self.cancelation_token.child_token();
-        tt.spawn(async move {
-            if let Err(err) = query_handler.async_main(query_handler_ct).await {
-                error!("{:?}", err);
-            }
-        });
+        if self.config.enable_query_handler {
+            let mut query_handler =
+                QueryHandler::new(message_router_state.clone(), msg_reg.clone()).await;
 
-        let query_data_handler_ct = self.cancelation_token.child_token();
-        tt.spawn(async move {
-            if let Err(err) = query_data_handler.async_main(query_data_handler_ct).await {
-                error!("{:?}", err);
-            }
-        });
+            let query_handler_ct = self.cancelation_token.child_token();
+            tt.spawn(async move {
+                if let Err(err) = query_handler.async_main(query_handler_ct).await {
+                    error!("{:?}", err);
+                }
+            });
+        }
 
-        let operator_handler_ct = self.cancelation_token.child_token();
-        tt.spawn(async move {
-            if let Err(err) = operator_handler.async_main(operator_handler_ct).await {
-                error!("{:?}", err);
-            }
-        });
+        if self.config.enable_query_data_handler {
+            let mut query_data_handler = QueryDataHandler::new(
+                message_router_state.clone(),
+                msg_reg.clone(),
+                conn_reg.clone(),
+            )
+            .await;
+
+            let query_data_handler_ct = self.cancelation_token.child_token();
+            tt.spawn(async move {
+                if let Err(err) = query_data_handler.async_main(query_data_handler_ct).await {
+                    error!("{:?}", err);
+                }
+            });
+        }
+
+        if self.config.enable_operator_handler {
+            let mut operator_handler = OperatorHandler::new(
+                message_router_state.clone(),
+                msg_reg.clone(),
+                op_reg.clone(),
+                conn_reg.clone(),
+                self.config.operator_handler_config.compute.clone(),
+            )
+            .await;
+
+            let operator_handler_ct = self.cancelation_token.child_token();
+            tt.spawn(async move {
+                if let Err(err) = operator_handler.async_main(operator_handler_ct).await {
+                    error!("{:?}", err);
+                }
+            });
+        }
 
         // TaskTracker /////////////////////
         // wait for the cancelation token to be cancelled and all tasks to be cancelled

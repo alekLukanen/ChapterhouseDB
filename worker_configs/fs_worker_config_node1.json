@@ -13,7 +13,7 @@
     }
   ],
   "enable_query_handler": true,
-  "enable_query_data_handler": false,
+  "enable_query_data_handler": true,
   "enable_operator_handler": false,
   "operator_handler_config": {
     "compute": {

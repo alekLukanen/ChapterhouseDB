@@ -31,7 +31,7 @@ impl<'a> OperatorInstanceStatusChangeRequest<'a> {
         pipe: &'a mut Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> Result<()> {
-        debug!("request");
+        debug!("completed_request");
         let mut req = OperatorInstanceStatusChangeRequest { pipe, msg_reg };
         req.inner_completed_request().await?;
         Ok(())
@@ -42,6 +42,7 @@ impl<'a> OperatorInstanceStatusChangeRequest<'a> {
         pipe: &'a mut Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> Result<()> {
+        debug!("errored_request");
         let mut req = OperatorInstanceStatusChangeRequest { pipe, msg_reg };
         req.inner_errored_request(err).await?;
         Ok(())

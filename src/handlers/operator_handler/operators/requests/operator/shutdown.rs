@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use thiserror::Error;
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::handlers::message_handler::messages::message::{Message, MessageName};
 use crate::handlers::message_handler::{messages, MessageRegistry, Pipe, Request};
@@ -27,6 +27,7 @@ impl<'a> ShutdownRequest<'a> {
         pipe: &'a mut Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> Result<()> {
+        debug!(route_to_operation_id = route_to_operation_id, "request");
         let mut req = ShutdownRequest {
             route_to_operation_id,
             pipe,
@@ -50,7 +51,7 @@ impl<'a> ShutdownRequest<'a> {
             .send_request(Request {
                 msg,
                 expect_response_msg_name: MessageName::CommonGenericResponse,
-                timeout: chrono::Duration::seconds(10),
+                timeout: chrono::Duration::seconds(1),
             })
             .await?;
 

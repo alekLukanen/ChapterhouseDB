@@ -118,7 +118,7 @@ impl MessageRouterHandler {
         connection_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> (MessageRouterHandler, Arc<Mutex<MessageRouterState>>) {
-        let (sender, receiver) = mpsc::channel(1);
+        let (sender, receiver) = mpsc::channel(100);
         let state = Arc::new(Mutex::new(MessageRouterState::new(sender.clone())));
         let handler = MessageRouterHandler {
             worker_id,

@@ -41,7 +41,7 @@ impl ConnectionPoolHandler {
         connect_to_addresses: Vec<String>,
         msg_reg: Arc<MessageRegistry>,
     ) -> (ConnectionPoolHandler, Pipe) {
-        let (p1, p2) = Pipe::new(1);
+        let (p1, p2) = Pipe::new(10);
         let hndlr = ConnectionPoolHandler {
             worker_id,
             address,
