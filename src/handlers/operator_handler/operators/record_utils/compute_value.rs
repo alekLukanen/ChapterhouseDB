@@ -17,8 +17,6 @@ pub enum ComputeValueError {
     ExpressionTypeNotImplemented(String),
     #[error("binary operator not implemented: {0}")]
     BinaryOperatorNotImplemented(String),
-    #[error("data type not supported: {0}")]
-    DataTypeNotSupported(String),
     #[error("binary operation cast failed; left_array type={0}, right_array type={1}")]
     BinaryOperatinCastFailed(String, String),
     #[error("failed to parse {0} as an integer")]
@@ -27,8 +25,6 @@ pub enum ComputeValueError {
     FailedToParseAsAFloat(String),
     #[error("column not found: {0}")]
     ColumnNotFound(String),
-    #[error("cast failed")]
-    CastFailed,
     #[error("identifier not found: {0}")]
     IdentifierNotFound(String),
     #[error("unsupported type coersion for operation between types {0} and {0}")]

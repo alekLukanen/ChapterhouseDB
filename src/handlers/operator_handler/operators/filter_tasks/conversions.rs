@@ -1,4 +1,3 @@
-use anyhow::Error;
 use thiserror::Error;
 
 use crate::{

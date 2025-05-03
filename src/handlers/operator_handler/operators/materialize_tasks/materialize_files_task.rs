@@ -27,8 +27,6 @@ use super::config::MaterializeFilesConfig;
 pub enum MaterializeFilesTaskError {
     #[error("record path formatting returned None result")]
     RecordPathFormattingReturnedNoneResult,
-    #[error("more than one exchange is currently not implement")]
-    MoreThanOneExchangeIsCurrentlyNotImplemented,
 }
 
 #[derive(Debug)]
@@ -152,6 +150,10 @@ impl MaterializeFilesTask {
                     break;
                 }
             }
+        }
+
+        if let Err(err) = rec_handler.close().await {
+            error!("{}", err);
         }
 
         debug!(

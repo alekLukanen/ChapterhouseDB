@@ -8,7 +8,7 @@ use tokio::sync::{
 };
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use crate::handlers::message_handler::messages;
 use crate::handlers::message_handler::messages::message::{Message, MessageName};
@@ -307,8 +307,13 @@ impl MessageRouterHandler {
 
         let mut sent = false;
         for sub in subs {
+            if sub.sender.is_closed() {
+                debug!("sender is closed; skipping subscriber");
+                continue;
+            }
+
             if let Err(err) = sub.sender.send(msg.clone()).await {
-                info!("unable to send to subscriber; received error: {}", err);
+                error!("unable to send to subscriber; received error: {}", err);
             }
             sent = true;
         }

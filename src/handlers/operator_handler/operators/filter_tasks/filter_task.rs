@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use thiserror::Error;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
@@ -21,19 +20,13 @@ use crate::handlers::{
     operator_handler::{
         operator_handler_state::OperatorInstanceConfig,
         operators::{
-            operator_task_trackers::RestrictedOperatorTaskTracker, requests, traits::TaskBuilder,
+            operator_task_trackers::RestrictedOperatorTaskTracker, traits::TaskBuilder,
             ConnectionRegistry,
         },
     },
 };
 
 use super::config::FilterConfig;
-
-#[derive(Debug, Error)]
-pub enum FilterTaskError {
-    #[error("more than one exchange is currently not implement")]
-    MoreThanOneExchangeIsCurrentlyNotImplemented,
-}
 
 #[derive(Debug)]
 struct FilterTask {
@@ -42,7 +35,6 @@ struct FilterTask {
 
     operator_pipe: Pipe,
     msg_reg: Arc<MessageRegistry>,
-    conn_reg: Arc<ConnectionRegistry>,
     msg_router_state: Arc<Mutex<MessageRouterState>>,
 }
 
@@ -52,7 +44,7 @@ impl FilterTask {
         filter_config: FilterConfig,
         operator_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
-        conn_reg: Arc<ConnectionRegistry>,
+        _: Arc<ConnectionRegistry>,
         msg_router_state: Arc<Mutex<MessageRouterState>>,
     ) -> FilterTask {
         FilterTask {
@@ -60,7 +52,6 @@ impl FilterTask {
             filter_config,
             operator_pipe,
             msg_reg,
-            conn_reg,
             msg_router_state,
         }
     }
@@ -131,6 +122,10 @@ impl FilterTask {
                     break;
                 }
             }
+        }
+
+        if let Err(err) = rec_handler.close().await {
+            error!("{}", err);
         }
 
         debug!(

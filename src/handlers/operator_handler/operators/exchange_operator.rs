@@ -5,6 +5,7 @@ use anyhow::Result;
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 use tracing::{debug, error, info};
 
 use crate::handlers::message_handler::messages;
@@ -25,6 +26,8 @@ pub enum ExchangeOperatorError {
     InvalidOperatorType(String),
     #[error("operation instance id not set on message")]
     OperationInstanceIdNotSetOnMessage,
+    #[error("timed out waiting for task to close")]
+    TimedOutWaitingForTaskToClose,
 }
 
 #[derive(Debug, PartialEq)]
@@ -41,7 +44,7 @@ struct ProducerOperatorStatus {
 
 #[derive(Debug)]
 pub struct ExchangeOperator {
-    record_pool: RecordPool,
+    record_pool: Arc<Mutex<RecordPool>>,
     inbound_producer_operator_states: Vec<ProducerOperatorStatus>,
     received_all_data_from_producers: bool,
 
@@ -50,6 +53,8 @@ pub struct ExchangeOperator {
     router_pipe: Pipe,
     sender: mpsc::Sender<Message>,
     msg_reg: Arc<MessageRegistry>,
+
+    tt: TaskTracker,
 }
 
 impl ExchangeOperator {
@@ -94,7 +99,7 @@ impl ExchangeOperator {
             .collect();
 
         Ok(ExchangeOperator {
-            record_pool,
+            record_pool: Arc::new(Mutex::new(record_pool)),
             inbound_producer_operator_states: operator_statuses,
             received_all_data_from_producers: false,
             operator_instance_config: op_in_config,
@@ -102,6 +107,7 @@ impl ExchangeOperator {
             router_pipe: pipe,
             sender,
             msg_reg,
+            tt: TaskTracker::new(),
         })
     }
 
@@ -131,7 +137,23 @@ impl ExchangeOperator {
             "started exchange operator instance",
         );
 
-        let res = self.inner_async_main(ct).await;
+        let exchange_ct = ct.child_token();
+
+        let maintainer_ct = exchange_ct.clone();
+        let maintainer_record_pool = self.record_pool.clone();
+        self.tt.spawn(async move {
+            let maintainer = RecordPoolMaintainer::new(
+                maintainer_record_pool,
+                chrono::Duration::milliseconds(100),
+            );
+            if let Err(err) = maintainer.async_main(maintainer_ct).await {
+                error!("{}", err);
+            }
+        });
+
+        let res = self.inner_async_main(exchange_ct.clone()).await;
+
+        exchange_ct.cancel();
 
         let ref mut pipe = self.router_pipe;
         let status_change_res = match res {
@@ -163,6 +185,14 @@ impl ExchangeOperator {
             .lock()
             .await
             .remove_internal_subscriber(&self.operator_instance_config.id);
+
+        self.tt.close();
+        tokio::select! {
+            _ = self.tt.wait() => {},
+            _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
+                return Err(ExchangeOperatorError::TimedOutWaitingForTaskToClose.into());
+            }
+        }
 
         debug!(
             operator_task = self
@@ -287,6 +317,8 @@ impl ExchangeOperator {
                 );
 
                 self.record_pool
+                    .lock()
+                    .await
                     .update_reserved_record_heartbeat(operator_id, record_id);
 
                 self.router_pipe
@@ -336,6 +368,8 @@ impl ExchangeOperator {
         record_id: &u64,
     ) -> Result<()> {
         self.record_pool
+            .lock()
+            .await
             .operator_completed_record_processing(operator_id, record_id)?;
 
         let resp_msg = msg.reply(Box::new(
@@ -358,8 +392,11 @@ impl ExchangeOperator {
             num_rows = record.num_rows(),
             "received record",
         );
-        self.record_pool
-            .add_record(record_id.clone(), record.clone(), table_aliases.clone());
+        self.record_pool.lock().await.add_record(
+            record_id.clone(),
+            record.clone(),
+            table_aliases.clone(),
+        );
 
         let resp_msg = msg.reply(Box::new(
             messages::exchange::ExchangeRequests::SendRecordResponse {
@@ -382,7 +419,11 @@ impl ExchangeOperator {
             return Err(ExchangeOperatorError::OperationInstanceIdNotSetOnMessage.into());
         };
 
-        let rec_res = self.record_pool.get_next_record(operator_id, op_in_id)?;
+        let rec_res = self
+            .record_pool
+            .lock()
+            .await
+            .get_next_record(operator_id, op_in_id)?;
         match rec_res {
             Some((record_id, record, table_aliases)) => {
                 let resp_msg = msg.reply(Box::new(
@@ -738,5 +779,47 @@ impl RecordPool {
                     }
                 })
         })
+    }
+}
+
+////////////////////////////////////////////////
+//
+
+struct RecordPoolMaintainer {
+    record_pool: Arc<Mutex<RecordPool>>,
+    interval: chrono::TimeDelta,
+}
+
+impl RecordPoolMaintainer {
+    fn new(
+        record_pool: Arc<Mutex<RecordPool>>,
+        interval: chrono::TimeDelta,
+    ) -> RecordPoolMaintainer {
+        RecordPoolMaintainer {
+            record_pool,
+            interval,
+        }
+    }
+
+    async fn async_main(&self, exchange_ct: CancellationToken) -> Result<()> {
+        info!("started record pool maintainer");
+
+        loop {
+            tokio::select! {
+                _ = exchange_ct.cancelled() => {
+                    break;
+                }
+                _ = tokio::time::sleep(self.interval.to_std()?) => {
+                    if let Err(err) = self.record_pool.lock().await.maintain() {
+                        error!("{}", err);
+                        exchange_ct.cancel();
+                    }
+                }
+            }
+        }
+
+        info!("stopped record pool maintainer");
+
+        Ok(())
     }
 }

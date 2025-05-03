@@ -27,6 +27,8 @@ pub enum RecordHandlerError {
     UnableToFindTrackedRecord(u64),
     #[error("unable to find exchange identity {0}")]
     UnableToFindExchangeIdentity(usize),
+    #[error("timed out waiting for task to close")]
+    TimedOutWaitingForTaskToClose,
 }
 
 #[derive(Debug, Clone)]
@@ -65,7 +67,7 @@ pub struct RecordHandler {
 
     // tracking state ///////
     tracked_records: HashMap<u64, TrackedRecord>,
-    task_tracker: tokio_util::task::TaskTracker,
+    tt: tokio_util::task::TaskTracker,
     tracker_ct: CancellationToken,
     /////////////////////////
     msg_reg: Arc<MessageRegistry>,
@@ -105,7 +107,7 @@ impl RecordHandler {
             outbound_exchange_id,
             outbound_exchange: None,
             tracked_records: HashMap::new(),
-            task_tracker: tokio_util::task::TaskTracker::new(),
+            tt: tokio_util::task::TaskTracker::new(),
             tracker_ct: ct.child_token(),
             msg_reg,
             msg_router_state,
@@ -172,7 +174,7 @@ impl RecordHandler {
                         .await;
                         let tt_ct = self.tracker_ct.child_token();
                         let tt_ct_clone = tt_ct.clone();
-                        self.task_tracker.spawn(async move {
+                        self.tt.spawn(async move {
                             if let Err(err) = record_heartbeat_handler.async_main(tt_ct_clone).await
                             {
                                 error!("{}", err);
@@ -341,5 +343,23 @@ impl RecordHandler {
                 Ok(())
             }
         }
+    }
+
+    pub async fn close(&self) -> Result<()> {
+        self.tt.close();
+        tokio::select! {
+            _ = self.tt.wait() => {},
+            _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
+                return Err(RecordHandlerError::TimedOutWaitingForTaskToClose.into());
+            }
+        }
+
+        debug!(
+            query_id = self.query_id,
+            operator_id = self.operator_id,
+            "closed record handler",
+        );
+
+        Ok(())
     }
 }

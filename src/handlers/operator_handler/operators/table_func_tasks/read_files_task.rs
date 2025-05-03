@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Context, Error, Result};
+use anyhow::{Error, Result};
 use futures::StreamExt;
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -14,9 +14,6 @@ use crate::handlers::message_handler::{MessageRegistry, Pipe};
 use crate::handlers::message_router_handler::{MessageConsumer, MessageRouterState};
 use crate::handlers::operator_handler::operator_handler_state::OperatorInstanceConfig;
 use crate::handlers::operator_handler::operators::operator_task_trackers::RestrictedOperatorTaskTracker;
-use crate::handlers::operator_handler::operators::requests::{
-    IdentifyExchangeRequest, SendRecordRequest,
-};
 use crate::handlers::operator_handler::operators::traits::{TableFuncSyntaxValidator, TaskBuilder};
 use crate::handlers::operator_handler::operators::{record_utils, ConnectionRegistry};
 
@@ -127,8 +124,6 @@ pub struct ReadFilesTask {
     conn_reg: Arc<ConnectionRegistry>,
     msg_router_state: Arc<Mutex<MessageRouterState>>,
 
-    exchange_worker_id: Option<u128>,
-    exchange_operator_instance_id: Option<u128>,
     record_id: u64,
 }
 
@@ -148,8 +143,6 @@ impl ReadFilesTask {
             msg_reg,
             conn_reg,
             msg_router_state,
-            exchange_worker_id: None,
-            exchange_operator_instance_id: None,
             record_id: 0,
         }
     }
@@ -217,6 +210,10 @@ impl ReadFilesTask {
                     break;
                 }
             }
+        }
+
+        if let Err(err) = rec_handler.close().await {
+            error!("{}", err);
         }
 
         debug!(

@@ -40,7 +40,9 @@ able to write data to Minio just like it can write to the file system.
 the operator will construct a handler which pings the exchange with a new heartbeat every 
 (heartbeat limit)/2 seconds. This will allow the record to be re-queued if the worker fails to 
 process it. Then in the exchange make sure that the record re-queuing process is implemented
-and runs every few seconds.
+and runs every few hundred milliseconds.
+- [ ] Implement the `order by` operator
+- [ ] Use the Tokio thread pool for compute intensive operators
 - [ ] Improve the message passing construct. 
   - [ ] Each operator should be given an "execution context" which stores all communication 
     related dependencies. 
@@ -108,6 +110,14 @@ things that they can't find instead of returning an error. For example, if a que
 found return None instead of a query not found error.
 - [ ] Update the Connection struct in `connection.rs` so that it handles errors more cleanly.
 It should run the shutdown after the main loop before returning.
+- [ ] In the query planner you should read all of the files and pass them into the query
+  read file operator instances. Each operator instance will be responsible for a segment
+  of files. The query handler will push a message to the next read files operator instance
+  which is waiting for a file list. The read files operator instance will tell the planner
+  each time it is waiting for it's next file list. If none are left then it will exit.
+- [ ] Allow for differences in schema. If there is a difference in schema the query should 
+  be able to run and complete as long as the 
+
 
 ## TODO
 
