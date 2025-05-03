@@ -52,7 +52,10 @@ impl QueryWorker {
     }
 
     pub fn start(&mut self) -> Result<()> {
-        let runtime = tokio::runtime::Runtime::new()
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(8)
+            .enable_all()
+            .build()
             .map_err(|e| anyhow::anyhow!("Failed to create Tokio runtime: {}", e))?;
 
         runtime.block_on(self.async_main())
@@ -98,35 +101,35 @@ impl QueryWorker {
         )
         .await;
 
-        let ct = self.cancelation_token.clone();
+        let conn_pool_ct = self.cancelation_token.child_token();
         tt.spawn(async move {
-            if let Err(err) = connection_pool_handler.async_main(ct).await {
+            if let Err(err) = connection_pool_handler.async_main(conn_pool_ct).await {
                 error!("{:?}", err);
             }
         });
 
-        let message_router_ct = self.cancelation_token.clone();
+        let message_router_ct = self.cancelation_token.child_token();
         tt.spawn(async move {
             if let Err(err) = message_router.async_main(message_router_ct).await {
                 error!("{:?}", err);
             }
         });
 
-        let query_handler_ct = self.cancelation_token.clone();
+        let query_handler_ct = self.cancelation_token.child_token();
         tt.spawn(async move {
             if let Err(err) = query_handler.async_main(query_handler_ct).await {
                 error!("{:?}", err);
             }
         });
 
-        let query_data_handler_ct = self.cancelation_token.clone();
+        let query_data_handler_ct = self.cancelation_token.child_token();
         tt.spawn(async move {
             if let Err(err) = query_data_handler.async_main(query_data_handler_ct).await {
                 error!("{:?}", err);
             }
         });
 
-        let operator_handler_ct = self.cancelation_token.clone();
+        let operator_handler_ct = self.cancelation_token.child_token();
         tt.spawn(async move {
             if let Err(err) = operator_handler.async_main(operator_handler_ct).await {
                 error!("{:?}", err);

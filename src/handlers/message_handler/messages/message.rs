@@ -202,10 +202,6 @@ impl SerializedMessage {
         Ok(ser_msg)
     }
 
-    pub fn header_len() -> u32 {
-        8 + 2 + 2 + 16 + 16 + 1 + 16 + 16 + 16 + 16 + 1 + 16 + 16 + 16
-    }
-
     pub fn parse_registered_msg_id(data: &mut BytesMut) -> Result<u16> {
         let mut buf = Cursor::new(&data[..]);
         if data.len() < 4 + 8 + 2 + 2 {
@@ -293,6 +289,10 @@ impl SerializedMessage {
         } else {
             Ok(())
         }
+    }
+
+    pub fn header_len() -> u32 {
+        8 + 2 + 2 + 16 + 16 + 1 + 16 + 16 + 16 + 16 + 1 + 16 + 16 + 16
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {

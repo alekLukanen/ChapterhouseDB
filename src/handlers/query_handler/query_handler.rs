@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use super::query_handler_state::{self, QueryHandlerState, QueryHandlerStateError, Status};
@@ -89,10 +89,11 @@ impl QueryHandler {
         loop {
             tokio::select! {
                 Some(msg) = self.router_pipe.recv() => {
+                    debug!("received message: {}", msg);
                     let res = self.handle_message(msg).await;
                     if let Err(err) = res {
                         if let Some(err_state) = err.downcast_ref::<QueryHandlerStateError>() {
-                            debug!("state error: {:?}", err_state);
+                            error!("state error: {}", err_state);
                         } else {
                             return Err(err);
                         }
@@ -334,8 +335,8 @@ impl QueryHandler {
                 ..
             } => {
                 info!(
-                    "assign accepted response: query_id={}, op_in_id={}",
-                    query_id, op_instance_id
+                    "assign accepted response: worker_id={:?}, query_id={}, op_in_id={}",
+                    msg.sent_from_worker_id, query_id, op_instance_id
                 );
                 if self.state.find_query(query_id)?.status == Status::Queued {
                     self.state.update_query_status(query_id, Status::Running)?;

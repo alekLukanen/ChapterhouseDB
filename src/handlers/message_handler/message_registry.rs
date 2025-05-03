@@ -13,8 +13,6 @@ use super::messages::query::GetQueryDataRespParser;
 
 #[derive(Debug, Clone, Error)]
 pub enum MessageRegistryError {
-    #[error("incomplete message")]
-    IncompleteMessage,
     #[error("message id not in registry: {0}")]
     MessageIdNotInRegistry(u16),
     #[error("unable to cast message to expected type: {0}")]
@@ -116,7 +114,7 @@ impl MessageRegistry {
                 Ok(Some(msg))
             }
             Err(SerializedMessageError::Incomplete) => {
-                Err(MessageRegistryError::IncompleteMessage.into())
+                Err(SerializedMessageError::Incomplete.into())
             }
             Err(err) => Err(err.into()),
         }

@@ -1,0 +1,15 @@
+{
+  "log_level": "debug",
+  "port": 7001,
+  "connect_to_addresses": ["localhost:7000"],
+  "connections": [
+    {
+      "name": "default",
+      "connection_type": {
+        "Fs": {
+          "root": "./chqe-data"
+        }
+      }
+    }
+  ]
+}

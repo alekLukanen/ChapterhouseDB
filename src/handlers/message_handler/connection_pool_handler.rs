@@ -7,7 +7,7 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
-use tracing::info;
+use tracing::{error, info};
 
 use super::connection::{Connection, ConnectionComm};
 use super::message_registry::MessageRegistry;
@@ -57,6 +57,8 @@ impl ConnectionPoolHandler {
     pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
         info!("Starting Messenger...");
 
+        let connections_ct = ct.child_token();
+
         let tt = TaskTracker::new();
         let listener = TcpListener::bind(&self.address).await?;
 
@@ -66,14 +68,14 @@ impl ConnectionPoolHandler {
 
         info!("Attempting to connect to addresses");
         for cta in &self.connect_to_addresses {
-            let ct = ct.clone();
+            let conn_ct = connections_ct.child_token();
             let stream_connect_tx = stream_connect_tx.clone();
             let cta = cta.clone();
             tt.spawn(async move {
                 if let Err(err) =
-                    Self::connect_to_address(ct, stream_connect_tx, cta, 12 * 5, 1).await
+                    Self::connect_to_address(conn_ct, stream_connect_tx, cta, 12 * 5, 1).await
                 {
-                    info!("error: {}", err);
+                    error!("{}", err);
                 }
             });
         }
@@ -86,14 +88,14 @@ impl ConnectionPoolHandler {
                     match res {
                         Ok((socket, _)) => {
                             let (mut connection, connection_comm) =
-                                Connection::new(self.worker_id.clone(), socket, connection_tx.clone(), Arc::clone(&self.msg_reg), true);
+                                Connection::new(connections_ct.child_token(), self.worker_id.clone(), socket, connection_tx.clone(), Arc::clone(&self.msg_reg), true);
                             self.inbound_connections.lock().await.push(connection_comm);
 
                             // Spawn a new task to handle the connection
-                            let ct2 = ct.clone();
+                            let conn_ct = connections_ct.child_token();
                             tt.spawn(async move {
-                                if let Err(err) = connection.async_main(ct2).await {
-                                    info!("error reading from tcp socket: {}", err);
+                                if let Err(err) = connection.async_main(conn_ct).await {
+                                    error!("{:?}", err);
                                 }
                             });
                         },
@@ -103,15 +105,15 @@ impl ConnectionPoolHandler {
                     }
                 }
                 Some(new_tcpstream_connection) = stream_connect_rx.recv() => {
-                    let (mut connection, connection_comm) = Connection::new(self.worker_id, new_tcpstream_connection, connection_tx.clone(), Arc::clone(&self.msg_reg), false);
+                    let (mut connection, connection_comm) = Connection::new(connections_ct.child_token(), self.worker_id, new_tcpstream_connection, connection_tx.clone(), Arc::clone(&self.msg_reg), false);
                     connection.set_send_identification();
                     self.outbound_connections.lock().await.push(connection_comm);
 
                     // Spawn a new task to handle the connection
-                    let ct2 = ct.clone();
+                    let conn_ct = connections_ct.child_token();
                     tt.spawn(async move {
-                        if let Err(err) = connection.async_main(ct2).await {
-                            info!("error reading from tcp socket: {}", err);
+                        if let Err(err) = connection.async_main(conn_ct).await {
+                            error!("{}", err);
                         }
                         connection.cleanup();
                     });
@@ -119,8 +121,7 @@ impl ConnectionPoolHandler {
                 // message routing
                 Some(msg) = connection_rx.recv() => {
                     if let Err(err) = self.pipe.send(msg).await {
-                        info!("error: {}", err);
-                        info!("error on receive");
+                        error!("{}", err);
                     }
                 }
                 Some(msg) = self.pipe.recv() => {
@@ -131,7 +132,7 @@ impl ConnectionPoolHandler {
                             }
                             if let Err(err) = comm.sender.send(msg.clone()).await {
                                 // if there is an error close the connection
-                                info!("error: {}", err);
+                                error!("{}", err);
                                 comm.connection_ct.cancel();
                             };
                         }
@@ -142,7 +143,7 @@ impl ConnectionPoolHandler {
                             }
                             if let Err(err) = comm.sender.send(msg.clone()).await {
                                 // if there is an error close the connection
-                                info!("error: {}", err);
+                                error!("{}", err);
                                 comm.connection_ct.cancel();
                             };
                         }
@@ -161,6 +162,7 @@ impl ConnectionPoolHandler {
         info!("message handler closing...");
 
         // wait for all existing connection to close
+        connections_ct.cancel();
         tt.close();
         tokio::select! {
             _ = tt.wait() => {},
@@ -197,7 +199,7 @@ impl ConnectionPoolHandler {
                             break;
                         }
                         Err(err) => {
-                            info!("error: {}", err);
+                            error!("{}", err);
                             tokio::time::sleep(std::time::Duration::from_secs(sleep_time)).await;
                         }
                     }

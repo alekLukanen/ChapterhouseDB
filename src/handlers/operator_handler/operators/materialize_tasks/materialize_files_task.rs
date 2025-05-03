@@ -238,14 +238,7 @@ impl MessageConsumer for MaterializeFilesConsumer {
     fn consumes_message(&self, msg: &Message) -> bool {
         match msg.msg.msg_name() {
             // used to find the exchange
-            MessageName::Ping => match self.msg_reg.try_cast_msg::<messages::common::Ping>(msg) {
-                Ok(messages::common::Ping::Ping) => false,
-                Ok(messages::common::Ping::Pong) => true,
-                Err(err) => {
-                    error!("{:?}", err);
-                    false
-                }
-            },
+            MessageName::Ping => true,
             MessageName::QueryHandlerRequests => {
                 match self
                     .msg_reg

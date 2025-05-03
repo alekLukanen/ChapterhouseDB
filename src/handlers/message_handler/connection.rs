@@ -7,6 +7,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 use tracing::{debug, error};
 use uuid::Uuid;
 
@@ -49,17 +50,19 @@ impl ConnectionComm {
 pub struct Connection {
     pub worker_id: u128,
     pub stream_id: u128,
-    stream: TcpStream,
-    pipe: Pipe,
+    stream: Option<TcpStream>,
+    pipe: Option<Pipe>,
     msg_reg: Arc<MessageRegistry>,
-    buf: BytesMut,
     pub connection_ct: CancellationToken,
     send_identification_msg: bool,
     is_inbound: bool,
+
+    tt: TaskTracker,
 }
 
 impl Connection {
     pub fn new(
+        ct: CancellationToken,
         worker_id: u128,
         stream: TcpStream,
         sender: mpsc::Sender<Message>,
@@ -70,13 +73,13 @@ impl Connection {
         let conn = Connection {
             worker_id,
             stream_id: Uuid::new_v4().as_u128(),
-            stream,
-            pipe,
+            stream: Some(stream),
+            pipe: Some(pipe),
             msg_reg,
-            buf: BytesMut::with_capacity(4096),
-            connection_ct: CancellationToken::new(),
+            connection_ct: ct.child_token(),
             send_identification_msg: false,
             is_inbound,
+            tt: TaskTracker::new(),
         };
         let comm = ConnectionComm::new(conn.connection_ct.clone(), conn.stream_id, sender_to_conn);
         (conn, comm)
@@ -88,12 +91,101 @@ impl Connection {
     }
 
     pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
-        debug!(
-            stream_id = self.stream_id,
-            ip = self.stream.peer_addr()?.to_string(),
-            "new connection",
+        let pipe = self.pipe.take().expect("pipe");
+        let (sender, receiver) = pipe.split();
+
+        let stream = self.stream.take().expect("stream");
+        let ip = stream.peer_addr()?.to_string();
+        let (read_stream, write_stream) = tokio::io::split(stream);
+
+        debug!(stream_id = self.stream_id, ip = ip, "new connection",);
+
+        let read_ct = ct.clone();
+        let mut connection_reader = ConnectionReader::new(
+            self.stream_id.clone(),
+            read_stream,
+            sender,
+            self.msg_reg.clone(),
+            self.is_inbound.clone(),
         );
 
+        let write_ct = ct.clone();
+        let mut connection_writer = ConnectionWriter::new(
+            self.worker_id.clone(),
+            self.stream_id.clone(),
+            write_stream,
+            receiver,
+            self.msg_reg.clone(),
+            self.send_identification_msg,
+        );
+
+        self.tt.spawn(async move {
+            if let Err(err) = connection_reader.async_main(read_ct).await {
+                error!("{}", err);
+            }
+        });
+        self.tt.spawn(async move {
+            if let Err(err) = connection_writer.async_main(write_ct).await {
+                error!("{}", err);
+            }
+        });
+
+        self.tt.close();
+        self.tt.wait().await;
+
+        debug!("read and write closed for connection");
+
+        Ok(())
+    }
+
+    pub fn cleanup(&self) {
+        self.connection_ct.cancel();
+    }
+}
+
+////////////////////////////////////////////////////////////
+//
+
+struct ConnectionWriter {
+    worker_id: u128,
+    stream_id: u128,
+    stream: tokio::io::WriteHalf<TcpStream>,
+    receiver: mpsc::Receiver<Message>,
+    msg_reg: Arc<MessageRegistry>,
+    send_identification_msg: bool,
+}
+
+impl ConnectionWriter {
+    fn new(
+        worker_id: u128,
+        stream_id: u128,
+        stream: tokio::io::WriteHalf<TcpStream>,
+        receiver: mpsc::Receiver<Message>,
+        msg_reg: Arc<MessageRegistry>,
+        send_identification_msg: bool,
+    ) -> ConnectionWriter {
+        ConnectionWriter {
+            worker_id,
+            stream_id,
+            stream,
+            receiver,
+            msg_reg,
+            send_identification_msg,
+        }
+    }
+
+    pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
+        debug!(stream_id = self.stream_id, "new write connection",);
+
+        let res = self.async_main_inner(ct.clone()).await;
+        ct.cancel();
+
+        debug!("closed write connection");
+
+        res
+    }
+
+    pub async fn async_main_inner(&mut self, ct: CancellationToken) -> Result<()> {
         if self.send_identification_msg {
             let identity_msg = Message::new(Box::new(messages::common::Identify::Worker {
                 id: self.worker_id.clone(),
@@ -103,6 +195,73 @@ impl Connection {
         }
 
         loop {
+            tokio::select! {
+                Some(msg) = self.receiver.recv() => {
+                    debug!("sending message to connection");
+                    let msg_bytes = self.msg_reg.build_msg_bytes(msg).await?;
+                    self.stream.write_all(&msg_bytes[..]).await?;
+                },
+                _ = ct.cancelled() => {
+                    break;
+                }
+            }
+        }
+
+        debug!("closing write connection...");
+        tokio::select! {
+            _ = self.stream.shutdown() => {}
+            _ = tokio::time::sleep(chrono::Duration::seconds(5).to_std()?) => {
+                return Err(ConnectionError::TimedOutWaitingForConnectionsToClose.into());
+            }
+        }
+
+        Ok(())
+    }
+}
+
+////////////////////////////////////////////////////////////
+//
+
+struct ConnectionReader {
+    stream_id: u128,
+    stream: tokio::io::ReadHalf<TcpStream>,
+    sender: mpsc::Sender<Message>,
+    msg_reg: Arc<MessageRegistry>,
+    buf: BytesMut,
+    is_inbound: bool,
+}
+
+impl ConnectionReader {
+    fn new(
+        stream_id: u128,
+        stream: tokio::io::ReadHalf<TcpStream>,
+        sender: mpsc::Sender<Message>,
+        msg_reg: Arc<MessageRegistry>,
+        is_inbound: bool,
+    ) -> ConnectionReader {
+        ConnectionReader {
+            stream_id,
+            stream,
+            sender,
+            msg_reg,
+            buf: BytesMut::with_capacity(4096),
+            is_inbound,
+        }
+    }
+
+    pub async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
+        debug!(stream_id = self.stream_id, "new read connection",);
+
+        let res = self.async_main_inner(ct.clone()).await;
+        ct.cancel();
+
+        debug!("closed read connection");
+
+        res
+    }
+
+    pub async fn async_main_inner(&mut self, ct: CancellationToken) -> Result<()> {
+        loop {
             match self.msg_reg.build_msg(&mut self.buf).await {
                 Ok(msg) => {
                     if let Some(mut msg) = msg {
@@ -111,7 +270,8 @@ impl Connection {
                         } else {
                             msg = msg.set_outbound_stream(self.stream_id);
                         }
-                        self.pipe.send(msg).await?;
+                        debug!("received message from connection");
+                        self.sender.send(msg).await?;
                     }
                     continue;
                 }
@@ -127,8 +287,7 @@ impl Connection {
             }
 
             // end the conneciton if the other system has sent too much data
-            if self.buf.len() > 1024 * 1024 * 10 {
-                self.pipe.close_receiver();
+            if self.buf.len() > 1024 * 1024 * 500 {
                 return Err(ConnectionError::BufferReachedMaxSize.into());
             }
 
@@ -137,7 +296,6 @@ impl Connection {
                     match read_res {
                         Ok(size) => {
                             if size == 0 {
-                                self.pipe.close_receiver();
                                 if self.buf.is_empty() {
                                     break;
                                 } else {
@@ -146,17 +304,9 @@ impl Connection {
                             }
                         },
                         Err(err) => {
-                            self.pipe.close_receiver();
                             return Err(err.into())
                         },
                     }
-                },
-                Some(msg) = self.pipe.recv() => {
-                    let msg_bytes = self.msg_reg.build_msg_bytes(msg).await?;
-                    self.stream.write_all(&msg_bytes[..]).await?;
-                },
-                _ = self.connection_ct.cancelled() => {
-                    break;
                 },
                 _ = ct.cancelled() => {
                     break;
@@ -164,23 +314,6 @@ impl Connection {
             }
         }
 
-        debug!("closing connection...");
-        self.pipe.close_receiver();
-        tokio::select! {
-            res = self.stream.shutdown() => {
-                if let Err(err) = res {
-                    return Err(err.into());
-                }
-            }
-            _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
-                return Err(ConnectionError::TimedOutWaitingForConnectionsToClose.into());
-            }
-        }
-
         Ok(())
-    }
-
-    pub fn cleanup(&self) {
-        self.connection_ct.cancel();
     }
 }

@@ -443,7 +443,7 @@ impl QueryHandlerState {
                     continue;
                 };
                 let op_in_compute = operator.compute.clone();
-                if op_in.status == Status::Running || op_in.status.terminal() {
+                if op_in.status != Status::Queued {
                     continue;
                 } else if compute
                     .clone()
