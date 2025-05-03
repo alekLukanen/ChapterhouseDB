@@ -6,7 +6,7 @@ use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 
 use crate::handlers::message_handler::messages;
 use crate::handlers::message_handler::messages::exchange::ExchangeRequests;
@@ -310,12 +310,6 @@ impl ExchangeOperator {
                 operator_id,
                 record_id,
             } => {
-                info!(
-                    operator_id = operator_id,
-                    record_id = record_id,
-                    "updating reserved record heartbeat"
-                );
-
                 self.record_pool
                     .lock()
                     .await
@@ -802,7 +796,7 @@ impl RecordPoolMaintainer {
     }
 
     async fn async_main(&self, exchange_ct: CancellationToken) -> Result<()> {
-        info!("started record pool maintainer");
+        debug!("started record pool maintainer");
 
         loop {
             tokio::select! {
@@ -818,7 +812,7 @@ impl RecordPoolMaintainer {
             }
         }
 
-        info!("stopped record pool maintainer");
+        debug!("stopped record pool maintainer");
 
         Ok(())
     }

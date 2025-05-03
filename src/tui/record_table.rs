@@ -42,11 +42,9 @@ impl Debug for TableRecord {
 pub struct RecordTableState {
     area: Option<Rect>,
     record: Option<TableRecord>,
-    offsets: Option<Vec<(u64, u64, u64)>>,
     selected: Option<usize>, // the selected row accouting for the offset
     alternate_selected: bool,
     max_rows_to_display: usize,
-    desired_rows_to_buffer: usize,
 
     max_text_chars: u16,
     max_column_width: u16,
@@ -71,11 +69,9 @@ impl Default for RecordTableState {
         RecordTableState {
             area: None,
             record: None,
-            offsets: None,
             selected: None,
             alternate_selected: true,
             max_rows_to_display: 50,
-            desired_rows_to_buffer: 100,
             max_text_chars: 75,
             max_column_width: 50,
             top_offset: None,
@@ -416,7 +412,6 @@ pub struct RecordTable {
     selected_text_color: Color,
     header_text_color: Color,
     text_color: Color,
-    border_color: Color,
 }
 
 impl RecordTable {
@@ -520,7 +515,6 @@ impl Default for RecordTable {
             selected_text_color: Color::Black,
             header_text_color: Color::Blue,
             text_color: Color::Cyan,
-            border_color: Color::Cyan,
         }
     }
 }
