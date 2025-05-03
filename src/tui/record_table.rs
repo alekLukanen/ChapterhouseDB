@@ -414,6 +414,7 @@ pub struct RecordTable {
     selected_color: Color,
     selected_alternate_color: Color,
     selected_text_color: Color,
+    header_text_color: Color,
     text_color: Color,
     border_color: Color,
 }
@@ -472,7 +473,7 @@ impl RecordTable {
         let horizontal_area = horizontal_layout.split(header_area);
         for (col_idx, col_name) in state.columns.iter().enumerate() {
             let cell_area = horizontal_area[col_idx];
-            let style = Style::default().fg(self.text_color);
+            let style = Style::default().fg(self.header_text_color);
             let para = Paragraph::new(col_name.clone()).style(style);
             para.render(cell_area, buf);
         }
@@ -517,6 +518,7 @@ impl Default for RecordTable {
             selected_color: Color::Blue,
             selected_alternate_color: Color::Gray,
             selected_text_color: Color::Black,
+            header_text_color: Color::Blue,
             text_color: Color::Cyan,
             border_color: Color::Cyan,
         }

@@ -1,9 +1,11 @@
 # 📖 ChapterhouseQE
-A simple distributed SQL query engine written in Rust. Currently this project
-is in early development but the end goals is to create a SQL based development
-environment where engineers can deploy Rust data processing applications connected
-and operated using SQL. You will use Rust to handle reading data from API's, transforming
-complex data types, etc. And you will use SQL to clean, move and store data.
+A distributed SQL query engine built in Rust, designed for extensibility, 
+and developer-first workflows. While still in early development, its 
+long-term vision is to provide a seamless environment where SQL and Rust work 
+together to power data pipelines and backend systems. You will be able to write 
+Rust to connect to APIs, transform complex or nested data, and define custom operators. 
+And use SQL to orchestrate processing, move and clean data, and manage 
+storage—all in a unified, scalable engine.
 
 ![Query TUI](./imgs/query_tui_example.gif)
 
