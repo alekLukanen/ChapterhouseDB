@@ -147,6 +147,14 @@ impl MessageRouterHandler {
 
                     msg = msg.set_sent_from_worker_id(self.worker_id.clone());
 
+                    let msg_can_be_routed_to_connections = match self.msg_reg.can_be_routed_to_connections(&msg) {
+                        Ok(val) => val,
+                        Err(err) => {
+                            error!("{}", err);
+                            continue;
+                        }
+                    };
+
                     if msg.inbound_stream_id.is_some() || msg.outbound_stream_id.is_some() {
                         // route to known stream
                         self.connection_pipe.send(msg).await?;
@@ -156,25 +164,31 @@ impl MessageRouterHandler {
                         debug!("route message to operation: {}", msg.msg.msg_name());
                         if let Some(route_to_worker_id) = msg.route_to_worker_id {
                             if route_to_worker_id != self.worker_id {
-                                let outbound_stream_id = self.state.lock().await.get_worker_outbound_stream(route_to_worker_id);
-                                if let Some(outbound_stream_id) = outbound_stream_id {
-                                    msg = msg.set_outbound_stream(outbound_stream_id);
-                                    self.connection_pipe.send(msg).await?;
+                                if msg_can_be_routed_to_connections {
+                                    let outbound_stream_id = self.state.lock().await.get_worker_outbound_stream(route_to_worker_id);
+                                    if let Some(outbound_stream_id) = outbound_stream_id {
+                                        msg = msg.set_outbound_stream(outbound_stream_id);
+                                        self.connection_pipe.send(msg).await?;
+                                    }
                                 }
                             } else {
                                 let routed = self.route_msg(&msg).await?;
                                 if !routed {
-                                    debug!("message not routed");
+                                    debug!("message not routed anywhere");
                                 }
                             }
                         } else {
                             let routed = self.route_msg(&msg).await?;
                             if !routed {
-                                debug!("message not routed internally; sending to outbound streams/workers");
-                                let outbound_stream_ids = self.state.lock().await.get_all_outbound_streams();
-                                for out_id in outbound_stream_ids {
-                                    let msg = msg.clone().set_outbound_stream(out_id);
-                                    self.connection_pipe.send(msg).await?;
+                                if msg_can_be_routed_to_connections {
+                                    debug!("message not routed internally; sending to outbound streams/workers");
+                                    let outbound_stream_ids = self.state.lock().await.get_all_outbound_streams();
+                                    for out_id in outbound_stream_ids {
+                                        let msg = msg.clone().set_outbound_stream(out_id);
+                                        self.connection_pipe.send(msg).await?;
+                                    }
+                                } else {
+                                    debug!(message_name=msg.msg.msg_name().to_string(), "message not allowed to be routed to connections");
                                 }
                             }
                         }
@@ -183,15 +197,19 @@ impl MessageRouterHandler {
                         // route to specific outbound worker
                         debug!("route message to specific worker: {}", msg);
                         if route_to_worker_id != self.worker_id {
-                            let outbound_stream_id = self.state.lock().await.get_worker_outbound_stream(route_to_worker_id);
-                            if let Some(outbound_stream_id) = outbound_stream_id {
-                                msg = msg.set_outbound_stream(outbound_stream_id);
-                                self.connection_pipe.send(msg).await?;
+                            if msg_can_be_routed_to_connections {
+                                let outbound_stream_id = self.state.lock().await.get_worker_outbound_stream(route_to_worker_id);
+                                if let Some(outbound_stream_id) = outbound_stream_id {
+                                    msg = msg.set_outbound_stream(outbound_stream_id);
+                                    self.connection_pipe.send(msg).await?;
+                                }
+                            } else {
+                                debug!(message_name=msg.msg.msg_name().to_string(), "message not allowed to be routed to connections");
                             }
                         } else {
                             let routed = self.route_msg(&msg).await?;
                             if !routed {
-                                debug!("message not routed");
+                                debug!("message not routed anywhere");
                             }
                         }
 
@@ -205,10 +223,14 @@ impl MessageRouterHandler {
                         debug!("broadcasting message internally and externally: {}", msg);
                         self.route_msg(&msg).await?;
 
-                        let outbound_stream_ids = self.state.lock().await.get_all_outbound_streams();
-                        for out_id in outbound_stream_ids {
-                            let msg = msg.clone().set_outbound_stream(out_id);
-                            self.connection_pipe.send(msg).await?;
+                        if msg_can_be_routed_to_connections {
+                            let outbound_stream_ids = self.state.lock().await.get_all_outbound_streams();
+                            for out_id in outbound_stream_ids {
+                                let msg = msg.clone().set_outbound_stream(out_id);
+                                self.connection_pipe.send(msg).await?;
+                            }
+                        } else {
+                            debug!(message_name=msg.msg.msg_name().to_string(), "message not allowed to be routed to connections");
                         }
 
                     } else {
