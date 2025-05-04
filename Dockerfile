@@ -29,9 +29,10 @@ RUN --mount=type=cache,target=/app/target \
 FROM debian:bullseye-slim AS final
 WORKDIR /app
 
-COPY --from=build /app/sample_data ./sample_data
+COPY --from=build /app/chqe-data/sample_data ./chqe-data/sample_data
 COPY --from=build /bin/server-node ./server-node
-COPY ./worker_configs ./worker_configs
+
+COPY ./worker_configs/fs_worker_config.json ./worker_configs/fs_worker_config.json
 RUN chmod +x ./server-node
 
 EXPOSE 7000
