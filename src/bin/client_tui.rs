@@ -277,7 +277,7 @@ impl QueriesAppState {
                 ct.clone(),
                 &query_id,
                 chrono::Duration::seconds(60),
-                chrono::Duration::milliseconds(1000),
+                chrono::Duration::milliseconds(500),
             )
             .await?;
 
