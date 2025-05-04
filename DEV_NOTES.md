@@ -1,4 +1,37 @@
 
+## Running the Base System Using Cargo
+
+1. Create the sample data by running the following command
+
+  ```bash
+cargo run --bin create_sample_data -- --connection-name="default" --config-file="worker_configs/fs_worker_config.json" --path-prefix="sample_data"
+  ```
+
+2. Now start the workers to form a cluster. Start first worker
+
+  ```bash
+cargo run --bin main -- --config-file="worker_configs/fs_worker_config.json"
+  ```
+
+Query results for this worker configuration will be stored in the `./sample_data` directory.
+
+## Using the Sample Data Script
+
+Create sample data in a local directory
+```bash
+cargo run --bin create_sample_data -- --connection-name="default" --config-file="worker_configs/fs_worker_config.json" --path-prefix="sample_data"
+```
+
+Create sample data in Minio
+```bash
+docker compose up -d minio
+cargo run --bin create_sample_data -- --connection-name="default" --config-file="worker_configs/s3_worker_config.json" --path-prefix="sample_data"
+```
+If you want to use the script to create sample data in S3 or another S3 compatible
+object storage you'll need to create a new worker configuration file that contains
+that connection.
+
+
 ## How to Create gif
 
 ```
