@@ -25,6 +25,7 @@ pub enum QueryHandlerError {
 
 #[derive(Debug)]
 pub struct QueryHandler {
+    worker_id: u128,
     operator_id: u128,
     state: QueryHandlerState,
     message_router_state: Arc<Mutex<MessageRouterState>>,
@@ -35,6 +36,7 @@ pub struct QueryHandler {
 
 impl QueryHandler {
     pub async fn new(
+        worker_id: u128,
         message_router_state: Arc<Mutex<MessageRouterState>>,
         msg_reg: Arc<MessageRegistry>,
     ) -> QueryHandler {
@@ -45,6 +47,7 @@ impl QueryHandler {
         pipe.set_sent_from_operation_id(operator_id);
 
         let handler = QueryHandler {
+            worker_id,
             operator_id,
             state: QueryHandlerState::new(),
             message_router_state,
@@ -398,6 +401,7 @@ impl QueryHandler {
             .map(|item| {
                 msg.reply(Box::new(
                     messages::query::OperatorInstanceAssignment::Assign {
+                        query_handler_worker_id: self.worker_id.clone(),
                         op_instance_id: item.1.id,
                         query_id: item.0,
                         pipeline_id: item.1.pipeline_id.clone(),

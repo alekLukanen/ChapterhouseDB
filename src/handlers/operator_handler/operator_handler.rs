@@ -27,6 +27,8 @@ pub enum OperatorHandlerError {
     MessageMissingOperatorInstanceId,
     #[error("message missing query id")]
     MessageMissingQueryId,
+    #[error("unable to find operator instance: {0}")]
+    UnableToFindOperatorInstance(u128),
 }
 
 pub struct OperatorHandler {
@@ -163,6 +165,13 @@ impl OperatorHandler {
         let status_change: &messages::operator::OperatorInstanceStatusChange =
             self.msg_reg.try_cast_msg(&msg)?;
 
+        let query_handler_worker_id =
+            if let Some(op_in) = self.state.operator_instance_ref(op_in_id) {
+                op_in.config.query_handler_worker_id
+            } else {
+                return Err(OperatorHandlerError::UnableToFindOperatorInstance(*op_in_id).into());
+            };
+
         // update the operator state
         match status_change {
             messages::operator::OperatorInstanceStatusChange::Complete => {
@@ -183,6 +192,7 @@ impl OperatorHandler {
         match status_change {
             messages::operator::OperatorInstanceStatusChange::Complete => {
                 requests::query::OperatorInstanceStatusChangeRequest::completed_request(
+                    query_handler_worker_id.clone(),
                     op_query_id.clone(),
                     op_in_id.clone(),
                     pipe,
@@ -192,6 +202,7 @@ impl OperatorHandler {
             }
             messages::operator::OperatorInstanceStatusChange::Error(err) => {
                 requests::query::OperatorInstanceStatusChangeRequest::errored_request(
+                    query_handler_worker_id.clone(),
                     op_query_id.clone(),
                     op_in_id.clone(),
                     err.clone(),

@@ -18,6 +18,7 @@ impl TryFrom<&messages::query::OperatorInstanceAssignment> for OperatorInstance 
     ) -> Result<OperatorInstance, Self::Error> {
         match op_in_assign {
             messages::query::OperatorInstanceAssignment::Assign {
+                query_handler_worker_id,
                 query_id,
                 op_instance_id,
                 pipeline_id,
@@ -27,6 +28,7 @@ impl TryFrom<&messages::query::OperatorInstanceAssignment> for OperatorInstance 
                 ct: CancellationToken::new(),
                 config: OperatorInstanceConfig {
                     id: op_instance_id.clone(),
+                    query_handler_worker_id: query_handler_worker_id.clone(),
                     query_id: query_id.clone(),
                     pipeline_id: pipeline_id.clone(),
                     operator: operator.clone(),

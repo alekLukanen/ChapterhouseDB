@@ -23,3 +23,7 @@ select
 from read_files('sample_data/simple/*.parquet')
   where id > 25 + 0.0;
 
+-- query 5
+select * from read_files('sample_data/simple/*.parquet')
+  where id % 2 = 0; 
+

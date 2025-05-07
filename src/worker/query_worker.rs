@@ -78,8 +78,12 @@ impl QueryWorker {
         });
 
         if self.config.enable_query_handler {
-            let mut query_handler =
-                QueryHandler::new(message_router_state.clone(), msg_reg.clone()).await;
+            let mut query_handler = QueryHandler::new(
+                self.worker_id.clone(),
+                message_router_state.clone(),
+                msg_reg.clone(),
+            )
+            .await;
 
             let query_handler_ct = self.cancelation_token.child_token();
             tt.spawn(async move {

@@ -28,6 +28,7 @@ pub struct OperatorInstance {
 #[derive(Debug, Clone)]
 pub struct OperatorInstanceConfig {
     pub id: u128,
+    pub query_handler_worker_id: u128,
     pub query_id: u128,
     pub pipeline_id: String,
     pub operator: planner::Operator,
@@ -121,6 +122,12 @@ impl OperatorHandlerState {
     pub fn add_operator_instance(&mut self, op_in: OperatorInstance) -> Result<()> {
         self.operator_instances.push(op_in);
         Ok(())
+    }
+
+    pub fn operator_instance_ref(&self, op_in_id: &u128) -> Option<&OperatorInstance> {
+        self.operator_instances
+            .iter()
+            .find(|instance| instance.config.id == *op_in_id)
     }
 
     pub fn operator_instance_complete(&mut self, op_in_id: &u128) -> Result<()> {

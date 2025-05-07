@@ -423,6 +423,7 @@ impl GenericMessage for OperatorInstanceAvailable {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OperatorInstanceAssignment {
     Assign {
+        query_handler_worker_id: u128,
         query_id: u128,
         op_instance_id: u128,
         pipeline_id: String,

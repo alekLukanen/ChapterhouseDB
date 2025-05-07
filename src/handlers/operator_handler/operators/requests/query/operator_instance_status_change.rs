@@ -22,6 +22,7 @@ pub enum OperatorInstanceStatusChangeRequestError {
 }
 
 pub struct OperatorInstanceStatusChangeRequest<'a> {
+    query_handler_worker_id: u128,
     query_id: u128,
     operator_instance_id: u128,
     pipe: &'a mut Pipe,
@@ -30,6 +31,7 @@ pub struct OperatorInstanceStatusChangeRequest<'a> {
 
 impl<'a> OperatorInstanceStatusChangeRequest<'a> {
     pub async fn completed_request(
+        query_handler_worker_id: u128,
         query_id: u128,
         operator_instance_id: u128,
         pipe: &'a mut Pipe,
@@ -41,6 +43,7 @@ impl<'a> OperatorInstanceStatusChangeRequest<'a> {
             "request",
         );
         let mut req = OperatorInstanceStatusChangeRequest {
+            query_handler_worker_id,
             query_id,
             operator_instance_id,
             pipe,
@@ -51,6 +54,7 @@ impl<'a> OperatorInstanceStatusChangeRequest<'a> {
     }
 
     pub async fn errored_request(
+        query_handler_worker_id: u128,
         query_id: u128,
         operator_instance_id: u128,
         err: String,
@@ -58,6 +62,7 @@ impl<'a> OperatorInstanceStatusChangeRequest<'a> {
         msg_reg: Arc<MessageRegistry>,
     ) -> Result<()> {
         let mut req = OperatorInstanceStatusChangeRequest {
+            query_handler_worker_id,
             query_id,
             operator_instance_id,
             pipe,
@@ -88,7 +93,8 @@ impl<'a> OperatorInstanceStatusChangeRequest<'a> {
         &mut self,
         msg: &messages::query::OperatorInstanceStatusChange,
     ) -> Result<()> {
-        let msg = Message::new(Box::new(msg.clone()));
+        let msg = Message::new(Box::new(msg.clone()))
+            .set_route_to_worker_id(self.query_handler_worker_id.clone());
 
         let resp_msg = self
             .pipe
