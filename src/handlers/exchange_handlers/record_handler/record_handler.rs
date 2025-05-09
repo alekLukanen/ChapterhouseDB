@@ -52,6 +52,7 @@ pub struct ExchangeRecord {
 }
 
 pub struct RecordHandler {
+    query_handler_worker_id: u128,
     query_id: u128,
     operator_id: String,
 
@@ -99,7 +100,8 @@ impl RecordHandler {
             };
 
         let mut rec_handler = RecordHandler {
-            query_id: op_in_config.query_id,
+            query_handler_worker_id: op_in_config.query_handler_worker_id.clone(),
+            query_id: op_in_config.query_id.clone(),
             operator_id: op_in_config.operator.id.clone(),
             none_available_wait_time_in_ms: chrono::Duration::milliseconds(50),
             inbound_exchange_ids,
@@ -281,6 +283,7 @@ impl RecordHandler {
         pipe: &mut Pipe,
     ) -> Result<()> {
         let req = requests::IdentifyExchangeRequest::request_inbound_exchanges(
+            self.query_handler_worker_id.clone(),
             self.query_id.clone(),
             self.inbound_exchange_ids.clone(),
             pipe,
@@ -318,6 +321,7 @@ impl RecordHandler {
         pipe: &mut Pipe,
     ) -> Result<()> {
         let req = requests::IdentifyExchangeRequest::request_outbound_exchange(
+            self.query_handler_worker_id.clone(),
             self.query_id.clone(),
             self.outbound_exchange_id.clone(),
             pipe,

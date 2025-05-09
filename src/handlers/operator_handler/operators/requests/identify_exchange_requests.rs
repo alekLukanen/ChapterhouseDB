@@ -33,6 +33,8 @@ pub struct IdentifyExchangeResponse {
 }
 
 pub struct IdentifyExchangeRequest<'a> {
+    query_handler_worker_id: u128,
+
     exchange_operator_instance_id: Option<u128>,
     exchange_worker_id: Option<u128>,
     exchange_id: String,
@@ -43,15 +45,24 @@ pub struct IdentifyExchangeRequest<'a> {
 
 impl<'a> IdentifyExchangeRequest<'a> {
     pub async fn request_outbound_exchange(
+        query_handler_worker_id: u128,
         query_id: u128,
         exchange_id: String,
         pipe: &'a mut Pipe,
         msg_reg: Arc<MessageRegistry>,
     ) -> Result<IdentifyExchangeResponse> {
-        Self::request(query_id, exchange_id, pipe, msg_reg.clone()).await
+        Self::request(
+            query_handler_worker_id,
+            query_id,
+            exchange_id,
+            pipe,
+            msg_reg.clone(),
+        )
+        .await
     }
 
     pub async fn request_inbound_exchanges(
+        query_handler_worker_id: u128,
         query_id: u128,
         exchange_ids: Vec<String>,
         pipe: &'a mut Pipe,
@@ -61,13 +72,23 @@ impl<'a> IdentifyExchangeRequest<'a> {
 
         let mut res: Vec<IdentifyExchangeResponse> = Vec::new();
         for exchange_id in exchange_ids {
-            res.push(Self::request(query_id.clone(), exchange_id, pipe, msg_reg.clone()).await?);
+            res.push(
+                Self::request(
+                    query_handler_worker_id,
+                    query_id.clone(),
+                    exchange_id,
+                    pipe,
+                    msg_reg.clone(),
+                )
+                .await?,
+            );
         }
 
         Ok(res)
     }
 
     async fn request(
+        query_handler_worker_id: u128,
         query_id: u128,
         exchange_id: String,
         pipe: &mut Pipe,
@@ -76,6 +97,7 @@ impl<'a> IdentifyExchangeRequest<'a> {
         debug!(query_id = query_id, exchange_id = exchange_id, "request");
 
         let mut res = IdentifyExchangeRequest {
+            query_handler_worker_id,
             exchange_operator_instance_id: None,
             exchange_worker_id: None,
             exchange_id: exchange_id.clone(),
@@ -221,7 +243,8 @@ impl<'a> IdentifyExchangeRequest<'a> {
                 query_id: self.query_id.clone(),
                 operator_id: self.exchange_id.clone(),
             },
-        ));
+        ))
+        .set_route_to_worker_id(self.query_handler_worker_id.clone());
 
         let resp_msg = self
             .pipe

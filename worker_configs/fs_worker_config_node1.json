@@ -14,7 +14,7 @@
   ],
   "enable_query_handler": true,
   "enable_query_data_handler": true,
-  "enable_operator_handler": false,
+  "enable_operator_handler": true,
   "operator_handler_config": {
     "compute": {
       "instances": 10,
