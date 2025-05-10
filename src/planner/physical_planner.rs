@@ -262,6 +262,7 @@ impl PhysicalPlanner {
             let plan_node_id = node_id_stack.remove(node_id_stack.len() - 1);
 
             if pipeline.has_operators_for_plan_id(plan_node_id) {
+                iters += 1;
                 continue;
             }
 
@@ -278,6 +279,7 @@ impl PhysicalPlanner {
                     for node_id in inbound_nodes {
                         node_id_stack.push(node_id.clone());
                     }
+                    iters += 1;
                     continue;
                 } else if inbound_nodes_with_operators != inbound_nodes.len() {
                     return Err(

@@ -32,6 +32,8 @@ fn test_simple_physical_plans() -> Result<()> {
 
             let query_pipeline = &pipelines.remove(0);
 
+            println!("physical plan: {:?}", pp);
+
             // ensure all plan nodes have a corresponding physical operator
             for plan_node_id in plan_node_ids {
                 if !query_pipeline.has_operators_for_plan_id(plan_node_id.clone()) {

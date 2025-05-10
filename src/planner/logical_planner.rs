@@ -42,6 +42,18 @@ pub enum LogicalPlanNodeType {
     },
 }
 
+impl LogicalPlanNodeType {
+    pub fn name(&self) -> String {
+        match self {
+            Self::TableFunc { .. } => "TableFunc".to_string(),
+            Self::Table { .. } => "Table".to_string(),
+            Self::Filter { .. } => "Filter".to_string(),
+            Self::OrderBy { .. } => "OrderBy".to_string(),
+            Self::Materialize { .. } => "Materialize".to_string(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct LogicalPlanNode {
     pub id: usize,
@@ -121,7 +133,7 @@ impl LogicalPlan {
             is_root,
             id: self.nodes.len(),
         });
-        return self.nodes.len();
+        return self.nodes.len() - 1;
     }
 
     pub fn connect(&mut self, from_node_idx: usize, to_node_idx: usize) {
@@ -170,7 +182,6 @@ pub struct LogicalPlanner {
     query: String,
     ast: Option<Statement>,
     plan: Option<LogicalPlan>,
-    stage_idx: usize,
 }
 
 impl LogicalPlanner {
@@ -179,14 +190,7 @@ impl LogicalPlanner {
             query,
             ast: None,
             plan: None,
-            stage_idx: 0,
         }
-    }
-
-    fn create_stage_id(&mut self) -> usize {
-        let id = self.stage_idx;
-        self.stage_idx += 1;
-        id
     }
 
     pub fn build(&mut self) -> Result<LogicalPlan> {
