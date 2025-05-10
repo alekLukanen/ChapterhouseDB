@@ -7,6 +7,9 @@ Rust to connect to APIs, transform complex or nested data, and define custom ope
 And use SQL to orchestrate processing, move and clean data, and manage 
 storage—all in a unified, scalable engine.
 
+[>!NOTE]
+> This project has been renamed to ChapterhouseDB from ChapterhouseQE.
+
 ![Query TUI](./imgs/query_tui_example.gif)
 
 
