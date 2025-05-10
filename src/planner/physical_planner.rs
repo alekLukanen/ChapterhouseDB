@@ -1,6 +1,6 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use sqlparser::ast::{Expr, FunctionArg, SelectItem};
+use sqlparser::ast::{Expr, FunctionArg, OrderByExpr, SelectItem};
 use thiserror::Error;
 
 use crate::planner::logical_planner::{LogicalPlan, LogicalPlanNode};
@@ -58,6 +58,13 @@ pub enum OperatorTask {
     Filter {
         expr: Expr,
     },
+    Partition {
+        exprs: Vec<Expr>,
+        paritions: usize,
+    },
+    Sort {
+        exprs: Vec<OrderByExpr>,
+    },
     // materialize stage
     MaterializeFiles {
         data_format: DataFormat,
@@ -71,6 +78,8 @@ impl OperatorTask {
             Self::TableFunc { .. } => "TableFunc",
             Self::Table { .. } => "Table",
             Self::Filter { .. } => "Filter",
+            Self::Partition { .. } => "Partition",
+            Self::Sort { .. } => "Sort",
             Self::MaterializeFiles { .. } => "MaterializeFiles",
         }
     }
@@ -304,6 +313,7 @@ impl PhysicalPlanner {
         match lpn.node {
             LogicalPlanNodeType::Materialize { .. } => self.build_materialize_operators(lpn),
             LogicalPlanNodeType::Filter { .. } => self.build_filter_operators(lpn),
+            LogicalPlanNodeType::OrderBy { .. } => self.build_order_by_operators(lpn),
             LogicalPlanNodeType::TableFunc { .. } => self.build_table_func_operators(lpn),
             _ => Err(PhysicalPlanError::NotImplemented(format!(
                 "LogicalPlanNodeType isn't implemented to build resources: {:?}",
@@ -311,6 +321,102 @@ impl PhysicalPlanner {
             ))
             .into()),
         }
+    }
+
+    pub(crate) fn build_order_by_operators(
+        &mut self,
+        lpn: &LogicalPlanNode,
+    ) -> Result<Vec<Operator>> {
+        let (part_op_task, sort_op_task) = match &lpn.node.clone() {
+            LogicalPlanNodeType::OrderBy { exprs } => (
+                OperatorTask::Partition {
+                    exprs: exprs.iter().map(|item| item.expr.clone()).collect(),
+                    paritions: 3,
+                },
+                OperatorTask::Sort {
+                    exprs: exprs.clone(),
+                },
+            ),
+            _ => {
+                return Err(
+                    PhysicalPlanError::UnableToBuildOperatorForLogicalPlanNodeType(
+                        "filter", "filter",
+                    )
+                    .into(),
+                );
+            }
+        };
+
+        let mut operators: Vec<Operator> = Vec::new();
+        let inbound_exchange_ids = self.get_inbound_operators(&lpn, "exchange")?;
+
+        let sort_producer_id = self.new_internal_operator_id(lpn.id, 0, "producer");
+        let sort_exchange_id = self.new_internal_operator_id(lpn.id, 0, "exchange");
+
+        let part_producer = Operator {
+            id: self.new_operator_id(lpn.id, "producer"),
+            plan_id: lpn.id,
+            operator_type: OperatorType::Producer {
+                task: part_op_task.clone(),
+                outbound_exchange_id: self.new_operator_id(lpn.id, "exchange"),
+                inbound_exchange_ids: inbound_exchange_ids.clone(),
+            },
+            compute: OperatorCompute {
+                instances: 1,
+                cpu_in_thousandths: 1000,
+                memory_in_mib: 500,
+            },
+        };
+        let part_exchange = Operator {
+            id: self.new_operator_id(lpn.id, "exchange"),
+            plan_id: lpn.id,
+            operator_type: OperatorType::Exchange {
+                task: part_op_task.clone(),
+                outbound_producer_ids: vec![sort_producer_id.clone()],
+                inbound_producer_ids: vec![part_producer.id.clone()],
+            },
+            compute: OperatorCompute {
+                instances: 1,
+                cpu_in_thousandths: 500,
+                memory_in_mib: 500,
+            },
+        };
+
+        let sort_producer = Operator {
+            id: sort_producer_id.clone(),
+            plan_id: lpn.id,
+            operator_type: OperatorType::Producer {
+                task: sort_op_task.clone(),
+                outbound_exchange_id: sort_exchange_id.clone(),
+                inbound_exchange_ids: vec![part_exchange.id.clone()],
+            },
+            compute: OperatorCompute {
+                instances: 1,
+                cpu_in_thousandths: 1000,
+                memory_in_mib: 500,
+            },
+        };
+        let sort_exchange = Operator {
+            id: sort_exchange_id.clone(),
+            plan_id: lpn.id,
+            operator_type: OperatorType::Exchange {
+                task: sort_op_task.clone(),
+                outbound_producer_ids: self.get_outbound_operators(lpn, "producer")?,
+                inbound_producer_ids: vec![sort_producer.id.clone()],
+            },
+            compute: OperatorCompute {
+                instances: 1,
+                cpu_in_thousandths: 500,
+                memory_in_mib: 500,
+            },
+        };
+
+        operators.push(part_producer);
+        operators.push(part_exchange);
+        operators.push(sort_producer);
+        operators.push(sort_exchange);
+
+        Ok(operators)
     }
 
     pub(crate) fn build_table_func_operators(
@@ -347,7 +453,7 @@ impl PhysicalPlanner {
             compute: OperatorCompute {
                 instances: 1,
                 cpu_in_thousandths: 1000,
-                memory_in_mib: 512,
+                memory_in_mib: 500,
             },
         };
         let exchange = Operator {
@@ -360,8 +466,8 @@ impl PhysicalPlanner {
             },
             compute: OperatorCompute {
                 instances: 1,
-                cpu_in_thousandths: 200,
-                memory_in_mib: 128,
+                cpu_in_thousandths: 500,
+                memory_in_mib: 500,
             },
         };
 
@@ -401,7 +507,7 @@ impl PhysicalPlanner {
             compute: OperatorCompute {
                 instances: 1,
                 cpu_in_thousandths: 1000,
-                memory_in_mib: 512,
+                memory_in_mib: 500,
             },
         };
         let exchange = Operator {
@@ -414,8 +520,8 @@ impl PhysicalPlanner {
             },
             compute: OperatorCompute {
                 instances: 1,
-                cpu_in_thousandths: 200,
-                memory_in_mib: 128,
+                cpu_in_thousandths: 500,
+                memory_in_mib: 500,
             },
         };
 
@@ -459,7 +565,7 @@ impl PhysicalPlanner {
             compute: OperatorCompute {
                 instances: 1,
                 cpu_in_thousandths: 1000,
-                memory_in_mib: 512,
+                memory_in_mib: 500,
             },
         };
         let exchange = Operator {
@@ -472,8 +578,8 @@ impl PhysicalPlanner {
             },
             compute: OperatorCompute {
                 instances: 1,
-                cpu_in_thousandths: 200,
-                memory_in_mib: 128,
+                cpu_in_thousandths: 500,
+                memory_in_mib: 500,
             },
         };
 
@@ -515,6 +621,18 @@ impl PhysicalPlanner {
 
     fn new_operator_id(&self, plan_node_id: usize, task_type_name: &str) -> String {
         format!("operator_p{}_{}", plan_node_id, task_type_name)
+    }
+
+    fn new_internal_operator_id(
+        &self,
+        plan_node_id: usize,
+        internal_id: usize,
+        task_type_name: &str,
+    ) -> String {
+        format!(
+            "operator_p{}_in{}_{}",
+            plan_node_id, internal_id, task_type_name
+        )
     }
 
     fn new_pipeline_id(&mut self) -> String {
