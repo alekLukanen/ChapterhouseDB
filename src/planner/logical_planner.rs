@@ -3,8 +3,8 @@ use std::usize;
 
 use anyhow::Result;
 use sqlparser::ast::{
-    Expr, FunctionArg, ObjectName, Query, Select, SelectItem, SetExpr, Statement, TableAlias,
-    TableFactor, TableFunctionArgs, TableWithJoins,
+    Expr, FunctionArg, ObjectName, OrderBy, OrderByExpr, Query, Select, SelectItem, SetExpr,
+    Statement, TableAlias, TableFactor, TableFunctionArgs, TableWithJoins,
 };
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
@@ -34,36 +34,19 @@ pub enum LogicalPlanNodeType {
     Filter {
         expr: Expr,
     },
+    OrderBy {
+        exprs: Vec<OrderByExpr>,
+    },
     Materialize {
         fields: Vec<SelectItem>,
     },
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum StageType {
-    TableSource,
-    Filter,
-    Materialize,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Stage {
-    pub id: usize,
-    pub typ: StageType,
-    pub is_root: bool,
-}
-
-impl Stage {
-    pub fn new(typ: StageType, id: usize, is_root: bool) -> Stage {
-        return Stage { id, typ, is_root };
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
 pub struct LogicalPlanNode {
     pub id: usize,
+    pub is_root: bool,
     pub node: LogicalPlanNodeType,
-    pub stage: Stage,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -84,7 +67,7 @@ impl LogicalPlan {
 
     pub fn get_root_node(&self) -> Option<LogicalPlanNode> {
         for node in &self.nodes {
-            if node.stage.is_root {
+            if node.is_root {
                 return Some(node.clone());
             }
         }
@@ -132,10 +115,10 @@ impl LogicalPlan {
         }
     }
 
-    pub fn add_node(&mut self, node: LogicalPlanNodeType, stage: Stage) -> usize {
+    pub fn add_node(&mut self, node: LogicalPlanNodeType, is_root: bool) -> usize {
         self.nodes.push(LogicalPlanNode {
             node,
-            stage,
+            is_root,
             id: self.nodes.len(),
         });
         return self.nodes.len();
@@ -144,25 +127,6 @@ impl LogicalPlan {
     pub fn connect(&mut self, from_node_idx: usize, to_node_idx: usize) {
         self.add_to_outbound_edges(from_node_idx, to_node_idx);
         self.add_to_inbound_edges(to_node_idx, from_node_idx);
-    }
-
-    pub fn connect_stages(&mut self, from_stage: Stage, to_stage: Stage) {
-        let mut from_nodes_idxs: Vec<usize> = Vec::new();
-        let mut to_nodes_idxs: Vec<usize> = Vec::new();
-        for (idx, node) in self.nodes.iter().enumerate() {
-            if node.stage == from_stage {
-                from_nodes_idxs.push(idx);
-            }
-            if node.stage == to_stage {
-                to_nodes_idxs.push(idx);
-            }
-        }
-
-        for from_idx in from_nodes_idxs.clone() {
-            for to_idx in to_nodes_idxs.clone() {
-                self.connect(from_idx.clone(), to_idx.clone());
-            }
-        }
     }
 
     fn add_to_outbound_edges(&mut self, key_node_idx: usize, value_node_idx: usize) {
@@ -269,32 +233,30 @@ impl LogicalPlanner {
 
         let ref mut logical_plan = LogicalPlan::new();
 
-        // define static stages used in a select query plan
-        let table_sources_stage = Stage::new(StageType::TableSource, self.create_stage_id(), false);
-        let filter_stage = Stage::new(StageType::Filter, self.create_stage_id(), false);
-        let materialize_stage = Stage::new(StageType::Materialize, self.create_stage_id(), true);
+        // table source
+        let table_source = self.build_select_from(&select.from)?;
+        let table_source_node_idx = logical_plan.add_node(table_source, false);
 
-        // get table source(s)
-        let table_sources = self.build_select_from(&select.from)?;
-        let mut table_source_nodes: Vec<usize> = Vec::new();
-        for table_source in table_sources {
-            table_source_nodes
-                .push(logical_plan.add_node(table_source, table_sources_stage.clone()));
+        let mut last_node_idx = table_source_node_idx;
+
+        // filter
+        if let Some(filter_node) = self.build_select_filter(&select.selection)? {
+            let filter_node_idx = logical_plan.add_node(filter_node, false);
+            logical_plan.connect(last_node_idx, filter_node_idx);
+            last_node_idx = filter_node_idx;
         }
 
-        // filter and materialize
-        let filter = self.build_select_filter(&select.selection)?;
+        // order by
+        if let Some(order_by_node) = self.build_order_by(&query.order_by)? {
+            let order_by_node_idx = logical_plan.add_node(order_by_node, false);
+            logical_plan.connect(last_node_idx, order_by_node_idx);
+            last_node_idx = order_by_node_idx;
+        }
+
+        // materialize
         let materialize = self.build_materialization(&select.projection)?;
-
-        if let Some(filter_node) = filter {
-            logical_plan.add_node(filter_node, filter_stage.clone());
-            logical_plan.add_node(materialize, materialize_stage.clone());
-            logical_plan.connect_stages(table_sources_stage.clone(), filter_stage.clone());
-            logical_plan.connect_stages(filter_stage.clone(), materialize_stage.clone());
-        } else {
-            logical_plan.add_node(materialize, materialize_stage.clone());
-            logical_plan.connect_stages(table_sources_stage.clone(), materialize_stage.clone());
-        }
+        let materialize_node_idx = logical_plan.add_node(materialize, true);
+        logical_plan.connect(last_node_idx, materialize_node_idx);
 
         Ok(logical_plan.clone())
     }
@@ -330,6 +292,32 @@ impl LogicalPlanner {
         }
     }
 
+    fn build_order_by(&self, order_by: &Option<OrderBy>) -> Result<Option<LogicalPlanNodeType>> {
+        match order_by {
+            Some(order_by) => {
+                if order_by.interpolate.is_some() {
+                    return Err(PlanError::NotImplemented(
+                        "unsupported order by option".to_string(),
+                    )
+                    .into());
+                }
+                for ord_expr in &order_by.exprs {
+                    if ord_expr.with_fill.is_some() || ord_expr.nulls_first.is_some() {
+                        return Err(PlanError::NotImplemented(
+                            "unsupported order by option".to_string(),
+                        )
+                        .into());
+                    }
+                }
+
+                Ok(Some(LogicalPlanNodeType::OrderBy {
+                    exprs: order_by.exprs.clone(),
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
     fn build_select_filter(&self, selection: &Option<Expr>) -> Result<Option<LogicalPlanNodeType>> {
         match selection {
             Some(expr) => Ok(Some(LogicalPlanNodeType::Filter { expr: expr.clone() })),
@@ -337,13 +325,22 @@ impl LogicalPlanner {
         }
     }
 
-    fn build_select_from(&self, from: &Vec<TableWithJoins>) -> Result<Vec<LogicalPlanNodeType>> {
-        let mut nodes: Vec<LogicalPlanNodeType> = Vec::new();
-        for table_with_join in from {
-            let relation_node = self.build_select_from_relation(&table_with_join.relation)?;
-            nodes.push(relation_node);
+    fn build_select_from(&self, from: &Vec<TableWithJoins>) -> Result<LogicalPlanNodeType> {
+        if from.len() != 1 {
+            return Err(PlanError::NotImplemented(
+                "unsupported from clause; expect exactly one table".to_string(),
+            )
+            .into());
         }
-        Ok(nodes)
+
+        if let Some(table) = from.get(0) {
+            self.build_select_from_relation(&table.relation)
+        } else {
+            Err(PlanError::NotImplemented(
+                "unsupported from clause; expected exactly one table".to_string(),
+            )
+            .into())
+        }
     }
 
     fn build_select_from_relation(&self, relation: &TableFactor) -> Result<LogicalPlanNodeType> {

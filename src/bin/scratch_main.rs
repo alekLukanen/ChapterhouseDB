@@ -104,7 +104,7 @@ fn sql_parser_examples() {
 
     let query1 = "select key, value0, value1 from read_some_files('abc', 123, kwarg='hello', kwarg1={'abcd': 1234}) data
                             where key = 12+2*52*(5+4*3)
-                            order by key desc
+                            order by key desc, value0
                             limit 100
                             offset 10;";
     let mut ast1 = match Parser::parse_sql(&dialect, query1) {
