@@ -1,4 +1,4 @@
-# 📖 ChapterhouseQE
+# 📖 ChapterhouseDB
 A distributed SQL query engine built in Rust, designed for extensibility, 
 and developer-first workflows. While still in early development, its 
 long-term vision is to provide a seamless environment where SQL and Rust work 
@@ -7,6 +7,9 @@ Rust to connect to APIs, transform complex or nested data, and define custom ope
 And use SQL to orchestrate processing, move and clean data, and manage 
 storage—all in a unified, scalable engine.
 
+> [!NOTE]
+> This project has been renamed to ChapterhouseDB from ChapterhouseQE.
+
 ![Query TUI](./imgs/query_tui_example.gif)
 
 
@@ -14,12 +17,12 @@ storage—all in a unified, scalable engine.
 
 1. Build the image
 ```
-DOCKER_BUILDKIT=1 docker compose build chqe-debug-node
+DOCKER_BUILDKIT=1 docker compose build chdb-debug-node
 ```
 
 2. Start a container
 ```
-DOCKER_BUILDKIT=1 docker compose up chqe-debug-node
+DOCKER_BUILDKIT=1 docker compose up chdb-debug-node
 ```
 
 At this point the system will be ready to accept requests. The image

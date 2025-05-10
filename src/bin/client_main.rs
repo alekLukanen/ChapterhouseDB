@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use chapterhouseqe::{
+use chapterhousedb::{
     client::{AsyncQueryClient, QueryDataIterator},
     handlers::{message_handler::messages, query_handler},
 };

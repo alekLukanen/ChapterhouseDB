@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{anyhow, Context, Result};
 
-use chapterhouseqe::{
+use chapterhousedb::{
     client::{AsyncQueryClient, TuiQueryDataIterator, VisibleWindow},
     handlers::{message_handler::messages, query_handler::Status},
     tui::{RecordTable, RecordTableState},

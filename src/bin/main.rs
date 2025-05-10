@@ -5,10 +5,8 @@ use clap;
 use tracing::error;
 use tracing_subscriber;
 
-use chapterhouseqe::{
-    config::WorkerConfig,
-    handlers::operator_handler::{operators, TotalOperatorCompute},
-    tui::WorkerArgs,
+use chapterhousedb::{
+    config::WorkerConfig, handlers::operator_handler::operators, tui::WorkerArgs,
     worker::QueryWorker,
 };
 

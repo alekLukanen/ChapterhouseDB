@@ -1,15 +1,15 @@
 use anyhow::{anyhow, Result};
 use aws_config::meta::region::RegionProviderChain;
 
-use chapterhouseqe::config::{ConnectionType, WorkerConfig};
+use chapterhousedb::config::{ConnectionType, WorkerConfig};
 use clap::Parser;
 use rand::Rng;
 use std::sync::Arc;
 use tracing::info;
 use tracing_subscriber;
 
-use chapterhouseqe::handlers::operator_handler::operators::ConnectionRegistry;
-use chapterhouseqe::tui::CreateSampleDataArgs;
+use chapterhousedb::handlers::operator_handler::operators::ConnectionRegistry;
+use chapterhousedb::tui::CreateSampleDataArgs;
 
 #[tokio::main]
 async fn main() -> Result<()> {

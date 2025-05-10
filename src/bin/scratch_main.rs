@@ -6,7 +6,7 @@ use sqlparser::parser::Parser;
 use tracing::info;
 use tracing_subscriber;
 
-use chapterhouseqe::client::QueryClient;
+use chapterhousedb::client::QueryClient;
 
 use std::any::Any;
 use tempdir::TempDir;

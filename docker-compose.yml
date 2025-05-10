@@ -1,5 +1,5 @@
 services:
-  chqe-debug-node:
+  chdb-debug-node:
     build:
       context: ./
       dockerfile: Dockerfile
@@ -7,7 +7,7 @@ services:
         PROFILE: debug
     ports:
       - "7000:7000"
-  chqe-release-node:
+  chdb-release-node:
     build:
       context: ./
       dockerfile: Dockerfile
@@ -26,7 +26,7 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
     command: server /data --console-address ":9001"
     volumes:
-      - chqe-minio-data:/data
+      - chdb-minio-data:/data
 
 volumes:
-  chqe-minio-data:
+  chdb-minio-data:
