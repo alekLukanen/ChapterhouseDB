@@ -61,6 +61,24 @@ fn test_simple_physical_plans() -> Result<()> {
 }
 
 #[test]
+fn test_build_order_by_physical_plan() -> Result<()> {
+    let query = "select * from read_files('data/path/*.parquet')
+            where true
+            order by id desc;
+        ";
+    let logical_plan = LogicalPlanner::new(query.to_string()).build()?;
+    let mut planner = PhysicalPlanner::new(logical_plan.clone());
+    let physical_plan = &planner.build()?;
+
+    assert_eq!(
+        vec![Pipeline::new("pipeline_0".to_string())],
+        physical_plan.get_pipelines(),
+    );
+
+    Ok(())
+}
+
+#[test]
 fn test_build_materialize_operators() -> Result<()> {
     let query = "select * from read_files('data/path/*.parquet') where true";
     let logical_plan = LogicalPlanner::new(query.to_string()).build()?;
@@ -102,7 +120,7 @@ fn test_build_materialize_operators() -> Result<()> {
         compute: OperatorCompute {
             instances: 1,
             cpu_in_thousandths: 1000,
-            memory_in_mib: 128,
+            memory_in_mib: 500,
         },
     };
     pipeline.add_operator(filter_exchange.clone());
@@ -133,7 +151,7 @@ fn test_build_materialize_operators() -> Result<()> {
         compute: OperatorCompute {
             instances: 1,
             cpu_in_thousandths: 1000,
-            memory_in_mib: 512,
+            memory_in_mib: 500,
         },
     };
     let expected_exchange = Operator {
@@ -146,8 +164,8 @@ fn test_build_materialize_operators() -> Result<()> {
         },
         compute: OperatorCompute {
             instances: 1,
-            cpu_in_thousandths: 200,
-            memory_in_mib: 128,
+            cpu_in_thousandths: 500,
+            memory_in_mib: 500,
         },
     };
     let mut expected_operators = vec![expected_producer, expected_exchange];

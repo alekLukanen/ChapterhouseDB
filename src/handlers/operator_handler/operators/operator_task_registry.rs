@@ -112,6 +112,17 @@ impl OperatorTaskRegistry {
                     Ok(None)
                 }
             }
+            planner::OperatorTask::Partition { .. } => {
+                Err(OperatorTaskRegistryError::NotImplemented(format!(
+                    "find task builder for OperatorTask type {}",
+                    task.name()
+                ))
+                .into())
+            }
+            planner::OperatorTask::Sort { .. } => Err(OperatorTaskRegistryError::NotImplemented(
+                format!("find task builder for OperatorTask type {}", task.name()),
+            )
+            .into()),
             planner::OperatorTask::MaterializeFiles { data_format, .. } => {
                 if let Some(materialize_files_task) = &self.materialize_files_task {
                     if materialize_files_task

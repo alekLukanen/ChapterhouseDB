@@ -82,6 +82,18 @@ impl OperatorBuilder {
                         }
                     }
                 }
+                planner::OperatorTask::Partition { .. } => {
+                    return Err(OperatorBuilderError::NotImplemented(
+                        "table operator task".to_string(),
+                    )
+                    .into())
+                }
+                planner::OperatorTask::Sort { .. } => {
+                    return Err(OperatorBuilderError::NotImplemented(
+                        "table operator task".to_string(),
+                    )
+                    .into())
+                }
                 planner::OperatorTask::MaterializeFiles { data_format, .. } => {
                     match self.build_producer_operator(op_in, tt, task).await {
                         Ok(_) => {

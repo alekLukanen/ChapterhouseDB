@@ -29,6 +29,24 @@ pub fn get_record_table_aliases(
                 .into(),
             );
         }
+        planner::OperatorTask::Partition { .. } => {
+            return Err(
+                GetRecordTableAliasesError::OperatorTaskTypeDoesNotHaveAnAliasField(format!(
+                    "{}",
+                    task
+                ))
+                .into(),
+            );
+        }
+        planner::OperatorTask::Sort { .. } => {
+            return Err(
+                GetRecordTableAliasesError::OperatorTaskTypeDoesNotHaveAnAliasField(format!(
+                    "{}",
+                    task
+                ))
+                .into(),
+            );
+        }
         planner::OperatorTask::MaterializeFiles { .. } => {
             return Err(
                 GetRecordTableAliasesError::OperatorTaskTypeDoesNotHaveAnAliasField(format!(
