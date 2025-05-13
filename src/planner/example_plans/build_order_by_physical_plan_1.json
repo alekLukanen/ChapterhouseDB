@@ -1,0 +1,331 @@
+{
+  "pipelines": [
+    {
+      "id": "pipeline_0",
+      "operators": [
+        {
+          "id": "operator_p0_producer",
+          "plan_id": 0,
+          "operator_type": {
+            "Producer": {
+              "task": {
+                "TableFunc": {
+                  "alias": null,
+                  "func_name": "read_files",
+                  "args": [
+                    {
+                      "Unnamed": {
+                        "Expr": {
+                          "Value": {
+                            "SingleQuotedString": "data/path/*.parquet"
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "max_rows_per_batch": 10000
+                }
+              },
+              "outbound_exchange_id": "operator_p0_exchange",
+              "inbound_exchange_ids": []
+            }
+          },
+          "compute": {
+            "instances": 1,
+            "memory_in_mib": 500,
+            "cpu_in_thousandths": 1000
+          }
+        },
+        {
+          "id": "operator_p0_exchange",
+          "plan_id": 0,
+          "operator_type": {
+            "Exchange": {
+              "task": {
+                "TableFunc": {
+                  "alias": null,
+                  "func_name": "read_files",
+                  "args": [
+                    {
+                      "Unnamed": {
+                        "Expr": {
+                          "Value": {
+                            "SingleQuotedString": "data/path/*.parquet"
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "max_rows_per_batch": 10000
+                }
+              },
+              "outbound_producer_ids": [
+                "operator_p1_producer"
+              ],
+              "inbound_producer_ids": [
+                "operator_p0_producer"
+              ]
+            }
+          },
+          "compute": {
+            "instances": 1,
+            "memory_in_mib": 500,
+            "cpu_in_thousandths": 500
+          }
+        },
+        {
+          "id": "operator_p1_producer",
+          "plan_id": 1,
+          "operator_type": {
+            "Producer": {
+              "task": {
+                "Filter": {
+                  "expr": {
+                    "Value": {
+                      "Boolean": true
+                    }
+                  }
+                }
+              },
+              "outbound_exchange_id": "operator_p1_exchange",
+              "inbound_exchange_ids": [
+                "operator_p0_exchange"
+              ]
+            }
+          },
+          "compute": {
+            "instances": 1,
+            "memory_in_mib": 500,
+            "cpu_in_thousandths": 1000
+          }
+        },
+        {
+          "id": "operator_p1_exchange",
+          "plan_id": 1,
+          "operator_type": {
+            "Exchange": {
+              "task": {
+                "Filter": {
+                  "expr": {
+                    "Value": {
+                      "Boolean": true
+                    }
+                  }
+                }
+              },
+              "outbound_producer_ids": [
+                "operator_p2_producer"
+              ],
+              "inbound_producer_ids": [
+                "operator_p1_producer"
+              ]
+            }
+          },
+          "compute": {
+            "instances": 1,
+            "memory_in_mib": 500,
+            "cpu_in_thousandths": 500
+          }
+        },
+        {
+          "id": "operator_p2_in0_producer",
+          "plan_id": 2,
+          "operator_type": {
+            "Producer": {
+              "task": {
+                "Partition": {
+                  "exprs": [
+                    {
+                      "Identifier": {
+                        "value": "id",
+                        "quote_style": null
+                      }
+                    }
+                  ],
+                  "paritions": 3
+                }
+              },
+              "outbound_exchange_id": "operator_p2_in0_exchange",
+              "inbound_exchange_ids": [
+                "operator_p1_exchange"
+              ]
+            }
+          },
+          "compute": {
+            "instances": 1,
+            "memory_in_mib": 500,
+            "cpu_in_thousandths": 1000
+          }
+        },
+        {
+          "id": "operator_p2_in0_exchange",
+          "plan_id": 2,
+          "operator_type": {
+            "Exchange": {
+              "task": {
+                "Partition": {
+                  "exprs": [
+                    {
+                      "Identifier": {
+                        "value": "id",
+                        "quote_style": null
+                      }
+                    }
+                  ],
+                  "paritions": 3
+                }
+              },
+              "outbound_producer_ids": [
+                "operator_p2_producer"
+              ],
+              "inbound_producer_ids": [
+                "operator_p2_in0_producer"
+              ]
+            }
+          },
+          "compute": {
+            "instances": 1,
+            "memory_in_mib": 500,
+            "cpu_in_thousandths": 500
+          }
+        },
+        {
+          "id": "operator_p2_producer",
+          "plan_id": 2,
+          "operator_type": {
+            "Producer": {
+              "task": {
+                "Sort": {
+                  "exprs": [
+                    {
+                      "expr": {
+                        "Identifier": {
+                          "value": "id",
+                          "quote_style": null
+                        }
+                      },
+                      "asc": false,
+                      "nulls_first": null,
+                      "with_fill": null
+                    }
+                  ]
+                }
+              },
+              "outbound_exchange_id": "operator_p2_exchange",
+              "inbound_exchange_ids": [
+                "operator_p2_in0_exchange"
+              ]
+            }
+          },
+          "compute": {
+            "instances": 1,
+            "memory_in_mib": 500,
+            "cpu_in_thousandths": 1000
+          }
+        },
+        {
+          "id": "operator_p2_exchange",
+          "plan_id": 2,
+          "operator_type": {
+            "Exchange": {
+              "task": {
+                "Sort": {
+                  "exprs": [
+                    {
+                      "expr": {
+                        "Identifier": {
+                          "value": "id",
+                          "quote_style": null
+                        }
+                      },
+                      "asc": false,
+                      "nulls_first": null,
+                      "with_fill": null
+                    }
+                  ]
+                }
+              },
+              "outbound_producer_ids": [
+                "operator_p3_producer"
+              ],
+              "inbound_producer_ids": [
+                "operator_p2_producer"
+              ]
+            }
+          },
+          "compute": {
+            "instances": 1,
+            "memory_in_mib": 500,
+            "cpu_in_thousandths": 500
+          }
+        },
+        {
+          "id": "operator_p3_producer",
+          "plan_id": 3,
+          "operator_type": {
+            "Producer": {
+              "task": {
+                "MaterializeFiles": {
+                  "data_format": "Parquet",
+                  "fields": [
+                    {
+                      "Wildcard": {
+                        "opt_ilike": null,
+                        "opt_exclude": null,
+                        "opt_except": null,
+                        "opt_replace": null,
+                        "opt_rename": null
+                      }
+                    }
+                  ]
+                }
+              },
+              "outbound_exchange_id": "operator_p3_exchange",
+              "inbound_exchange_ids": [
+                "operator_p2_exchange"
+              ]
+            }
+          },
+          "compute": {
+            "instances": 1,
+            "memory_in_mib": 500,
+            "cpu_in_thousandths": 1000
+          }
+        },
+        {
+          "id": "operator_p3_exchange",
+          "plan_id": 3,
+          "operator_type": {
+            "Exchange": {
+              "task": {
+                "MaterializeFiles": {
+                  "data_format": "Parquet",
+                  "fields": [
+                    {
+                      "Wildcard": {
+                        "opt_ilike": null,
+                        "opt_exclude": null,
+                        "opt_except": null,
+                        "opt_replace": null,
+                        "opt_rename": null
+                      }
+                    }
+                  ]
+                }
+              },
+              "outbound_producer_ids": [],
+              "inbound_producer_ids": [
+                "operator_p3_producer"
+              ]
+            }
+          },
+          "compute": {
+            "instances": 1,
+            "memory_in_mib": 500,
+            "cpu_in_thousandths": 500
+          }
+        }
+      ]
+    }
+  ]
+}

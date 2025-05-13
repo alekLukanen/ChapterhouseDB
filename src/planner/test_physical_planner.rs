@@ -70,10 +70,14 @@ fn test_build_order_by_physical_plan() -> Result<()> {
     let mut planner = PhysicalPlanner::new(logical_plan.clone());
     let physical_plan = &planner.build()?;
 
-    assert_eq!(
-        vec![Pipeline::new("pipeline_0".to_string())],
-        physical_plan.get_pipelines(),
-    );
+    let file =
+        std::fs::File::open("./src/planner/example_plans/build_order_by_physical_plan_1.json")?;
+    let reader = std::io::BufReader::new(file);
+
+    let expected_physical_plan: PhysicalPlan = serde_json::from_reader(reader)?;
+
+    assert_eq!(expected_physical_plan, *physical_plan);
+    println!("received physical plan: {:?}", physical_plan);
 
     Ok(())
 }

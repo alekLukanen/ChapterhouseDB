@@ -144,7 +144,7 @@ pub struct Operator {
     pub compute: OperatorCompute,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Pipeline {
     pub id: String,
     operators: Vec<Operator>,
@@ -191,7 +191,7 @@ impl Pipeline {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PhysicalPlan {
     pipelines: Vec<Pipeline>,
 }
@@ -350,15 +350,19 @@ impl PhysicalPlanner {
         let mut operators: Vec<Operator> = Vec::new();
         let inbound_exchange_ids = self.get_inbound_operators(&lpn, "exchange")?;
 
-        let sort_producer_id = self.new_internal_operator_id(lpn.id, 0, "producer");
-        let sort_exchange_id = self.new_internal_operator_id(lpn.id, 0, "exchange");
+        let part_producer_id = self.new_internal_operator_id(lpn.id, 0, "producer");
+        let part_exchange_id = self.new_internal_operator_id(lpn.id, 0, "exchange");
 
+        let sort_producer_id = self.new_operator_id(lpn.id, "producer");
+        let sort_exchange_id = self.new_operator_id(lpn.id, "exchange");
+
+        // partition producer operator /////////////////////////////////
         let part_producer = Operator {
-            id: self.new_operator_id(lpn.id, "producer"),
+            id: part_producer_id.clone(),
             plan_id: lpn.id,
             operator_type: OperatorType::Producer {
                 task: part_op_task.clone(),
-                outbound_exchange_id: self.new_operator_id(lpn.id, "exchange"),
+                outbound_exchange_id: part_exchange_id.clone(),
                 inbound_exchange_ids: inbound_exchange_ids.clone(),
             },
             compute: OperatorCompute {
@@ -368,7 +372,7 @@ impl PhysicalPlanner {
             },
         };
         let part_exchange = Operator {
-            id: self.new_operator_id(lpn.id, "exchange"),
+            id: part_exchange_id.clone(),
             plan_id: lpn.id,
             operator_type: OperatorType::Exchange {
                 task: part_op_task.clone(),
@@ -382,6 +386,7 @@ impl PhysicalPlanner {
             },
         };
 
+        // sort producer operator /////////////////////////////////////
         let sort_producer = Operator {
             id: sort_producer_id.clone(),
             plan_id: lpn.id,
