@@ -6,6 +6,7 @@ mod filter_tasks;
 mod materialize_tasks;
 mod operator_task_registry;
 mod operator_task_trackers;
+mod partition_tasks;
 mod producer_operator;
 mod record_utils;
 pub mod requests;

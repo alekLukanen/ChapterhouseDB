@@ -17,6 +17,10 @@ pub enum OperatorTaskRegistryError {
     FilterTaskBuilderAlreadySet,
     #[error("task func task builder already added for function: {0}")]
     TaskFuncTaskBuilderAlreadyAddedForFunction(String),
+    #[error("partition task builder already set")]
+    PartitionTaskBuilderAlreadySet,
+    #[error("sort task builder already set")]
+    SortTaskBuilderAlreadySet,
 }
 
 struct TableFuncTaskDef {
@@ -33,10 +37,20 @@ struct FilterTaskDef {
     builder: Box<dyn TaskBuilder>,
 }
 
+struct PartitionTaskDef {
+    builder: Box<dyn TaskBuilder>,
+}
+
+struct SortTaskDef {
+    builder: Box<dyn TaskBuilder>,
+}
+
 pub struct OperatorTaskRegistry {
     table_func_tasks: Vec<TableFuncTaskDef>,
     materialize_files_task: Option<MaterializeFileTaskDef>,
     filter_task: Option<FilterTaskDef>,
+    partition_task: Option<PartitionTaskDef>,
+    sort_task: Option<SortTaskDef>,
 }
 
 impl OperatorTaskRegistry {
@@ -45,7 +59,25 @@ impl OperatorTaskRegistry {
             table_func_tasks: Vec::new(),
             materialize_files_task: None,
             filter_task: None,
+            partition_task: None,
+            sort_task: None,
         }
+    }
+
+    pub fn add_partition_task_builder(mut self, builder: Box<dyn TaskBuilder>) -> Result<Self> {
+        if self.partition_task.is_some() {
+            return Err(OperatorTaskRegistryError::PartitionTaskBuilderAlreadySet.into());
+        }
+        self.partition_task = Some(PartitionTaskDef { builder });
+        Ok(self)
+    }
+
+    pub fn add_sort_task_builder(mut self, builder: Box<dyn TaskBuilder>) -> Result<Self> {
+        if self.sort_task.is_some() {
+            return Err(OperatorTaskRegistryError::SortTaskBuilderAlreadySet.into());
+        }
+        self.sort_task = Some(SortTaskDef { builder });
+        Ok(self)
     }
 
     pub fn add_filter_task_builder(mut self, builder: Box<dyn TaskBuilder>) -> Result<Self> {
