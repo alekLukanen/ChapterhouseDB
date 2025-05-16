@@ -1,7 +1,7 @@
 use crate::planner::{self, DataFormat};
 
 use super::{
-    filter_tasks, materialize_tasks, table_func_tasks,
+    filter_tasks, materialize_tasks, partition_tasks, table_func_tasks,
     traits::{TableFuncSyntaxValidator, TaskBuilder},
 };
 use anyhow::Result;
@@ -200,6 +200,7 @@ pub fn build_default_operator_task_registry() -> Result<OperatorTaskRegistry> {
         .add_materialize_files_builder(
             Box::new(materialize_tasks::MaterializeFilesTaskBuilder::new()),
             vec![DataFormat::Parquet],
-        )?;
+        )?
+        .add_partition_task_builder(Box::new(partition_tasks::PartitionTaskBuilder::new()))?;
     Ok(reg)
 }
