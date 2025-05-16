@@ -40,7 +40,7 @@ impl std::fmt::Display for DataFormat {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum OperatorTask {
     // table source stage
     TableFunc {
@@ -59,8 +59,8 @@ pub enum OperatorTask {
         expr: Expr,
     },
     Partition {
-        exprs: Vec<Expr>,
-        paritions: usize,
+        partition_method: PartitionMethod,
+        partition_range_method: PartitionRangeMethod,
     },
     Sort {
         exprs: Vec<OrderByExpr>,
@@ -91,7 +91,7 @@ impl std::fmt::Display for OperatorTask {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum OperatorType {
     Producer {
         task: OperatorTask,
@@ -99,14 +99,7 @@ pub enum OperatorType {
         outbound_exchange_id: String,
         inbound_exchange_ids: Vec<String>,
     },
-    // an exchange manage the state of reading from
-    // a producer. It allows multiple downstream producers
-    // to reach from the same data location. If there aren't
-    // anymore consumers the exchange notifies the operator
-    // to shutdown the producers, and itself, the exchange
-    // exits when the operator exits.
     Exchange {
-        task: OperatorTask,
         // pull based: a producer will request data from the exchange
         outbound_producer_ids: Vec<String>,
         inbound_producer_ids: Vec<String>,
@@ -123,19 +116,29 @@ impl OperatorType {
     pub fn task_name(&self) -> &str {
         match self {
             Self::Producer { task, .. } => task.name(),
-            Self::Exchange { task, .. } => task.name(),
+            Self::Exchange { .. } => "None",
         }
     }
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum PartitionMethod {
+    OrderByExprs { exprs: Vec<OrderByExpr> },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum PartitionRangeMethod {
+    SampleDistribution { sample_rate: f32, max_rows: usize },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OperatorCompute {
     pub instances: usize,
     pub memory_in_mib: usize,
     pub cpu_in_thousandths: usize,
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Operator {
     pub id: String,
     pub plan_id: usize,
@@ -330,8 +333,13 @@ impl PhysicalPlanner {
         let (part_op_task, sort_op_task) = match &lpn.node.clone() {
             LogicalPlanNodeType::OrderBy { exprs } => (
                 OperatorTask::Partition {
-                    exprs: exprs.iter().map(|item| item.expr.clone()).collect(),
-                    paritions: 3,
+                    partition_method: PartitionMethod::OrderByExprs {
+                        exprs: exprs.clone(),
+                    },
+                    partition_range_method: PartitionRangeMethod::SampleDistribution {
+                        sample_rate: 0.10,
+                        max_rows: 1_000_000,
+                    },
                 },
                 OperatorTask::Sort {
                     exprs: exprs.clone(),
@@ -375,7 +383,6 @@ impl PhysicalPlanner {
             id: part_exchange_id.clone(),
             plan_id: lpn.id,
             operator_type: OperatorType::Exchange {
-                task: part_op_task.clone(),
                 outbound_producer_ids: vec![sort_producer_id.clone()],
                 inbound_producer_ids: vec![part_producer.id.clone()],
             },
@@ -405,7 +412,6 @@ impl PhysicalPlanner {
             id: sort_exchange_id.clone(),
             plan_id: lpn.id,
             operator_type: OperatorType::Exchange {
-                task: sort_op_task.clone(),
                 outbound_producer_ids: self.get_outbound_operators(lpn, "producer")?,
                 inbound_producer_ids: vec![sort_producer.id.clone()],
             },
@@ -465,7 +471,6 @@ impl PhysicalPlanner {
             id: self.new_operator_id(lpn.id, "exchange"),
             plan_id: lpn.id,
             operator_type: OperatorType::Exchange {
-                task: op_task.clone(),
                 outbound_producer_ids: self.get_outbound_operators(lpn, "producer")?,
                 inbound_producer_ids: vec![producer.id.clone()],
             },
@@ -519,7 +524,6 @@ impl PhysicalPlanner {
             id: self.new_operator_id(lpn.id, "exchange"),
             plan_id: lpn.id,
             operator_type: OperatorType::Exchange {
-                task: op_task.clone(),
                 outbound_producer_ids: self.get_outbound_operators(&lpn, "producer")?,
                 inbound_producer_ids: vec![producer.id.clone()],
             },
@@ -577,7 +581,6 @@ impl PhysicalPlanner {
             id: self.new_operator_id(lpn.id, "exchange"),
             plan_id: lpn.id,
             operator_type: OperatorType::Exchange {
-                task: op_task.clone(),
                 outbound_producer_ids: self.get_outbound_operators(lpn, "producer")?,
                 inbound_producer_ids: vec![producer.id.clone()],
             },

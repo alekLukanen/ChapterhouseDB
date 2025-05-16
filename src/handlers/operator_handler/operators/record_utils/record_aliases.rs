@@ -7,6 +7,8 @@ use crate::planner;
 pub enum GetRecordTableAliasesError {
     #[error("operator task type does not have an alias field: {0}")]
     OperatorTaskTypeDoesNotHaveAnAliasField(String),
+    #[error("OperatorType Exchange not supported")]
+    OperatorTypeExchangeNotSupported,
 }
 
 pub fn get_record_table_aliases(
@@ -15,7 +17,9 @@ pub fn get_record_table_aliases(
 ) -> Result<Vec<Vec<String>>> {
     let task = match op_type {
         planner::OperatorType::Producer { task, .. } => task,
-        planner::OperatorType::Exchange { task, .. } => task,
+        planner::OperatorType::Exchange { .. } => {
+            return Err(GetRecordTableAliasesError::OperatorTypeExchangeNotSupported.into());
+        }
     };
     let alias = match task {
         planner::OperatorTask::TableFunc { alias, .. } => alias,

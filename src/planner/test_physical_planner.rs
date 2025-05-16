@@ -70,6 +70,11 @@ fn test_build_order_by_physical_plan() -> Result<()> {
     let mut planner = PhysicalPlanner::new(logical_plan.clone());
     let physical_plan = &planner.build()?;
 
+    println!(
+        "received physical plan: {}",
+        serde_json::to_string_pretty(&physical_plan).unwrap()
+    );
+
     let file =
         std::fs::File::open("./src/planner/example_plans/build_order_by_physical_plan_1.json")?;
     let reader = std::io::BufReader::new(file);
@@ -77,7 +82,6 @@ fn test_build_order_by_physical_plan() -> Result<()> {
     let expected_physical_plan: PhysicalPlan = serde_json::from_reader(reader)?;
 
     assert_eq!(expected_physical_plan, *physical_plan);
-    println!("received physical plan: {:?}", physical_plan);
 
     Ok(())
 }
@@ -112,9 +116,6 @@ fn test_build_materialize_operators() -> Result<()> {
         id: format!("operator_p{}_exchange", filter_node.id),
         plan_id: filter_node.id,
         operator_type: OperatorType::Exchange {
-            task: OperatorTask::Filter {
-                expr: Expr::Value(Value::Boolean(true)),
-            },
             outbound_producer_ids: vec![format!(
                 "operator_p{}_exchange",
                 materialize_node.id.clone()
@@ -130,7 +131,7 @@ fn test_build_materialize_operators() -> Result<()> {
     pipeline.add_operator(filter_exchange.clone());
 
     let mut physical_planner = PhysicalPlanner::new(logical_plan);
-    let mut operations = physical_planner.build_materialize_operators(&materialize_node)?;
+    let operations = physical_planner.build_materialize_operators(&materialize_node)?;
 
     assert_eq!(2, operations.len());
 
@@ -162,7 +163,6 @@ fn test_build_materialize_operators() -> Result<()> {
         id: format!("operator_p{}_exchange", materialize_node.id),
         plan_id: materialize_node.id,
         operator_type: OperatorType::Exchange {
-            task: expected_task_type.clone(),
             outbound_producer_ids: vec![],
             inbound_producer_ids: vec![expected_producer.id.clone()],
         },
@@ -172,10 +172,7 @@ fn test_build_materialize_operators() -> Result<()> {
             memory_in_mib: 500,
         },
     };
-    let mut expected_operators = vec![expected_producer, expected_exchange];
-
-    operations.sort();
-    expected_operators.sort();
+    let expected_operators = vec![expected_producer, expected_exchange];
 
     assert_eq!(expected_operators, operations);
 

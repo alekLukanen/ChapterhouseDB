@@ -41,24 +41,6 @@
           "plan_id": 0,
           "operator_type": {
             "Exchange": {
-              "task": {
-                "TableFunc": {
-                  "alias": null,
-                  "func_name": "read_files",
-                  "args": [
-                    {
-                      "Unnamed": {
-                        "Expr": {
-                          "Value": {
-                            "SingleQuotedString": "data/path/*.parquet"
-                          }
-                        }
-                      }
-                    }
-                  ],
-                  "max_rows_per_batch": 10000
-                }
-              },
               "outbound_producer_ids": [
                 "operator_p1_producer"
               ],
@@ -104,15 +86,6 @@
           "plan_id": 1,
           "operator_type": {
             "Exchange": {
-              "task": {
-                "Filter": {
-                  "expr": {
-                    "Value": {
-                      "Boolean": true
-                    }
-                  }
-                }
-              },
               "outbound_producer_ids": [
                 "operator_p2_producer"
               ],
@@ -134,15 +107,29 @@
             "Producer": {
               "task": {
                 "Partition": {
-                  "exprs": [
-                    {
-                      "Identifier": {
-                        "value": "id",
-                        "quote_style": null
-                      }
+                  "partition_method": {
+                    "OrderByExprs": {
+                      "exprs": [
+                        {
+                          "expr": {
+                            "Identifier": {
+                              "value": "id",
+                              "quote_style": null
+                            }
+                          },
+                          "asc": false,
+                          "nulls_first": null,
+                          "with_fill": null
+                        }
+                      ]
                     }
-                  ],
-                  "paritions": 3
+                  },
+                  "partition_range_method": {
+                    "SampleDistribution": {
+                      "sample_rate": 0.1,
+                      "max_rows": 1000000
+                    }
+                  }
                 }
               },
               "outbound_exchange_id": "operator_p2_in0_exchange",
@@ -162,19 +149,6 @@
           "plan_id": 2,
           "operator_type": {
             "Exchange": {
-              "task": {
-                "Partition": {
-                  "exprs": [
-                    {
-                      "Identifier": {
-                        "value": "id",
-                        "quote_style": null
-                      }
-                    }
-                  ],
-                  "paritions": 3
-                }
-              },
               "outbound_producer_ids": [
                 "operator_p2_producer"
               ],
@@ -228,23 +202,6 @@
           "plan_id": 2,
           "operator_type": {
             "Exchange": {
-              "task": {
-                "Sort": {
-                  "exprs": [
-                    {
-                      "expr": {
-                        "Identifier": {
-                          "value": "id",
-                          "quote_style": null
-                        }
-                      },
-                      "asc": false,
-                      "nulls_first": null,
-                      "with_fill": null
-                    }
-                  ]
-                }
-              },
               "outbound_producer_ids": [
                 "operator_p3_producer"
               ],
@@ -297,22 +254,6 @@
           "plan_id": 3,
           "operator_type": {
             "Exchange": {
-              "task": {
-                "MaterializeFiles": {
-                  "data_format": "Parquet",
-                  "fields": [
-                    {
-                      "Wildcard": {
-                        "opt_ilike": null,
-                        "opt_exclude": null,
-                        "opt_except": null,
-                        "opt_replace": null,
-                        "opt_rename": null
-                      }
-                    }
-                  ]
-                }
-              },
               "outbound_producer_ids": [],
               "inbound_producer_ids": [
                 "operator_p3_producer"
