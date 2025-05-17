@@ -55,6 +55,7 @@ pub struct RecordHandler {
     query_handler_worker_id: u128,
     query_id: u128,
     operator_id: String,
+    queue_name: String,
 
     // config
     none_available_wait_time_in_ms: chrono::TimeDelta,
@@ -79,6 +80,7 @@ impl RecordHandler {
     pub async fn initiate(
         ct: CancellationToken,
         op_in_config: &OperatorInstanceConfig,
+        queue_name: String,
         pipe: &mut Pipe,
         msg_reg: Arc<MessageRegistry>,
         msg_router_state: Arc<Mutex<MessageRouterState>>,
@@ -103,6 +105,7 @@ impl RecordHandler {
             query_handler_worker_id: op_in_config.query_handler_worker_id.clone(),
             query_id: op_in_config.query_id.clone(),
             operator_id: op_in_config.operator.id.clone(),
+            queue_name: queue_name,
             none_available_wait_time_in_ms: chrono::Duration::milliseconds(50),
             inbound_exchange_ids,
             inbound_exchanges: Vec::new(),
@@ -151,6 +154,7 @@ impl RecordHandler {
                 }
                 let resp = requests::GetNextRecordRequest::get_next_record_request(
                     self.operator_id.clone(),
+                    self.queue_name.clone(),
                     inbound_exchange.operator_instance_id.clone(),
                     inbound_exchange.worker_id,
                     pipe,
@@ -236,6 +240,7 @@ impl RecordHandler {
 
         requests::OperatorCompletedRecordProcessingRequest::request(
             self.operator_id.clone(),
+            self.queue_name.clone(),
             rec.record_id.clone(),
             inbound_exchange.operator_instance_id.clone(),
             inbound_exchange.worker_id.clone(),

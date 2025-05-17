@@ -51,164 +51,6 @@ impl GenericMessage for OperatorStatusChange {
 //
 
 #[derive(Debug, Error)]
-pub enum SampleRecordsError {
-    #[error("read exact failed")]
-    ReadExactFailed,
-    #[error("not implemented: {0}")]
-    NotImplemented(String),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum SampleRecords {
-    EveryNthRecord {
-        period: u64,
-        last_record: u64,
-        min_records_to_sample_else_sample_all: u64,
-    },
-}
-
-impl GenericMessage for SampleRecords {
-    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
-        let msg: SampleRecords = serde_json::from_slice(data)?;
-        Ok(Box::new(msg))
-    }
-    fn msg_name() -> MessageName {
-        MessageName::ExchangeSampleRecords
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub enum SampleRecordsResponse {
-    Complete,
-    NextRecord {
-        record_id: u64,
-        #[serde(skip_serializing)]
-        record: Arc<arrow::array::RecordBatch>,
-        table_aliases: Vec<Vec<String>>, // [["tableName", "tableAlias"], ...]
-    },
-}
-
-impl SampleRecordsResponse {
-    fn msg_id(&self) -> u8 {
-        match self {
-            Self::Complete => 0,
-            Self::NextRecord { .. } => 1,
-        }
-    }
-}
-
-#[derive(Deserialize)]
-pub struct SampleRecordsResponseNextRecord {
-    record_id: u64,
-    table_aliases: Vec<Vec<String>>,
-}
-
-impl SendableMessage for SampleRecordsResponse {
-    fn to_bytes(&self) -> Result<Vec<u8>> {
-        match self {
-            Self::Complete => {
-                let meta_data = serde_json::to_vec(self)?;
-                let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len());
-                buf.put_u8(self.msg_id());
-                buf.put_u64(meta_data.len() as u64);
-                buf.put(&meta_data[..]);
-                return Ok(buf.to_vec());
-            }
-            Self::NextRecord { record, .. } => {
-                let mut data_buf = Vec::new();
-                {
-                    let mut record_writer =
-                        arrow::ipc::writer::StreamWriter::try_new(&mut data_buf, &record.schema())?;
-                    record_writer.write(record)?;
-                    record_writer.finish()?
-                }
-
-                let meta_data = serde_json::to_vec(self)?;
-
-                let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len() + data_buf.len());
-                buf.put_u8(self.msg_id());
-                buf.put_u64(meta_data.len() as u64);
-                buf.put(&meta_data[..]);
-                buf.put(&data_buf[..]);
-
-                return Ok(buf.to_vec());
-            }
-        }
-    }
-    fn msg_name(&self) -> MessageName {
-        MessageName::ExchangeSampleRecordsResponse
-    }
-    fn clone_box(&self) -> Box<dyn SendableMessage> {
-        Box::new(self.clone())
-    }
-    fn as_any(self: Box<Self>) -> Box<dyn Any> {
-        self
-    }
-    fn as_any_ref(&self) -> &dyn Any {
-        self
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct SampleRecordsResponseParser {}
-
-impl SampleRecordsResponseParser {
-    pub fn new() -> SampleRecordsResponseParser {
-        SampleRecordsResponseParser {}
-    }
-}
-
-impl MessageParser for SampleRecordsResponseParser {
-    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
-        let mut buf = Cursor::new(&ser_msg.msg_data[..]);
-        buf.set_position(0);
-
-        let msg_id = buf.get_u8();
-        let meta_data_len = buf.get_u64();
-
-        let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
-        meta_data.resize(meta_data_len as usize, 0);
-        match buf.read_exact(&mut meta_data) {
-            Err(_) => return Err(SampleRecordsError::ReadExactFailed.into()),
-            _ => (),
-        }
-
-        if msg_id == 0 {
-            let msg = SampleRecordsResponse::Complete;
-
-            Ok(Message::build_from_serialized_message(
-                ser_msg,
-                Box::new(msg),
-            ))
-        } else if msg_id == 1 {
-            let meta: serde_json::Value = serde_json::from_slice(&meta_data[..])?;
-            let meta: SampleRecordsResponseNextRecord =
-                serde_json::from_value(meta["NextRecord"].clone())?;
-
-            let record = parsing_utils::parse_record(&mut buf)?;
-            let msg = SampleRecordsResponse::NextRecord {
-                record_id: meta.record_id,
-                record: Arc::new(record),
-                table_aliases: meta.table_aliases,
-            };
-
-            Ok(Message::build_from_serialized_message(
-                ser_msg,
-                Box::new(msg),
-            ))
-        } else {
-            return Err(SampleRecordsError::NotImplemented(format!("msg id: {}", msg_id)).into());
-        }
-    }
-    fn msg_name(&self) -> MessageName {
-        MessageName::ExchangeSampleRecordsResponse
-    }
-}
-
-////////////////////////////////////////////////////////////
-//
-
-#[derive(Debug, Error)]
 pub enum ExchangeRequestsError {
     #[error("read exact failed")]
     ReadExactFailed,
@@ -220,6 +62,7 @@ pub enum ExchangeRequestsError {
 pub enum ExchangeRequests {
     GetNextRecordRequest {
         operator_id: String,
+        queue_name: String,
     },
     GetNextRecordResponseRecord {
         record_id: u64,
@@ -241,6 +84,7 @@ pub enum ExchangeRequests {
     OperatorCompletedRecordProcessingRequest {
         operator_id: String,
         record_id: u64,
+        queue_name: String,
     },
     OperatorCompletedRecordProcessingResponse,
 }
@@ -269,6 +113,7 @@ struct ExchangeRequestsGetNextRecordResponseRecord {
 #[derive(Debug, Deserialize)]
 struct ExchangeRequestsGetNextRecordRequest {
     operator_id: String,
+    queue_name: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -286,6 +131,7 @@ struct ExchangeRequestsSendRecordResponse {
 struct ExchangeRequestsOperatorCompletedRecordProcessingRequest {
     operator_id: String,
     record_id: u64,
+    queue_name: String,
 }
 
 impl SendableMessage for ExchangeRequests {
@@ -424,6 +270,7 @@ impl MessageParser for ExchangeRequestsParser {
 
             let msg = ExchangeRequests::GetNextRecordRequest {
                 operator_id: meta.operator_id,
+                queue_name: meta.queue_name,
             };
 
             Ok(Message::build_from_serialized_message(
@@ -497,6 +344,7 @@ impl MessageParser for ExchangeRequestsParser {
             let msg = ExchangeRequests::OperatorCompletedRecordProcessingRequest {
                 operator_id: meta.operator_id,
                 record_id: meta.record_id,
+                queue_name: meta.queue_name,
             };
 
             Ok(Message::build_from_serialized_message(

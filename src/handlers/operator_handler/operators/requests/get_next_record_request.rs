@@ -29,6 +29,7 @@ pub enum GetNextRecordResponse {
 
 pub struct GetNextRecordRequest<'a> {
     operator_id: String,
+    queue_name: String,
     exchange_operator_instance_id: u128,
     exchange_worker_id: u128,
 
@@ -39,6 +40,7 @@ pub struct GetNextRecordRequest<'a> {
 impl<'a> GetNextRecordRequest<'a> {
     pub async fn get_next_record_request(
         operator_id: String,
+        queue_name: String,
         exchange_operator_instance_id: u128,
         exchange_worker_id: u128,
         pipe: &'a mut Pipe,
@@ -46,12 +48,14 @@ impl<'a> GetNextRecordRequest<'a> {
     ) -> Result<GetNextRecordResponse> {
         debug!(
             operator_id = operator_id,
+            queue_name = queue_name,
             exchange_operator_instance_id = exchange_operator_instance_id,
             exchange_worker_id = exchange_worker_id,
             "request",
         );
         let mut req = GetNextRecordRequest {
             operator_id,
+            queue_name,
             exchange_operator_instance_id,
             exchange_worker_id,
             pipe,
@@ -69,6 +73,7 @@ impl<'a> GetNextRecordRequest<'a> {
         let get_next_msg = Message::new(Box::new(
             messages::exchange::ExchangeRequests::GetNextRecordRequest {
                 operator_id: self.operator_id.clone(),
+                queue_name: self.queue_name.clone(),
             },
         ))
         .set_route_to_worker_id(self.exchange_worker_id.clone())

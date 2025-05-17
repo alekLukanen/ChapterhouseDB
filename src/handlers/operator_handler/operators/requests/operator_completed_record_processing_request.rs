@@ -19,6 +19,7 @@ pub struct OperatorCompletedRecordProcessingRequest<'a> {
     exchange_worker_id: u128,
     exchange_operator_instance_id: u128,
     operator_id: String,
+    queue_name: String,
     record_id: u64,
 
     pipe: &'a mut Pipe,
@@ -28,6 +29,7 @@ pub struct OperatorCompletedRecordProcessingRequest<'a> {
 impl<'a> OperatorCompletedRecordProcessingRequest<'a> {
     pub async fn request(
         operator_id: String,
+        queue_name: String,
         record_id: u64,
         exchange_operator_instance_id: u128,
         exchange_worker_id: u128,
@@ -36,6 +38,7 @@ impl<'a> OperatorCompletedRecordProcessingRequest<'a> {
     ) -> Result<()> {
         debug!(
             operator_id = operator_id,
+            queue_name = queue_name,
             record_id = record_id,
             exchange_operator_instance_id = exchange_operator_instance_id,
             exchange_worker_id = exchange_worker_id,
@@ -45,6 +48,7 @@ impl<'a> OperatorCompletedRecordProcessingRequest<'a> {
             exchange_operator_instance_id,
             exchange_worker_id,
             operator_id,
+            queue_name,
             record_id,
             pipe,
             msg_reg,
@@ -61,6 +65,7 @@ impl<'a> OperatorCompletedRecordProcessingRequest<'a> {
         let msg = Message::new(Box::new(
             messages::exchange::ExchangeRequests::OperatorCompletedRecordProcessingRequest {
                 operator_id: self.operator_id.clone(),
+                queue_name: self.queue_name.clone(),
                 record_id: self.record_id.clone(),
             },
         ))

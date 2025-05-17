@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::u64;
 
 use anyhow::Result;
+use rand::Rng;
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
@@ -68,13 +69,18 @@ impl ExchangeOperator {
         pipe.set_sent_from_query_id(op_in_config.query_id.clone());
         pipe.set_sent_from_operation_id(op_in_config.id.clone());
 
-        let (outbound_producer_ids, inbound_producer_ids) =
+        let (outbound_producer_ids, record_queue_configs, inbound_producer_ids) =
             match &op_in_config.operator.operator_type {
                 planner::OperatorType::Exchange {
                     outbound_producer_ids,
                     inbound_producer_ids,
+                    record_queue_configs,
                     ..
-                } => (outbound_producer_ids.clone(), inbound_producer_ids.clone()),
+                } => (
+                    outbound_producer_ids.clone(),
+                    record_queue_configs.clone(),
+                    inbound_producer_ids.clone(),
+                ),
                 planner::OperatorType::Producer { .. } => {
                     return Err(ExchangeOperatorError::InvalidOperatorType(
                         op_in_config.operator.operator_type.name().to_string(),
@@ -85,6 +91,7 @@ impl ExchangeOperator {
 
         let record_pool = RecordPool::new(
             outbound_producer_ids,
+            record_queue_configs,
             RecordPoolConfig {
                 max_heartbeat_interval: chrono::Duration::seconds(1),
             },
@@ -259,18 +266,20 @@ impl ExchangeOperator {
                         .await?;
                         Ok(true)
                     }
-                    messages::exchange::ExchangeRequests::GetNextRecordRequest { operator_id } => {
-                        self.handle_get_next_record_request(msg, operator_id)
+                    messages::exchange::ExchangeRequests::GetNextRecordRequest { operator_id, queue_name } => {
+                        self.handle_get_next_record_request(msg, operator_id, queue_name)
                             .await?;
                         Ok(true)
                     }
                     messages::exchange::ExchangeRequests::OperatorCompletedRecordProcessingRequest {
                         operator_id,
                         record_id,
+                        queue_name,
                     } => {
                         self.handle_operator_completed_record_processing_request(
                             msg,
                             operator_id,
+                            queue_name,
                             record_id,
                         )
                         .await?;
@@ -358,12 +367,13 @@ impl ExchangeOperator {
         &mut self,
         msg: &Message,
         operator_id: &String,
+        queue_name: &String,
         record_id: &u64,
     ) -> Result<()> {
         self.record_pool
             .lock()
             .await
-            .operator_completed_record_processing(operator_id, record_id)?;
+            .operator_completed_record_processing(operator_id, queue_name, record_id)?;
 
         let resp_msg = msg.reply(Box::new(
             ExchangeRequests::OperatorCompletedRecordProcessingResponse,
@@ -405,6 +415,7 @@ impl ExchangeOperator {
         &mut self,
         msg: &Message,
         operator_id: &String,
+        queue_name: &String,
     ) -> Result<()> {
         let op_in_id = if let Some(id) = &msg.sent_from_operation_id {
             id.clone()
@@ -412,11 +423,11 @@ impl ExchangeOperator {
             return Err(ExchangeOperatorError::OperationInstanceIdNotSetOnMessage.into());
         };
 
-        let rec_res = self
-            .record_pool
-            .lock()
-            .await
-            .get_next_record(operator_id, op_in_id)?;
+        let rec_res =
+            self.record_pool
+                .lock()
+                .await
+                .get_next_record(operator_id, queue_name, op_in_id)?;
         match rec_res {
             Some((record_id, record, table_aliases)) => {
                 let resp_msg = msg.reply(Box::new(
@@ -505,12 +516,18 @@ pub enum RecordPoolError {
     RecordAlreadyProcessedByOperator(u64, String),
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq)]
+struct OperatorQueue {
+    operator_id: String,
+    queue_name: String,
+}
+
 #[derive(Debug)]
 struct RecordRef {
     id: u64,
     record: Arc<arrow::array::RecordBatch>,
     table_aliases: Vec<Vec<String>>,
-    processed_by_operators: Vec<String>,
+    processed_by_operator_queues: Vec<OperatorQueue>,
 }
 
 #[derive(Debug)]
@@ -529,6 +546,11 @@ struct RecordProcessingMetrics {
 #[derive(Debug)]
 struct OperatorRecordQueue {
     operator_id: String,
+    queue_name: String,
+    sampling_method: planner::ExchangeRecordQueueSamplingMethod,
+
+    rows_inserted: usize,
+
     records_to_process: std::collections::VecDeque<u64>,
     records_reserved_by_operator: std::collections::HashMap<u64, ReservedRecord>,
     record_processing_metrics: std::collections::HashMap<u64, RecordProcessingMetrics>,
@@ -543,27 +565,42 @@ struct RecordPoolConfig {
 struct RecordPool {
     records: std::collections::HashMap<u64, RecordRef>,
     operator_record_queues: Vec<OperatorRecordQueue>,
-    operator_ids: Vec<String>,
+    operator_queues: Vec<OperatorQueue>,
 
     config: RecordPoolConfig,
+    rng: rand::rngs::ThreadRng,
 }
 
 impl RecordPool {
-    fn new(mut operator_ids: Vec<String>, config: RecordPoolConfig) -> RecordPool {
+    fn new(
+        mut operator_ids: Vec<String>,
+        queue_configs: Vec<planner::ExchangeRecordQueueConfig>,
+        config: RecordPoolConfig,
+    ) -> RecordPool {
         operator_ids.sort();
         RecordPool {
             records: std::collections::HashMap::new(),
-            operator_record_queues: operator_ids
+            operator_record_queues: queue_configs
                 .iter()
-                .map(|item| OperatorRecordQueue {
-                    operator_id: item.clone(),
+                .map(|qc| OperatorRecordQueue {
+                    operator_id: qc.producer_id.clone(),
+                    queue_name: qc.queue_name.clone(),
+                    sampling_method: qc.sampling_method.clone(),
+                    rows_inserted: 0,
                     records_to_process: std::collections::VecDeque::new(),
                     records_reserved_by_operator: std::collections::HashMap::new(),
                     record_processing_metrics: std::collections::HashMap::new(),
                 })
                 .collect(),
-            operator_ids,
+            operator_queues: queue_configs
+                .iter()
+                .map(|qc| OperatorQueue {
+                    operator_id: qc.producer_id.clone(),
+                    queue_name: qc.queue_name.clone(),
+                })
+                .collect(),
             config,
+            rng: rand::thread_rng(),
         }
     }
 
@@ -576,6 +613,8 @@ impl RecordPool {
         record: Arc<arrow::array::RecordBatch>,
         table_aliases: Vec<Vec<String>>,
     ) -> bool {
+        let num_rows = record.num_rows();
+
         if !self.records.contains_key(&record_id) {
             self.records.insert(
                 record_id,
@@ -583,12 +622,31 @@ impl RecordPool {
                     id: record_id,
                     record,
                     table_aliases,
-                    processed_by_operators: Vec::new(),
+                    processed_by_operator_queues: Vec::new(),
                 },
             );
-            self.operator_record_queues.iter_mut().for_each(|item| {
-                item.records_to_process.push_back(record_id.clone());
-            });
+            for queue in &mut self.operator_record_queues {
+                let insert = match &queue.sampling_method {
+                    planner::ExchangeRecordQueueSamplingMethod::All => true,
+                    planner::ExchangeRecordQueueSamplingMethod::PercentageWithReserve {
+                        sample_rate,
+                        min_rows,
+                    } => {
+                        if queue.rows_inserted > min_rows {
+                            if self.rng.gen::<f32>() < sample_rate {
+                                false
+                            }
+                        } else {
+                            true
+                        }
+                        false
+                    }
+                };
+                if insert {
+                    queue.records_to_process.push_back(record_id.clone());
+                    queue.rows_inserted += num_rows;
+                }
+            }
             true
         } else {
             false
@@ -598,12 +656,13 @@ impl RecordPool {
     fn get_next_record(
         &mut self,
         operator_id: &String,
+        queue_name: &String,
         operator_instance_id: u128,
     ) -> Result<Option<(u64, Arc<arrow::array::RecordBatch>, Vec<Vec<String>>)>> {
         let op_queue = if let Some(queue) = self
             .operator_record_queues
             .iter_mut()
-            .find(|item| item.operator_id == *operator_id)
+            .find(|item| item.operator_id == *operator_id && item.queue_name == *queue_name)
         {
             queue
         } else {
@@ -661,6 +720,7 @@ impl RecordPool {
     fn operator_completed_record_processing(
         &mut self,
         operator_id: &String,
+        queue_name: &String,
         record_id: &u64,
     ) -> Result<()> {
         let op_queue = if let Some(queue) = self
@@ -686,9 +746,11 @@ impl RecordPool {
         match rec_ref {
             Some(rec_ref) => {
                 let already_finished = rec_ref
-                    .processed_by_operators
+                    .processed_by_operator_queues
                     .iter()
-                    .find(|&item| *item == *operator_id)
+                    .find(|&item| {
+                        item.operator_id == *operator_id && item.queue_name == *queue_name
+                    })
                     .is_some();
                 if already_finished {
                     // this should never be the case
@@ -699,12 +761,15 @@ impl RecordPool {
                     .into());
                 }
 
-                rec_ref.processed_by_operators.push(operator_id.clone());
+                rec_ref.processed_by_operator_queues.push(OperatorQueue {
+                    operator_id: operator_id.clone(),
+                    queue_name: queue_name.clone(),
+                });
 
-                if rec_ref.processed_by_operators.len() == self.operator_ids.len() {
-                    let mut pbo = rec_ref.processed_by_operators.clone();
+                if rec_ref.processed_by_operator_queues.len() == self.operator_queues.len() {
+                    let mut pbo = rec_ref.processed_by_operator_queues.clone();
                     pbo.sort();
-                    if pbo == self.operator_ids {
+                    if pbo == self.operator_queues {
                         self.records.remove(record_id);
                     }
                 }

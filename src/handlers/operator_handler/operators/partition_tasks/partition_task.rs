@@ -71,6 +71,7 @@ impl PartitionTask {
         let rec_handler = exchange_handlers::record_handler::RecordHandler::initiate(
             ct.child_token(),
             &self.operator_instance_config,
+            "default".to_string(),
             &mut self.operator_pipe,
             self.msg_reg.clone(),
             self.msg_router_state.clone(),
