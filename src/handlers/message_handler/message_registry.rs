@@ -128,6 +128,14 @@ impl MessageRegistry {
             Box::new(GenericMessageParser::<messages::exchange::RecordHeartbeat>::new()),
             true,
         );
+        self.add(
+            Box::new(GenericMessageParser::<messages::exchange::SampleRecords>::new()),
+            true,
+        );
+        self.add(
+            Box::new(messages::exchange::SampleRecordsResponseParser::new()),
+            true,
+        );
     }
 
     pub async fn build_msg(&self, buf: &mut BytesMut) -> Result<Option<Message>> {

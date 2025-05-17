@@ -22,30 +22,30 @@ use crate::handlers::{
     },
 };
 
-use super::config::PartitionConfig;
+use super::config::SortConfig;
 
 #[derive(Debug)]
-struct PartitionTask {
+struct SortTask {
     operator_instance_config: OperatorInstanceConfig,
-    partition_config: PartitionConfig,
+    sort_config: SortConfig,
 
     operator_pipe: Pipe,
     msg_reg: Arc<MessageRegistry>,
     msg_router_state: Arc<Mutex<MessageRouterState>>,
 }
 
-impl PartitionTask {
+impl SortTask {
     fn new(
         op_in_config: OperatorInstanceConfig,
-        partition_config: PartitionConfig,
+        sort_config: SortConfig,
         operator_pipe: Pipe,
         msg_reg: Arc<MessageRegistry>,
         _: Arc<ConnectionRegistry>,
         msg_router_state: Arc<Mutex<MessageRouterState>>,
-    ) -> PartitionTask {
-        PartitionTask {
+    ) -> SortTask {
+        SortTask {
             operator_instance_config: op_in_config,
-            partition_config,
+            sort_config,
             operator_pipe,
             msg_reg,
             msg_router_state,
@@ -53,7 +53,7 @@ impl PartitionTask {
     }
 
     fn consumer(&self) -> Box<dyn MessageConsumer> {
-        Box::new(PartitionConsumer {})
+        Box::new(SortConsumer {})
     }
 
     async fn async_main(&mut self, ct: CancellationToken) -> Result<()> {
@@ -104,15 +104,15 @@ impl PartitionTask {
 // Partition Producer Builder
 
 #[derive(Debug, Clone)]
-pub struct PartitionTaskBuilder {}
+pub struct SortTaskBuilder {}
 
-impl PartitionTaskBuilder {
-    pub fn new() -> PartitionTaskBuilder {
-        PartitionTaskBuilder {}
+impl SortTaskBuilder {
+    pub fn new() -> SortTaskBuilder {
+        SortTaskBuilder {}
     }
 }
 
-impl TaskBuilder for PartitionTaskBuilder {
+impl TaskBuilder for SortTaskBuilder {
     fn build(
         &self,
         op_in_config: OperatorInstanceConfig,
@@ -126,8 +126,8 @@ impl TaskBuilder for PartitionTaskBuilder {
         tokio::sync::oneshot::Receiver<Option<anyhow::Error>>,
         Box<dyn MessageConsumer>,
     )> {
-        let config = PartitionConfig::try_from(&op_in_config)?;
-        let mut op = PartitionTask::new(
+        let config = SortConfig::try_from(&op_in_config)?;
+        let mut op = SortTask::new(
             op_in_config,
             config,
             operator_pipe,
@@ -160,9 +160,9 @@ impl TaskBuilder for PartitionTaskBuilder {
 // Message Consumer
 
 #[derive(Debug, Clone)]
-pub struct PartitionConsumer {}
+pub struct SortConsumer {}
 
-impl MessageConsumer for PartitionConsumer {
+impl MessageConsumer for SortConsumer {
     fn consumes_message(&self, msg: &Message) -> bool {
         match msg.msg.msg_name() {
             MessageName::Ping => true,

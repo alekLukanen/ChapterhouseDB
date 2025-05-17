@@ -143,7 +143,6 @@ pub struct Operator {
     pub id: String,
     pub plan_id: usize,
     pub operator_type: OperatorType,
-    // compute requirements
     pub compute: OperatorCompute,
 }
 

@@ -114,7 +114,6 @@ impl ExchangeOperator {
     fn subscriber(&self) -> Box<dyn Subscriber> {
         Box::new(ExchangeOperatorSubscriber {
             sender: self.sender.clone(),
-            msg_reg: self.msg_reg.clone(),
             operator_instance_id: self.operator_instance_config.id.clone(),
             query_id: self.operator_instance_config.query_id.clone(),
         })
@@ -454,7 +453,6 @@ impl ExchangeOperator {
 #[derive(Debug, Clone)]
 pub struct ExchangeOperatorSubscriber {
     sender: mpsc::Sender<Message>,
-    msg_reg: Arc<MessageRegistry>,
     operator_instance_id: u128,
     query_id: u128,
 }
@@ -473,29 +471,8 @@ impl MessageConsumer for ExchangeOperatorSubscriber {
         }
 
         match msg.msg.msg_name() {
-            MessageName::Ping => match self.msg_reg.try_cast_msg::<messages::common::Ping>(msg) {
-                Ok(messages::common::Ping::Ping) => true,
-                Ok(messages::common::Ping::Pong) => false,
-                Err(err) => {
-                    error!("{}", err);
-                    false
-                }
-            },
-            MessageName::ExchangeRequests => {
-                match self
-                    .msg_reg
-                    .try_cast_msg::<messages::exchange::ExchangeRequests>(msg)
-                {
-                    Ok(messages::exchange::ExchangeRequests::SendRecordRequest { .. }) => true,
-                    Ok(messages::exchange::ExchangeRequests::GetNextRecordRequest { .. }) => true,
-                    Ok(messages::exchange::ExchangeRequests::OperatorCompletedRecordProcessingRequest { .. }) => true,
-                    Err(err) => {
-                        error!("{}", err);
-                        false
-                    }
-                    _ => false,
-                }
-            }
+            MessageName::Ping => true,
+            MessageName::ExchangeRequests => true,
             MessageName::ExchangeOperatorStatusChange => true,
             MessageName::OperatorShutdown => true,
             MessageName::CommonGenericResponse => true,

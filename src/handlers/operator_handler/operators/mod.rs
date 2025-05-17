@@ -10,6 +10,7 @@ mod partition_tasks;
 mod producer_operator;
 mod record_utils;
 pub mod requests;
+mod sort_tasks;
 mod table_func_tasks;
 mod traits;
 

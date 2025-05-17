@@ -1,7 +1,7 @@
 use crate::planner::{self, DataFormat};
 
 use super::{
-    filter_tasks, materialize_tasks, partition_tasks, table_func_tasks,
+    filter_tasks, materialize_tasks, partition_tasks, sort_tasks, table_func_tasks,
     traits::{TableFuncSyntaxValidator, TaskBuilder},
 };
 use anyhow::Result;
@@ -145,16 +145,19 @@ impl OperatorTaskRegistry {
                 }
             }
             planner::OperatorTask::Partition { .. } => {
-                Err(OperatorTaskRegistryError::NotImplemented(format!(
-                    "find task builder for OperatorTask type {}",
-                    task.name()
-                ))
-                .into())
+                if let Some(partition_task) = &self.partition_task {
+                    Ok(Some(&partition_task.builder))
+                } else {
+                    Ok(None)
+                }
             }
-            planner::OperatorTask::Sort { .. } => Err(OperatorTaskRegistryError::NotImplemented(
-                format!("find task builder for OperatorTask type {}", task.name()),
-            )
-            .into()),
+            planner::OperatorTask::Sort { .. } => {
+                if let Some(sort_task) = &self.sort_task {
+                    Ok(Some(&sort_task.builder))
+                } else {
+                    Ok(None)
+                }
+            }
             planner::OperatorTask::MaterializeFiles { data_format, .. } => {
                 if let Some(materialize_files_task) = &self.materialize_files_task {
                     if materialize_files_task
@@ -201,6 +204,7 @@ pub fn build_default_operator_task_registry() -> Result<OperatorTaskRegistry> {
             Box::new(materialize_tasks::MaterializeFilesTaskBuilder::new()),
             vec![DataFormat::Parquet],
         )?
-        .add_partition_task_builder(Box::new(partition_tasks::PartitionTaskBuilder::new()))?;
+        .add_partition_task_builder(Box::new(partition_tasks::PartitionTaskBuilder::new()))?
+        .add_sort_task_builder(Box::new(sort_tasks::SortTaskBuilder::new()))?;
     Ok(reg)
 }
