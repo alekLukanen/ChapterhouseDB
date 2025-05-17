@@ -3,8 +3,8 @@ use sqlparser::ast::{Expr, SelectItem, Value, WildcardAdditionalOptions};
 
 use crate::planner::logical_planner::{LogicalPlan, LogicalPlanner};
 use crate::planner::physical_planner::{
-    DataFormat, Operator, OperatorCompute, OperatorTask, OperatorType, PhysicalPlan,
-    PhysicalPlanner, Pipeline,
+    DataFormat, ExchangeRecordQueueConfig, ExchangeRecordQueueSamplingMethod, Operator,
+    OperatorCompute, OperatorTask, OperatorType, PhysicalPlan, PhysicalPlanner, Pipeline,
 };
 
 use super::logical_planner::LogicalPlanNodeType;
@@ -121,6 +121,11 @@ fn test_build_materialize_operators() -> Result<()> {
                 materialize_node.id.clone()
             )],
             inbound_producer_ids: vec![format!("operator_p{}_producer", filter_node.id.clone())],
+            record_queue_configs: vec![ExchangeRecordQueueConfig {
+                producer_id: format!("operator_p{}_exchange", materialize_node.id.clone()),
+                queue_name: "default".to_string(),
+                sampling_method: ExchangeRecordQueueSamplingMethod::All,
+            }],
         },
         compute: OperatorCompute {
             instances: 1,
@@ -165,6 +170,7 @@ fn test_build_materialize_operators() -> Result<()> {
         operator_type: OperatorType::Exchange {
             outbound_producer_ids: vec![],
             inbound_producer_ids: vec![expected_producer.id.clone()],
+            record_queue_configs: vec![],
         },
         compute: OperatorCompute {
             instances: 1,

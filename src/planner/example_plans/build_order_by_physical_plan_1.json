@@ -46,6 +46,13 @@
               ],
               "inbound_producer_ids": [
                 "operator_p0_producer"
+              ],
+              "record_queue_configs": [
+                {
+                  "producer_id": "operator_p1_producer",
+                  "queue_name": "default",
+                  "sampling_method": "All"
+                }
               ]
             }
           },
@@ -91,6 +98,23 @@
               ],
               "inbound_producer_ids": [
                 "operator_p1_producer"
+              ],
+              "record_queue_configs": [
+                {
+                  "producer_id": "operator_p2_producer",
+                  "queue_name": "default",
+                  "sampling_method": "All"
+                },
+                {
+                  "producer_id": "operator_p2_producer",
+                  "queue_name": "partition_sample",
+                  "sampling_method": {
+                    "PercentageWithReserve": {
+                      "sample_rate": 0.1,
+                      "min_rows": 10000
+                    }
+                  }
+                }
               ]
             }
           },
@@ -101,7 +125,7 @@
           }
         },
         {
-          "id": "operator_p2_in0_producer",
+          "id": "operator_p2_producer",
           "plan_id": 2,
           "operator_type": {
             "Producer": {
@@ -127,7 +151,9 @@
                   "partition_range_method": {
                     "SampleDistribution": {
                       "sample_rate": 0.1,
-                      "max_rows": 1000000
+                      "min_rows": 10000,
+                      "max_rows": 1000000,
+                      "exchange_queue_name": "partition_sample"
                     }
                   }
                 }
@@ -150,10 +176,17 @@
           "operator_type": {
             "Exchange": {
               "outbound_producer_ids": [
-                "operator_p2_producer"
+                "operator_p2_in1_producer"
               ],
               "inbound_producer_ids": [
-                "operator_p2_in0_producer"
+                "operator_p2_producer"
+              ],
+              "record_queue_configs": [
+                {
+                  "producer_id": "operator_p2_in1_producer",
+                  "queue_name": "default",
+                  "sampling_method": "All"
+                }
               ]
             }
           },
@@ -164,7 +197,7 @@
           }
         },
         {
-          "id": "operator_p2_producer",
+          "id": "operator_p2_in1_producer",
           "plan_id": 2,
           "operator_type": {
             "Producer": {
@@ -206,7 +239,14 @@
                 "operator_p3_producer"
               ],
               "inbound_producer_ids": [
-                "operator_p2_producer"
+                "operator_p2_in1_producer"
+              ],
+              "record_queue_configs": [
+                {
+                  "producer_id": "operator_p3_producer",
+                  "queue_name": "default",
+                  "sampling_method": "All"
+                }
               ]
             }
           },
@@ -257,7 +297,8 @@
               "outbound_producer_ids": [],
               "inbound_producer_ids": [
                 "operator_p3_producer"
-              ]
+              ],
+              "record_queue_configs": []
             }
           },
           "compute": {

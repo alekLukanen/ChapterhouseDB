@@ -232,7 +232,7 @@ impl QueryHandlerState {
         let op_in = self.find_operator_instance(query, op_in_id)?;
         if let Some(op) = query
             .physical_plan
-            .get_operator(op_in.pipeline_id.clone(), op_in.operator_id.clone())
+            .find_operator(op_in.pipeline_id.clone(), op_in.operator_id.clone())
         {
             match &op.operator_type {
                 planner::OperatorType::Producer {
@@ -257,7 +257,7 @@ impl QueryHandlerState {
         let op_in = self.find_operator_instance(query, op_in_id)?;
         if let Some(op) = query
             .physical_plan
-            .get_operator(op_in.pipeline_id.clone(), op_in.operator_id.clone())
+            .find_operator(op_in.pipeline_id.clone(), op_in.operator_id.clone())
         {
             match &op.operator_type {
                 planner::OperatorType::Producer {
@@ -279,7 +279,7 @@ impl QueryHandlerState {
 
         let op = query
             .physical_plan
-            .get_operator(op_in.pipeline_id.clone(), op_in.operator_id.clone());
+            .find_operator(op_in.pipeline_id.clone(), op_in.operator_id.clone());
         match op {
             Some(op) => match op.operator_type {
                 planner::OperatorType::Producer { .. } => Ok(true),
@@ -436,7 +436,7 @@ impl QueryHandlerState {
             for op_in in &mut query.operator_instances {
                 let operator = if let Some(operator) = query
                     .physical_plan
-                    .get_operator(op_in.pipeline_id.clone(), op_in.operator_id.clone())
+                    .find_operator(op_in.pipeline_id.clone(), op_in.operator_id.clone())
                 {
                     operator
                 } else {

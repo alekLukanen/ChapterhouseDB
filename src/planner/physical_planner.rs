@@ -103,6 +103,7 @@ pub enum OperatorType {
         // pull based: a producer will request data from the exchange
         outbound_producer_ids: Vec<String>,
         inbound_producer_ids: Vec<String>,
+        record_queue_configs: Vec<ExchangeRecordQueueConfig>,
     },
 }
 
@@ -122,13 +123,31 @@ impl OperatorType {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ExchangeRecordQueueConfig {
+    pub producer_id: String,
+    pub queue_name: String,
+    pub sampling_method: ExchangeRecordQueueSamplingMethod,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ExchangeRecordQueueSamplingMethod {
+    All,
+    PercentageWithReserve { sample_rate: f32, min_rows: usize },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PartitionMethod {
     OrderByExprs { exprs: Vec<OrderByExpr> },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PartitionRangeMethod {
-    SampleDistribution { sample_rate: f32, max_rows: usize },
+    SampleDistribution {
+        sample_rate: f32,
+        min_rows: usize,
+        max_rows: usize,
+        exchange_queue_name: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -168,6 +187,10 @@ impl Pipeline {
         self.operators.iter().collect()
     }
 
+    pub fn get_operators_ref_mut(&mut self) -> Vec<&mut Operator> {
+        self.operators.iter_mut().collect()
+    }
+
     pub fn has_operators_for_plan_id(&self, plan_id: usize) -> bool {
         self.operators.iter().any(|item| item.plan_id == plan_id)
     }
@@ -180,6 +203,24 @@ impl Pipeline {
             }
         }
         operators
+    }
+
+    pub fn find_operator_by_id(&self, op_id: &String) -> Option<&Operator> {
+        for op in self.get_operators_ref() {
+            if op.id == *op_id {
+                return Some(op);
+            }
+        }
+        None
+    }
+
+    pub fn find_mut_operator_by_id(&mut self, op_id: &String) -> Option<&mut Operator> {
+        for op in self.get_operators_ref_mut() {
+            if op.id == *op_id {
+                return Some(op);
+            }
+        }
+        None
     }
 
     pub fn add_operator(&mut self, op: Operator) {
@@ -217,15 +258,13 @@ impl PhysicalPlan {
         &self.pipelines
     }
 
-    pub fn get_operator(&self, pipeline_id: String, operator_id: String) -> Option<&Operator> {
+    pub fn find_operator(&self, pipeline_id: String, operator_id: String) -> Option<&Operator> {
         for pipeline in self.get_pipelines_ref() {
             if pipeline.id != pipeline_id {
                 continue;
             }
-            for op in pipeline.get_operators_ref() {
-                if op.id == operator_id {
-                    return Some(op);
-                }
+            if let Some(op) = pipeline.find_operator_by_id(&operator_id) {
+                return Some(op);
             }
         }
         None
@@ -306,9 +345,83 @@ impl PhysicalPlanner {
             iters += 1;
         }
 
+        // optimize pipeline
+        self.add_sampling_configs_to_exchanges(pipeline)?;
+
         let mut physical_plan = PhysicalPlan::new();
         physical_plan.add_pipeline(pipeline.clone());
         Ok(physical_plan)
+    }
+
+    fn add_sampling_configs_to_exchanges(&mut self, pipeline: &mut Pipeline) -> Result<()> {
+        let mut exchange_configs = Vec::new();
+        for op in pipeline.get_operators_ref() {
+            match &op.operator_type {
+                OperatorType::Exchange {
+                    outbound_producer_ids,
+                    ..
+                } => {
+                    for outbound_op_id in outbound_producer_ids {
+                        let outbound_op =
+                            if let Some(op) = pipeline.find_operator_by_id(outbound_op_id) {
+                                op
+                            } else {
+                                continue;
+                            };
+
+                        let config = match &outbound_op.operator_type {
+                            OperatorType::Producer { task, .. } => match task {
+                                OperatorTask::Partition {
+                                    partition_range_method, ..
+                                } => match partition_range_method {
+                                    PartitionRangeMethod::SampleDistribution { 
+                                        sample_rate, 
+                                        min_rows, 
+                                        exchange_queue_name, 
+                                        .. 
+                                    } => {
+                                        ExchangeRecordQueueConfig {
+                                            producer_id: outbound_op.id.clone(),
+                                            queue_name: exchange_queue_name.clone(),
+                                            sampling_method: ExchangeRecordQueueSamplingMethod::PercentageWithReserve { 
+                                                sample_rate: sample_rate.clone(), 
+                                                min_rows: min_rows.clone(),
+                                            }
+                                        }
+                                    } 
+                                }
+                                _ => {
+                                    continue;
+                                }
+                            },
+                            _ => {
+                                continue;
+                            }
+                        };
+                        
+                        exchange_configs.push((op.id.clone(), config));
+                    }
+                }
+                _ => {
+                    continue;
+                }
+            }
+        }
+
+
+        for (op_id, config) in exchange_configs {
+            let op = pipeline.find_mut_operator_by_id(&op_id).expect("expected operator to exist");
+            match &mut op.operator_type {
+                OperatorType::Exchange { record_queue_configs, .. } => {
+                    record_queue_configs.push(config);
+                }
+                _ => {
+                    continue;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn build_operators(&mut self, lpn: &LogicalPlanNode) -> Result<Vec<Operator>> {
@@ -337,6 +450,8 @@ impl PhysicalPlanner {
                     },
                     partition_range_method: PartitionRangeMethod::SampleDistribution {
                         sample_rate: 0.10,
+                        exchange_queue_name: "partition_sample".to_string(), 
+                        min_rows: 10_000,
                         max_rows: 1_000_000,
                     },
                 },
@@ -357,10 +472,10 @@ impl PhysicalPlanner {
         let mut operators: Vec<Operator> = Vec::new();
         let inbound_exchange_ids = self.get_inbound_operators(&lpn, "exchange")?;
 
-        let part_producer_id = self.new_internal_operator_id(lpn.id, 0, "producer");
+        let part_producer_id = self.new_operator_id(lpn.id, "producer");
         let part_exchange_id = self.new_internal_operator_id(lpn.id, 0, "exchange");
 
-        let sort_producer_id = self.new_operator_id(lpn.id, "producer");
+        let sort_producer_id = self.new_internal_operator_id(lpn.id, 1, "producer");
         let sort_exchange_id = self.new_operator_id(lpn.id, "exchange");
 
         // partition producer operator /////////////////////////////////
@@ -384,6 +499,11 @@ impl PhysicalPlanner {
             operator_type: OperatorType::Exchange {
                 outbound_producer_ids: vec![sort_producer_id.clone()],
                 inbound_producer_ids: vec![part_producer.id.clone()],
+                record_queue_configs: vec![ExchangeRecordQueueConfig {
+                    producer_id: sort_producer_id.clone(),
+                    queue_name: "default".to_string(),
+                    sampling_method: ExchangeRecordQueueSamplingMethod::All,
+                }],
             },
             compute: OperatorCompute {
                 instances: 1,
@@ -413,6 +533,15 @@ impl PhysicalPlanner {
             operator_type: OperatorType::Exchange {
                 outbound_producer_ids: self.get_outbound_operators(lpn, "producer")?,
                 inbound_producer_ids: vec![sort_producer.id.clone()],
+                record_queue_configs: self
+                    .get_outbound_operators(lpn, "producer")?
+                    .iter()
+                    .map(|op_id| ExchangeRecordQueueConfig {
+                        producer_id: op_id.clone(),
+                        queue_name: "default".to_string(),
+                        sampling_method: ExchangeRecordQueueSamplingMethod::All,
+                    })
+                    .collect(),
             },
             compute: OperatorCompute {
                 instances: 1,
@@ -472,6 +601,15 @@ impl PhysicalPlanner {
             operator_type: OperatorType::Exchange {
                 outbound_producer_ids: self.get_outbound_operators(lpn, "producer")?,
                 inbound_producer_ids: vec![producer.id.clone()],
+                record_queue_configs: self
+                    .get_outbound_operators(lpn, "producer")?
+                    .iter()
+                    .map(|op_id| ExchangeRecordQueueConfig {
+                        producer_id: op_id.clone(),
+                        queue_name: "default".to_string(),
+                        sampling_method: ExchangeRecordQueueSamplingMethod::All,
+                    })
+                    .collect(),
             },
             compute: OperatorCompute {
                 instances: 1,
@@ -525,6 +663,15 @@ impl PhysicalPlanner {
             operator_type: OperatorType::Exchange {
                 outbound_producer_ids: self.get_outbound_operators(&lpn, "producer")?,
                 inbound_producer_ids: vec![producer.id.clone()],
+                record_queue_configs: self
+                    .get_outbound_operators(lpn, "producer")?
+                    .iter()
+                    .map(|op_id| ExchangeRecordQueueConfig {
+                        producer_id: op_id.clone(),
+                        queue_name: "default".to_string(),
+                        sampling_method: ExchangeRecordQueueSamplingMethod::All,
+                    })
+                    .collect(),
             },
             compute: OperatorCompute {
                 instances: 1,
@@ -582,6 +729,15 @@ impl PhysicalPlanner {
             operator_type: OperatorType::Exchange {
                 outbound_producer_ids: self.get_outbound_operators(lpn, "producer")?,
                 inbound_producer_ids: vec![producer.id.clone()],
+                record_queue_configs: self
+                    .get_outbound_operators(lpn, "producer")?
+                    .iter()
+                    .map(|op_id| ExchangeRecordQueueConfig {
+                        producer_id: op_id.clone(),
+                        queue_name: "default".to_string(),
+                        sampling_method: ExchangeRecordQueueSamplingMethod::All,
+                    })
+                    .collect(),
             },
             compute: OperatorCompute {
                 instances: 1,
