@@ -146,6 +146,7 @@ pub enum PartitionRangeMethod {
         sample_rate: f32,
         min_rows: usize,
         max_rows: usize,
+        num_partitions: usize,
         exchange_queue_name: String,
     },
 }
@@ -453,6 +454,7 @@ impl PhysicalPlanner {
                         exchange_queue_name: "partition_sample".to_string(), 
                         min_rows: 10_000,
                         max_rows: 1_000_000,
+                        num_partitions: 3,
                     },
                 },
                 OperatorTask::Sort {
