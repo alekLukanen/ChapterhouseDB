@@ -388,7 +388,7 @@ impl PhysicalPlanner {
                                                 min_rows: min_rows.clone(),
                                             }
                                         }
-                                    } 
+                                    }
                                 }
                                 _ => {
                                     continue;

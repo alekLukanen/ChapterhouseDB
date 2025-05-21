@@ -18,7 +18,6 @@ name = "scratch_main"
 path = "src/bin/scratch_main.rs"
 
 [dependencies]
-rand = "0.9.1"
 aws-config = { version = "1.6.1" }
 aws-sdk-s3 = { version = "1.82.0" }
 path-clean = { version = "1.0.1" }

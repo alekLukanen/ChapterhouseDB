@@ -21,6 +21,7 @@ use crate::handlers::{
         },
     },
 };
+use crate::planner::PartitionRangeMethod;
 
 use super::config::PartitionConfig;
 
@@ -68,23 +69,10 @@ impl PartitionTask {
             "started task",
         );
 
-        let rec_handler = exchange_handlers::record_handler::RecordHandler::initiate(
-            ct.child_token(),
-            &self.operator_instance_config,
-            "default".to_string(),
-            &mut self.operator_pipe,
-            self.msg_reg.clone(),
-            self.msg_router_state.clone(),
-        )
-        .await?;
-
+        // get the partition data
         for _ in 0..60 {
             debug!("waiting...");
             tokio::time::sleep(chrono::Duration::seconds(1).to_std()?).await;
-        }
-
-        if let Err(err) = rec_handler.close().await {
-            error!("{}", err);
         }
 
         debug!(
@@ -97,6 +85,56 @@ impl PartitionTask {
             operator_instance_id = self.operator_instance_config.id,
             "closed task",
         );
+        Ok(())
+    }
+
+    async fn compute_data_partitions(&mut self, ct: CancellationToken) -> Result<()> {
+        let sampling_queue_name = match &self.partition_config.partition_range_method {
+            PartitionRangeMethod::SampleDistribution {
+                exchange_queue_name,
+                ..
+            } => exchange_queue_name.clone(),
+        };
+
+        let mut rec_handler = exchange_handlers::record_handler::RecordHandler::initiate(
+            ct.child_token(),
+            &self.operator_instance_config,
+            sampling_queue_name,
+            &mut self.operator_pipe,
+            self.msg_reg.clone(),
+            self.msg_router_state.clone(),
+        )
+        .await?;
+
+        loop {
+            let exchange_rec = rec_handler
+                .next_record(ct.child_token(), &mut self.operator_pipe, None)
+                .await?;
+
+            match exchange_rec {
+                Some(exchange_rec) => {
+                    debug!(
+                        record_id = exchange_rec.record_id,
+                        record_num_rows = exchange_rec.record.num_rows(),
+                        "received record"
+                    );
+
+                    // confirm processing of the record with the inbound exchange
+                    rec_handler
+                        .complete_record(&mut self.operator_pipe, exchange_rec)
+                        .await?;
+                }
+                None => {
+                    debug!("read all records from the exchange");
+                    break;
+                }
+            }
+        }
+
+        if let Err(err) = rec_handler.close().await {
+            error!("{}", err);
+        }
+
         Ok(())
     }
 }

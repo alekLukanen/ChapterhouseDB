@@ -105,7 +105,7 @@ impl RecordHandler {
             query_handler_worker_id: op_in_config.query_handler_worker_id.clone(),
             query_id: op_in_config.query_id.clone(),
             operator_id: op_in_config.operator.id.clone(),
-            queue_name: queue_name,
+            queue_name,
             none_available_wait_time_in_ms: chrono::Duration::milliseconds(50),
             inbound_exchange_ids,
             inbound_exchanges: Vec::new(),

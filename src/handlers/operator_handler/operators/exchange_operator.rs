@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::u64;
 
 use anyhow::Result;
-use rand::Rng;
+use rand::{Rng, SeedableRng};
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
@@ -550,6 +550,7 @@ struct OperatorRecordQueue {
     sampling_method: planner::ExchangeRecordQueueSamplingMethod,
 
     rows_inserted: usize,
+    rows_ignored: usize,
 
     records_to_process: std::collections::VecDeque<u64>,
     records_reserved_by_operator: std::collections::HashMap<u64, ReservedRecord>,
@@ -568,7 +569,7 @@ struct RecordPool {
     operator_queues: Vec<OperatorQueue>,
 
     config: RecordPoolConfig,
-    rng: rand::rngs::ThreadRng,
+    rng: rand::rngs::StdRng,
 }
 
 impl RecordPool {
@@ -587,6 +588,7 @@ impl RecordPool {
                     queue_name: qc.queue_name.clone(),
                     sampling_method: qc.sampling_method.clone(),
                     rows_inserted: 0,
+                    rows_ignored: 0,
                     records_to_process: std::collections::VecDeque::new(),
                     records_reserved_by_operator: std::collections::HashMap::new(),
                     record_processing_metrics: std::collections::HashMap::new(),
@@ -600,7 +602,7 @@ impl RecordPool {
                 })
                 .collect(),
             config,
-            rng: rand::thread_rng(),
+            rng: rand::rngs::StdRng::from_entropy(),
         }
     }
 
@@ -632,12 +634,12 @@ impl RecordPool {
                         sample_rate,
                         min_rows,
                     } => {
-                        if queue.rows_inserted > min_rows {
-                            if self.rng.gen::<f32>() < sample_rate {
-                                false
+                        if queue.rows_inserted > *min_rows {
+                            if self.rng.gen::<f32>() < *sample_rate {
+                                return false;
                             }
                         } else {
-                            true
+                            return true;
                         }
                         false
                     }
@@ -645,6 +647,8 @@ impl RecordPool {
                 if insert {
                     queue.records_to_process.push_back(record_id.clone());
                     queue.rows_inserted += num_rows;
+                } else {
+                    queue.rows_ignored += num_rows;
                 }
             }
             true
