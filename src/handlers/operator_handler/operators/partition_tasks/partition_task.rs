@@ -104,8 +104,11 @@ impl PartitionTask {
             self.msg_reg.clone(),
             self.msg_router_state.clone(),
         )
-        .await?;
+        .await?
+        .disable_record_heartbeat();
 
+        // gather all records
+        let mut recs = Vec::new();
         loop {
             let exchange_rec = rec_handler
                 .next_record(ct.child_token(), &mut self.operator_pipe, None)
@@ -119,10 +122,7 @@ impl PartitionTask {
                         "received record"
                     );
 
-                    // confirm processing of the record with the inbound exchange
-                    rec_handler
-                        .complete_record(&mut self.operator_pipe, exchange_rec)
-                        .await?;
+                    recs.push(exchange_rec.record);
                 }
                 None => {
                     debug!("read all records from the exchange");
@@ -130,6 +130,13 @@ impl PartitionTask {
                 }
             }
         }
+
+        // sort the records individually
+
+        // sort the records all together
+
+        // TODO: confirm processing of all records by comfirming the queue itself
+        // not the individual records.
 
         if let Err(err) = rec_handler.close().await {
             error!("{}", err);

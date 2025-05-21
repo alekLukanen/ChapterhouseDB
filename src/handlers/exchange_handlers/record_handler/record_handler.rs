@@ -29,6 +29,8 @@ pub enum RecordHandlerError {
     UnableToFindExchangeIdentity(usize),
     #[error("timed out waiting for task to close")]
     TimedOutWaitingForTaskToClose,
+    #[error("unable to complete record since heartbeat is not enabled")]
+    UnableToCompleteRecordSinceHeartbeatIsNotEnabled,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +58,7 @@ pub struct RecordHandler {
     query_id: u128,
     operator_id: String,
     queue_name: String,
+    create_heartbeat: bool,
 
     // config
     none_available_wait_time_in_ms: chrono::TimeDelta,
@@ -106,6 +109,7 @@ impl RecordHandler {
             query_id: op_in_config.query_id.clone(),
             operator_id: op_in_config.operator.id.clone(),
             queue_name,
+            create_heartbeat: true,
             none_available_wait_time_in_ms: chrono::Duration::milliseconds(50),
             inbound_exchange_ids,
             inbound_exchanges: Vec::new(),
@@ -125,6 +129,11 @@ impl RecordHandler {
             .await?;
 
         Ok(rec_handler)
+    }
+
+    pub fn disable_record_heartbeat(mut self) -> Self {
+        self.create_heartbeat = false;
+        self
     }
 
     pub async fn next_record(
@@ -168,33 +177,36 @@ impl RecordHandler {
                         record,
                         table_aliases,
                     } => {
-                        let mut record_heartbeat_handler = RecordHeartbeatHandler::new(
-                            self.query_id.clone(),
-                            self.operator_id.clone(),
-                            inbound_exchange.operator_instance_id.clone(),
-                            inbound_exchange.worker_id.clone(),
-                            record_id.clone(),
-                            self.msg_reg.clone(),
-                            self.msg_router_state.clone(),
-                        )
-                        .await;
-                        let tt_ct = self.tracker_ct.child_token();
-                        let tt_ct_clone = tt_ct.clone();
-                        self.tt.spawn(async move {
-                            if let Err(err) = record_heartbeat_handler.async_main(tt_ct_clone).await
-                            {
-                                error!("{}", err);
-                            }
-                        });
+                        if self.create_heartbeat {
+                            let mut record_heartbeat_handler = RecordHeartbeatHandler::new(
+                                self.query_id.clone(),
+                                self.operator_id.clone(),
+                                inbound_exchange.operator_instance_id.clone(),
+                                inbound_exchange.worker_id.clone(),
+                                record_id.clone(),
+                                self.msg_reg.clone(),
+                                self.msg_router_state.clone(),
+                            )
+                            .await;
+                            let tt_ct = self.tracker_ct.child_token();
+                            let tt_ct_clone = tt_ct.clone();
+                            self.tt.spawn(async move {
+                                if let Err(err) =
+                                    record_heartbeat_handler.async_main(tt_ct_clone).await
+                                {
+                                    error!("{}", err);
+                                }
+                            });
 
-                        self.tracked_records.insert(
-                            record_id.clone(),
-                            TrackedRecord {
-                                record_id,
-                                exchange_identity_idx: inbound_exchange_idx,
-                                ct: tt_ct,
-                            },
-                        );
+                            self.tracked_records.insert(
+                                record_id.clone(),
+                                TrackedRecord {
+                                    record_id,
+                                    exchange_identity_idx: inbound_exchange_idx,
+                                    ct: tt_ct,
+                                },
+                            );
+                        }
 
                         return Ok(Some(ExchangeRecord {
                             record_id,
@@ -218,6 +230,12 @@ impl RecordHandler {
     }
 
     pub async fn complete_record(&mut self, pipe: &mut Pipe, rec: ExchangeRecord) -> Result<()> {
+        if !self.create_heartbeat {
+            return Err(
+                RecordHandlerError::UnableToCompleteRecordSinceHeartbeatIsNotEnabled.into(),
+            );
+        }
+
         let tracked_rec = if let Some(tracked_rec) = self.tracked_records.remove(&rec.record_id) {
             tracked_rec
         } else {
