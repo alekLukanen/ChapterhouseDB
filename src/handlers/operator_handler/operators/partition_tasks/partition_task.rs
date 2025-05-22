@@ -7,6 +7,7 @@ use tracing::{debug, error};
 
 use crate::handlers::exchange_handlers;
 use crate::handlers::message_router_handler::MessageRouterState;
+use crate::handlers::operator_handler::operators::record_utils;
 use crate::handlers::{
     message_handler::{
         messages::message::{Message, MessageName},
@@ -21,7 +22,7 @@ use crate::handlers::{
         },
     },
 };
-use crate::planner::PartitionRangeMethod;
+use crate::planner::{PartitionMethod, PartitionRangeMethod};
 
 use super::config::PartitionConfig;
 
@@ -69,6 +70,8 @@ impl PartitionTask {
             "started task",
         );
 
+        self.compute_data_partitions(ct.child_token()).await?;
+
         // get the partition data
         for _ in 0..60 {
             debug!("waiting...");
@@ -95,6 +98,9 @@ impl PartitionTask {
                 ..
             } => exchange_queue_name.clone(),
         };
+        let order_by_exprs = match &self.partition_config.partition_method {
+            PartitionMethod::OrderByExprs { exprs } => exprs,
+        };
 
         let mut rec_handler = exchange_handlers::record_handler::RecordHandler::initiate(
             ct.child_token(),
@@ -108,6 +114,8 @@ impl PartitionTask {
         .disable_record_heartbeat();
 
         // gather all records
+        // these records only contain the computed fields used
+        // in the order by
         let mut recs = Vec::new();
         loop {
             let exchange_rec = rec_handler
@@ -122,7 +130,13 @@ impl PartitionTask {
                         "received record"
                     );
 
-                    recs.push(exchange_rec.record);
+                    let computed_rec = record_utils::compute_order_by_record(
+                        order_by_exprs,
+                        exchange_rec.record,
+                        &exchange_rec.table_aliases,
+                    )?;
+
+                    recs.push(computed_rec);
                 }
                 None => {
                     debug!("read all records from the exchange");
@@ -130,8 +144,6 @@ impl PartitionTask {
                 }
             }
         }
-
-        // sort the records individually
 
         // sort the records all together
 
