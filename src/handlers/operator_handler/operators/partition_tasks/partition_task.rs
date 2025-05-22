@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use arrow::compute::{SortColumn, SortOptions};
+use thiserror::Error;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
+use super::config::PartitionConfig;
 use crate::handlers::exchange_handlers;
 use crate::handlers::message_router_handler::MessageRouterState;
 use crate::handlers::operator_handler::operators::record_utils;
@@ -24,7 +27,11 @@ use crate::handlers::{
 };
 use crate::planner::{PartitionMethod, PartitionRangeMethod};
 
-use super::config::PartitionConfig;
+#[derive(Debug, Error)]
+pub enum PartitionTaskError {
+    #[error("sample data was empty")]
+    SampleDataWasEmpty,
+}
 
 #[derive(Debug)]
 struct PartitionTask {
@@ -145,7 +152,40 @@ impl PartitionTask {
             }
         }
 
+        let rec_schema = if let Some(rec) = recs.first() {
+            rec.schema().clone()
+        } else {
+            return Err(PartitionTaskError::SampleDataWasEmpty.into());
+        };
+
+        assert_eq!(
+            order_by_exprs.len(),
+            recs.iter().map(|rec| rec.num_columns()).max().unwrap_or(0)
+        );
+        assert_eq!(
+            order_by_exprs.len(),
+            recs.iter().map(|rec| rec.num_columns()).min().unwrap_or(0)
+        );
+
         // sort the records all together
+        let merged_rec = arrow::compute::concat_batches(&rec_schema, recs.iter())?;
+
+        let sort_cols = merged_rec
+            .columns()
+            .iter()
+            .zip(order_by_exprs.iter())
+            .map(|(arr, expr)| SortColumn {
+                values: arr.clone(),
+                options: Some(SortOptions {
+                    descending: !expr.asc.unwrap_or(true),
+                    nulls_first: expr.nulls_first.unwrap_or(true),
+                }),
+            })
+            .collect::<Vec<_>>();
+        let sorted_rec = arrow::compute::kernels::sort::lexsort(&sort_cols, None)?;
+
+        // TODO: compute the intervals
+        // columns: start, stop
 
         // TODO: confirm processing of all records by comfirming the queue itself
         // not the individual records.
