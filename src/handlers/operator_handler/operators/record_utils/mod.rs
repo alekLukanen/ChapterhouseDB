@@ -1,4 +1,5 @@
 mod compute_order_by_record;
+mod compute_record_partitions;
 mod compute_value;
 mod filter_record;
 mod record_aliases;

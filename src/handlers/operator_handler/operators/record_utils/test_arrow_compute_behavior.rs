@@ -1,12 +1,105 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use arrow::array::{
-    ArrayRef, Datum, Float32Array, Int32Array, RecordBatch, StringArray, UInt16Array, UInt32Array,
-    UInt8Array,
+    ArrayRef, Datum, Float32Array, Int32Array, Int32Builder, RecordBatch, StringArray,
+    StringBuilder, UInt16Array, UInt32Array, UInt8Array,
 };
-use arrow::compute;
+use arrow::compute::{self, SortOptions};
 use arrow::datatypes::{DataType, Field, Schema};
+use arrow::row::{RowConverter, SortField};
+
+#[test]
+fn test_row_format_comparison() -> Result<()> {
+    let mut text_array_builder = StringBuilder::new();
+    text_array_builder.append_null();
+    text_array_builder.append_null();
+    text_array_builder.append_null();
+    text_array_builder.append_value("a");
+    text_array_builder.append_value("a");
+    text_array_builder.append_value("a");
+    text_array_builder.append_value("c");
+    let text_array = Arc::new(text_array_builder.finish());
+
+    let mut int_array_builder = Int32Builder::new();
+    int_array_builder.append_null();
+    int_array_builder.append_value(0);
+    int_array_builder.append_value(1);
+    int_array_builder.append_null();
+    int_array_builder.append_value(0);
+    int_array_builder.append_value(0);
+    int_array_builder.append_value(0);
+    let int_array = Arc::new(int_array_builder.finish());
+
+    let schema = Schema::new(vec![
+        Field::new("table_a.text", DataType::Utf8, true),
+        Field::new("table_a.id", DataType::Int32, true),
+    ]);
+
+    let rec = RecordBatch::try_new(Arc::new(schema), vec![text_array, int_array])?;
+
+    let row_converter = RowConverter::new(vec![
+        SortField::new_with_options(DataType::Utf8, SortOptions::default()),
+        SortField::new_with_options(DataType::Int32, SortOptions::default()),
+    ])?;
+
+    let rows = row_converter.convert_columns(&rec.columns())?;
+
+    // validate that the rows are sorted
+    for row_idx in 1..rows.num_rows() {
+        if rows.row(row_idx - 1) > rows.row(row_idx) {
+            return Err(anyhow!(
+                "row {} is greater than row {} but all rows are sorted in ascending order",
+                row_idx - 1,
+                row_idx
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_partition_record() -> Result<()> {
+    let mut text_array_builder = StringBuilder::new();
+    text_array_builder.append_null();
+    text_array_builder.append_null();
+    text_array_builder.append_null();
+    text_array_builder.append_value("a");
+    text_array_builder.append_value("a");
+    text_array_builder.append_value("a");
+    text_array_builder.append_value("c");
+    let text_array = Arc::new(text_array_builder.finish());
+
+    let mut int_array_builder = Int32Builder::new();
+    int_array_builder.append_null();
+    int_array_builder.append_value(0);
+    int_array_builder.append_value(1);
+    int_array_builder.append_null();
+    int_array_builder.append_value(0);
+    int_array_builder.append_value(0);
+    int_array_builder.append_value(0);
+    let int_array = Arc::new(int_array_builder.finish());
+
+    let schema = Schema::new(vec![
+        Field::new("table_a.text", DataType::Utf8, true),
+        Field::new("table_a.id", DataType::Int32, true),
+    ]);
+
+    let rec = RecordBatch::try_new(Arc::new(schema), vec![text_array, int_array])?;
+
+    let ranges = arrow::compute::partition(&rec.columns()[..2])?.ranges();
+    let expected_ranges = vec![0..1, 1..2, 2..3, 3..4, 4..6, 6..7];
+    let expected_lengths = vec![1, 1, 1, 1, 2, 1];
+
+    assert_eq!(expected_ranges, ranges);
+    assert_eq!(
+        expected_lengths,
+        ranges.iter().map(|r| r.len()).collect::<Vec<usize>>()
+    );
+
+    Ok(())
+}
 
 #[test]
 fn test_pretty_print_record() -> Result<()> {
