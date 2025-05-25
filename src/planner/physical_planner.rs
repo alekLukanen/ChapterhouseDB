@@ -144,8 +144,8 @@ pub enum PartitionMethod {
 pub enum PartitionRangeMethod {
     SampleDistribution {
         sample_rate: f32,
-        min_rows: usize,
-        max_rows: usize,
+        min_sampled_rows: usize,
+        max_sampled_rows: usize,
         num_partitions: usize,
         exchange_queue_name: String,
     },
@@ -377,7 +377,7 @@ impl PhysicalPlanner {
                                 } => match partition_range_method {
                                     PartitionRangeMethod::SampleDistribution { 
                                         sample_rate, 
-                                        min_rows, 
+                                        min_sampled_rows, 
                                         exchange_queue_name, 
                                         .. 
                                     } => {
@@ -386,7 +386,7 @@ impl PhysicalPlanner {
                                             queue_name: exchange_queue_name.clone(),
                                             sampling_method: ExchangeRecordQueueSamplingMethod::PercentageWithReserve { 
                                                 sample_rate: sample_rate.clone(), 
-                                                min_rows: min_rows.clone(),
+                                                min_rows: min_sampled_rows.clone(),
                                             }
                                         }
                                     }
@@ -452,8 +452,8 @@ impl PhysicalPlanner {
                     partition_range_method: PartitionRangeMethod::SampleDistribution {
                         sample_rate: 0.10,
                         exchange_queue_name: "partition_sample".to_string(), 
-                        min_rows: 10_000,
-                        max_rows: 1_000_000,
+                        min_sampled_rows: 10_000,
+                        max_sampled_rows: 1_000_000,
                         num_partitions: 3,
                     },
                 },

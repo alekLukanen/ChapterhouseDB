@@ -151,8 +151,9 @@
                   "partition_range_method": {
                     "SampleDistribution": {
                       "sample_rate": 0.1,
-                      "min_rows": 10000,
-                      "max_rows": 1000000,
+                      "min_sampled_rows": 10000,
+                      "max_sampled_rows": 1000000,
+                      "num_partitions": 3,
                       "exchange_queue_name": "partition_sample"
                     }
                   }
