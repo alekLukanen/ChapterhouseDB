@@ -22,8 +22,8 @@ fn test_compute_record_partition_intervals() -> Result<()> {
     text_array_builder.append_null();
     // ---
     text_array_builder.append_null();
-    // --
     text_array_builder.append_value("a");
+    // ---
     text_array_builder.append_value("a");
     text_array_builder.append_value("a");
     text_array_builder.append_value("c");
@@ -33,8 +33,8 @@ fn test_compute_record_partition_intervals() -> Result<()> {
     int_array_builder.append_value(0);
     // ---
     int_array_builder.append_value(1);
-    // ---
     int_array_builder.append_null();
+    // ---
     int_array_builder.append_value(0);
     int_array_builder.append_value(0);
     int_array_builder.append_value(0);
@@ -50,13 +50,11 @@ fn test_compute_record_partition_intervals() -> Result<()> {
     // expected result ////////////////////////////////////
     let mut expected_text_array_builder = StringBuilder::new();
     expected_text_array_builder.append_null();
-    expected_text_array_builder.append_null();
     expected_text_array_builder.append_value("a");
 
     let mut expected_int_array_builder = Int32Builder::new();
-    expected_int_array_builder.append_null();
     expected_int_array_builder.append_value(1);
-    expected_int_array_builder.append_null();
+    expected_int_array_builder.append_value(0);
 
     let expected_intervals_rec = Arc::new(RecordBatch::try_new(
         schema.clone(),

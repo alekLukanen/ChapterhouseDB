@@ -3,6 +3,7 @@ mod compute_record_partition_intervals;
 mod compute_value;
 mod filter_record;
 mod record_aliases;
+mod record_partition_handler;
 mod record_projection;
 
 #[cfg(test)]
