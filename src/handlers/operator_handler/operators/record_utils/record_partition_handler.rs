@@ -28,7 +28,7 @@ pub struct RecordPartitionHandler {
 
 impl RecordPartitionHandler {
     pub fn new(
-        partitions_rec: RecordBatch,
+        partitions_rec: Arc<RecordBatch>,
         fields: Vec<SortField>,
     ) -> Result<RecordPartitionHandler> {
         assert_eq!(partitions_rec.num_columns(), fields.len());

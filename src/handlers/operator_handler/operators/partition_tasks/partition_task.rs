@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use arrow::array::RecordBatch;
 use arrow::compute::{SortColumn, SortOptions};
+use arrow::row::SortField;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -10,7 +12,7 @@ use tracing::{debug, error};
 use super::config::PartitionConfig;
 use crate::handlers::exchange_handlers;
 use crate::handlers::message_router_handler::MessageRouterState;
-use crate::handlers::operator_handler::operators::record_utils;
+use crate::handlers::operator_handler::operators::record_utils::{self, RecordPartitionHandler};
 use crate::handlers::{
     message_handler::{
         messages::message::{Message, MessageName},
@@ -77,7 +79,7 @@ impl PartitionTask {
             "started task",
         );
 
-        self.compute_data_partitions(ct.child_token()).await?;
+        let partition_handler = self.get_partition_handler(ct.child_token()).await?;
 
         // get the partition data
         for _ in 0..60 {
@@ -98,13 +100,18 @@ impl PartitionTask {
         Ok(())
     }
 
-    async fn compute_data_partitions(&mut self, ct: CancellationToken) -> Result<()> {
-        let sampling_queue_name = match &self.partition_config.partition_range_method {
-            PartitionRangeMethod::SampleDistribution {
-                exchange_queue_name,
-                ..
-            } => exchange_queue_name.clone(),
-        };
+    async fn get_partition_handler(
+        &mut self,
+        ct: CancellationToken,
+    ) -> Result<RecordPartitionHandler> {
+        let (sampling_queue_name, num_partitions) =
+            match &self.partition_config.partition_range_method {
+                PartitionRangeMethod::SampleDistribution {
+                    exchange_queue_name,
+                    num_partitions,
+                    ..
+                } => (exchange_queue_name.clone(), num_partitions.clone()),
+            };
         let order_by_exprs = match &self.partition_config.partition_method {
             PartitionMethod::OrderByExprs { exprs } => exprs,
         };
@@ -170,7 +177,12 @@ impl PartitionTask {
         // sort the records all together
         let merged_rec = arrow::compute::concat_batches(&rec_schema, recs.iter())?;
 
-        let sort_cols = merged_rec
+        let col_types = merged_rec
+            .columns()
+            .iter()
+            .map(|arr| arr.data_type().clone())
+            .collect::<Vec<_>>();
+        let cols_to_sort = merged_rec
             .columns()
             .iter()
             .zip(order_by_exprs.iter())
@@ -182,19 +194,39 @@ impl PartitionTask {
                 }),
             })
             .collect::<Vec<_>>();
-        let sorted_rec = arrow::compute::kernels::sort::lexsort(&sort_cols, None)?;
+        let sorted_cols = arrow::compute::kernels::sort::lexsort(&cols_to_sort, None)?;
+        let sorted_rec = Arc::new(RecordBatch::try_new(merged_rec.schema(), sorted_cols)?);
 
-        // TODO: compute the intervals
-        // columns: start, stop
+        let partitions_rec =
+            record_utils::compute_record_partition_intervals(sorted_rec, num_partitions)?;
 
         // TODO: confirm processing of all records by comfirming the queue itself
-        // not the individual records.
+        // not the individual records. You need to store the partitions in the downstream
+        // exchange in a new "partitions" queue before confirming the records. Then
+        // when the operator task starts check if that exists.
 
         if let Err(err) = rec_handler.close().await {
             error!("{}", err);
         }
 
-        Ok(())
+        let partition_handler = record_utils::RecordPartitionHandler::new(
+            partitions_rec,
+            col_types
+                .iter()
+                .zip(order_by_exprs.iter())
+                .map(|(data_type, expr)| {
+                    SortField::new_with_options(
+                        data_type.clone(),
+                        SortOptions {
+                            descending: !expr.asc.unwrap_or(true),
+                            nulls_first: expr.nulls_first.unwrap_or(true),
+                        },
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )?;
+
+        Ok(partition_handler)
     }
 }
 
