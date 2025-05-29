@@ -80,13 +80,73 @@ impl PartitionTask {
         );
 
         let partition_handler = self.get_partition_handler(ct.child_token()).await?;
+        let order_by_exprs = match &self.partition_config.partition_method {
+            PartitionMethod::OrderByExprs { exprs } => exprs,
+        };
 
-        // get the partition data
-        for _ in 0..60 {
-            debug!("waiting...");
-            tokio::time::sleep(chrono::Duration::seconds(1).to_std()?).await;
+        let mut rec_handler = exchange_handlers::record_handler::RecordHandler::initiate(
+            ct.child_token(),
+            &self.operator_instance_config,
+            "default".to_string(),
+            &mut self.operator_pipe,
+            self.msg_reg.clone(),
+            self.msg_router_state.clone(),
+        )
+        .await?;
+
+        loop {
+            let exchange_rec = rec_handler
+                .next_record(ct.child_token(), &mut self.operator_pipe, None)
+                .await?;
+
+            match exchange_rec {
+                Some(exchange_rec) => {
+                    debug!(
+                        record_id = exchange_rec.record_id,
+                        record_num_rows = exchange_rec.record.num_rows(),
+                        "received record"
+                    );
+
+                    let sort_cols_rec = Arc::new(record_utils::compute_order_by_record(
+                        order_by_exprs,
+                        exchange_rec.record.clone(),
+                        &exchange_rec.table_aliases,
+                    )?);
+
+                    // partition the record
+                    let partitioned_recs =
+                        partition_handler.partition(sort_cols_rec, exchange_rec.record.clone())?;
+
+                    // TODO: create a transaction here so that each record
+                    // from the inbound exchange gets processed exactly once.
+
+                    // send the records to the outbound exchange
+                    for part_rec in partitioned_recs {
+                        rec_handler
+                            .send_record_to_outbound_exchange(
+                                &mut self.operator_pipe,
+                                exchange_rec.record_id.clone(),
+                                part_rec.record,
+                                exchange_rec.table_aliases.clone(),
+                            )
+                            .await?;
+                    }
+
+                    // confirm processing of the record with the inbound exchange
+                    rec_handler
+                        .complete_record(&mut self.operator_pipe, exchange_rec)
+                        .await?;
+                }
+                None => {
+                    debug!("read all records from the exchange");
+                    break;
+                }
+            }
         }
 
+        if let Err(err) = rec_handler.close().await {
+            error!("{}", err);
+        }
         debug!(
             operator_task = self
                 .operator_instance_config
