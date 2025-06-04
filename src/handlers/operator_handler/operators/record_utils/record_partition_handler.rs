@@ -84,7 +84,7 @@ impl RecordPartitionHandler {
             for part_idx in 1..self.partitions.num_rows() {
                 if row >= self.partitions.row(part_idx - 1) && row < self.partitions.row(part_idx) {
                     part_idxs[part_idx].push(row_idx as u64);
-                    break 'outer;
+                    continue 'outer;
                 }
             }
 

@@ -14,6 +14,8 @@ mod test_compute_record_partition_intervals;
 mod test_compute_value;
 #[cfg(test)]
 mod test_filter_record;
+#[cfg(test)]
+mod test_record_partition_handler;
 
 pub use compute_order_by_record::compute_order_by_record;
 pub use compute_record_partition_intervals::compute_record_partition_intervals;
