@@ -19,6 +19,7 @@ pub enum SendRecordRequestError {
 }
 
 pub struct SendRecordRequest<'a> {
+    queue_name: String,
     record_id: u64,
     record: Arc<arrow::array::RecordBatch>,
     table_aliases: Vec<Vec<String>>,
@@ -31,6 +32,7 @@ pub struct SendRecordRequest<'a> {
 
 impl<'a> SendRecordRequest<'a> {
     pub async fn send_record_request(
+        queue_name: String,
         record_id: u64,
         record: arrow::array::RecordBatch,
         table_aliases: Vec<Vec<String>>,
@@ -47,6 +49,7 @@ impl<'a> SendRecordRequest<'a> {
         );
 
         let mut req = SendRecordRequest {
+            queue_name,
             record_id,
             record: Arc::new(record),
             table_aliases,
@@ -66,6 +69,7 @@ impl<'a> SendRecordRequest<'a> {
     async fn send_record(&mut self) -> Result<()> {
         let msg = Message::new(Box::new(
             messages::exchange::ExchangeRequests::SendRecordRequest {
+                queue_name: self.queue_name.clone(),
                 record_id: self.record_id.clone(),
                 record: self.record.clone(),
                 table_aliases: self.table_aliases.clone(),

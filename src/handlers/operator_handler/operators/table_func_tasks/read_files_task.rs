@@ -267,6 +267,7 @@ impl ReadFilesTask {
                     rec_handler
                         .send_record_to_outbound_exchange(
                             &mut self.operator_pipe,
+                            "default".to_string(),
                             record_id,
                             record,
                             table_aliases,

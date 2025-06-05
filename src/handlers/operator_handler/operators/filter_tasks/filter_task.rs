@@ -107,6 +107,7 @@ impl FilterTask {
                     rec_handler
                         .send_record_to_outbound_exchange(
                             &mut self.operator_pipe,
+                            "default".to_string(),
                             exchange_rec.record_id.clone(),
                             filtered_rec,
                             exchange_rec.table_aliases.clone(),

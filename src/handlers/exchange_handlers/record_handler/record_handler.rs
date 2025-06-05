@@ -276,6 +276,7 @@ impl RecordHandler {
     pub async fn send_record_to_outbound_exchange(
         &mut self,
         pipe: &mut Pipe,
+        queue_name: String,
         record_id: u64,
         record: arrow::array::RecordBatch,
         table_aliases: Vec<Vec<String>>,
@@ -287,6 +288,7 @@ impl RecordHandler {
         };
 
         requests::SendRecordRequest::send_record_request(
+            queue_name,
             record_id.clone(),
             record,
             table_aliases.clone(),

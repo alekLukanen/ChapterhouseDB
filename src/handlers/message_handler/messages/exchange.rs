@@ -73,6 +73,7 @@ pub enum ExchangeRequests {
     GetNextRecordResponseNoneLeft,
     GetNextRecordResponseNoneAvailable,
     SendRecordRequest {
+        queue_name: String,
         record_id: u64,
         #[serde(skip_serializing)]
         record: Arc<arrow::array::RecordBatch>,
@@ -118,6 +119,7 @@ struct ExchangeRequestsGetNextRecordRequest {
 
 #[derive(Debug, Deserialize)]
 struct ExchangeRequestsSendRecordRequest {
+    queue_name: String,
     record_id: u64,
     table_aliases: Vec<Vec<String>>,
 }
@@ -314,6 +316,7 @@ impl MessageParser for ExchangeRequestsParser {
 
             let record = parsing_utils::parse_record(&mut buf)?;
             let msg = ExchangeRequests::SendRecordRequest {
+                queue_name: meta.queue_name,
                 record_id: meta.record_id,
                 record: Arc::new(record),
                 table_aliases: meta.table_aliases,

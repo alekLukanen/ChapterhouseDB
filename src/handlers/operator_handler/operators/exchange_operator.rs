@@ -253,12 +253,14 @@ impl ExchangeOperator {
                 let cast_msg: &messages::exchange::ExchangeRequests = msg_reg.try_cast_msg(msg)?;
                 match cast_msg {
                     messages::exchange::ExchangeRequests::SendRecordRequest {
+                        queue_name,
                         record_id,
                         record,
                         table_aliases,
                     } => {
                         self.handle_send_record_request(
                             msg,
+                            queue_name,
                             record_id,
                             record.clone(),
                             table_aliases,
@@ -386,6 +388,7 @@ impl ExchangeOperator {
     async fn handle_send_record_request(
         &mut self,
         msg: &Message,
+        queue_name: &String,
         record_id: &u64,
         record: Arc<arrow::array::RecordBatch>,
         table_aliases: &Vec<Vec<String>>,
@@ -396,6 +399,7 @@ impl ExchangeOperator {
             "received record",
         );
         self.record_pool.lock().await.add_record(
+            queue_name.clone(),
             record_id.clone(),
             record.clone(),
             table_aliases.clone(),
@@ -611,6 +615,7 @@ impl RecordPool {
     /// of work for the same record.
     fn add_record(
         &mut self,
+        queue_name: String,
         record_id: u64,
         record: Arc<arrow::array::RecordBatch>,
         table_aliases: Vec<Vec<String>>,
@@ -628,6 +633,10 @@ impl RecordPool {
                 },
             );
             for queue in &mut self.operator_record_queues {
+                if queue.queue_name != queue_name {
+                    continue;
+                }
+
                 let insert = match &queue.sampling_method {
                     planner::ExchangeRecordQueueSamplingMethod::All => true,
                     planner::ExchangeRecordQueueSamplingMethod::PercentageWithReserve {
