@@ -518,6 +518,8 @@ pub enum RecordPoolError {
     ReservedRecordInstanceMissingForOperator(String),
     #[error("record {0} already processed by operator {1}")]
     RecordAlreadyProcessedByOperator(u64, String),
+    #[error("transaction {0} does not exist")]
+    TransactionDoesNotExist(u64),
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq)]
@@ -548,6 +550,19 @@ struct RecordProcessingMetrics {
 }
 
 #[derive(Debug)]
+struct InsertRecord {
+    queue_name: String,
+    record: RecordRef,
+}
+
+#[derive(Debug)]
+struct Transaction {
+    key: String,
+    inserts: std::collections::LinkedList<InsertRecord>,
+    last_heartbeat_time: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug)]
 struct OperatorRecordQueue {
     operator_id: String,
     queue_name: String,
@@ -571,6 +586,9 @@ struct RecordPool {
     records: std::collections::HashMap<u64, RecordRef>,
     operator_record_queues: Vec<OperatorRecordQueue>,
     operator_queues: Vec<OperatorQueue>,
+
+    transactions: std::collections::HashMap<u64, Transaction>,
+    transaction_idx: u64,
 
     config: RecordPoolConfig,
     rng: rand::rngs::StdRng,
@@ -605,10 +623,90 @@ impl RecordPool {
                     queue_name: qc.queue_name.clone(),
                 })
                 .collect(),
+            transactions: std::collections::HashMap::new(),
+            transaction_idx: 0,
             config,
             rng: rand::rngs::StdRng::from_entropy(),
         }
     }
+
+    /// create a transaction by key
+    fn create_transaction(
+        &mut self,
+        key: String,
+    ) -> u64 {
+        let transaction = Transaction {
+            key,
+            inserts: std::collections::LinkedList::new(),
+            last_heartbeat_time: None,
+        };
+        let transaction_idx = self.transaction_idx;
+
+        self.transactions.insert(transaction_idx, transaction);
+        self.transaction_idx += 1;
+
+        transaction_idx
+    }
+
+    fn insert_transaction_record(
+        &mut self,
+        transaction_idx: &u64,
+        queue_name: String,
+        record_id: u64,
+        record: Arc<arrow::array::RecordBatch>,
+        table_aliases: Vec<Vec<String>>,
+    ) -> Result<()> {
+        let transaction = if let Some(t) = self.transactions.get_mut(transaction_idx) {
+            t
+        } else {
+            return Err(RecordPoolError::TransactionDoesNotExist(*transaction_idx).into());
+        };
+
+        let insert = InsertRecord {
+            queue_name,
+            record: RecordRef {
+                id: record_id,
+                record,
+                table_aliases,
+                processed_by_operator_queues: Vec::new(),
+            }
+        };
+
+        transaction.inserts.push_back(insert);
+        
+        Ok(())
+    }
+
+    fn commit_transaction(&mut self, transaction_idx: &u64) -> Result<()> {
+        let transaction = if let Some(t) = self.transactions.remove(transaction_idx) {
+            t
+        } else {
+            return Err(RecordPoolError::TransactionDoesNotExist(*transaction_idx).into());
+        };
+
+        for insert in transaction.inserts.iter() {
+            self.add_record(
+                insert.queue_name.clone(),
+                insert.record.id.clone(),
+                insert.record.record.clone(),
+                insert.record.table_aliases.clone(),
+            );
+        }
+
+        Ok(())
+    }
+
+    fn update_transaction_heartbeat(&mut self, transaction_idx: &u64) -> Result<()> {
+        let transaction = if let Some(t) = self.transactions.get_mut(transaction_idx) {
+            t
+        } else {
+            return Err(RecordPoolError::TransactionDoesNotExist(*transaction_idx).into());
+        };
+
+        transaction.last_heartbeat_time = Some(chrono::Utc::now());
+
+        Ok(())
+    } 
 
     /// Add a record if it hasn't already been added. Records
     /// can only be added once in order to prevent duplication
