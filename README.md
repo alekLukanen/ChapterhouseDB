@@ -38,7 +38,7 @@ cargo run --bin client_tui -- --sql-file="sample_queries/simple.sql" --connect-t
 ```
 
 The TUI will send the queries to the worker and allow you to visualize
-the result data of the queries in a table.
+the result data in a table.
 
 
 ## 🛢️ Supported SQL
