@@ -14,6 +14,129 @@ use super::parsing_utils;
 ////////////////////////////////////////////////////////////
 //
 
+#[derive(Debug, Clone, Serialize)]
+pub struct InsertTransactionRecord {
+    transaction_idx: u64,
+    queue_name: String,
+    record_id: u64,
+    #[serde(skip_serializing)]
+    record: Arc<arrow::array::RecordBatch>,
+    table_aliases: Vec<Vec<String>>, // [["tableName", "tableAlias"], ...]
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct InsertTransactionRecordMetaData {
+    transaction_idx: u64,
+    queue_name: String,
+    record_id: u64,
+    table_aliases: Vec<Vec<String>>, // [["tableName", "tableAlias"], ...]
+}
+
+#[derive(Debug, Error)]
+pub enum InsertTransactionRecordError {
+    #[error("read exact failed")]
+    ReadExactFailed,
+}
+
+impl SendableMessage for InsertTransactionRecord {
+    fn to_bytes(&self) -> Result<Vec<u8>> {
+        let mut data_buf = Vec::new();
+        {
+            let mut record_writer =
+                arrow::ipc::writer::StreamWriter::try_new(&mut data_buf, &self.record.schema())?;
+            record_writer.write(&self.record)?;
+            record_writer.finish()?
+        }
+
+        let meta_data = serde_json::to_vec(self)?;
+
+        let mut buf = BytesMut::with_capacity(1 + 8 + meta_data.len() + data_buf.len());
+        buf.put_u64(meta_data.len() as u64);
+        buf.put(&meta_data[..]);
+        buf.put(&data_buf[..]);
+
+        return Ok(buf.to_vec());
+    }
+    fn msg_name(&self) -> MessageName {
+        MessageName::ExchangeInsertTransactionRecord
+    }
+    fn clone_box(&self) -> Box<dyn SendableMessage> {
+        Box::new(self.clone())
+    }
+    fn as_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct InsertTransactionRecordParser {}
+
+impl InsertTransactionRecordParser {
+    pub fn new() -> InsertTransactionRecordParser {
+        InsertTransactionRecordParser {}
+    }
+}
+
+impl MessageParser for InsertTransactionRecordParser {
+    fn to_msg(&self, ser_msg: SerializedMessage) -> Result<Message> {
+        let mut buf = Cursor::new(&ser_msg.msg_data[..]);
+        buf.set_position(0);
+
+        let meta_data_len = buf.get_u64();
+
+        let mut meta_data = BytesMut::with_capacity(meta_data_len as usize);
+        meta_data.resize(meta_data_len as usize, 0);
+        match buf.read_exact(&mut meta_data) {
+            Err(_) => return Err(InsertTransactionRecordError::ReadExactFailed.into()),
+            _ => (),
+        }
+
+        let meta: serde_json::Value = serde_json::from_slice(&meta_data[..])?;
+        let meta: InsertTransactionRecordMetaData = serde_json::from_value(meta.clone())?;
+
+        let record = parsing_utils::parse_record(&mut buf)?;
+        let msg = InsertTransactionRecord {
+            transaction_idx: meta.transaction_idx,
+            queue_name: meta.queue_name,
+            record_id: meta.record_id,
+            record: Arc::new(record),
+            table_aliases: meta.table_aliases,
+        };
+
+        Ok(Message::build_from_serialized_message(
+            ser_msg,
+            Box::new(msg),
+        ))
+    }
+    fn msg_name(&self) -> MessageName {
+        MessageName::ExchangeInsertTransactionRecord
+    }
+}
+
+////////////////////////////////////////////////////////////
+//
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTransaction {
+    key: String,
+}
+
+impl GenericMessage for CreateTransaction {
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: CreateTransaction = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
+    }
+    fn msg_name() -> MessageName {
+        MessageName::ExchangeCreateTransaction
+    }
+}
+
+////////////////////////////////////////////////////////////
+//
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RecordHeartbeat {
     Ping { operator_id: String, record_id: u64 },
