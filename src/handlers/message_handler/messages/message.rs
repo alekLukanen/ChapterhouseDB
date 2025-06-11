@@ -561,6 +561,8 @@ pub enum MessageName {
     ExchangeSampleRecordsResponse,
     ExchangeCreateTransaction,
     ExchangeInsertTransactionRecord,
+    ExchangeCommitTransaction,
+    ExchangeUpdateTransactionHeartbeat,
 }
 
 impl MessageName {
@@ -588,6 +590,8 @@ impl MessageName {
             Self::ExchangeSampleRecordsResponse => "ExchangeSampleRecordsResponse",
             Self::ExchangeCreateTransaction => "ExchangeCreateTransaction",
             Self::ExchangeInsertTransactionRecord => "ExchangeInsertTransactionRecord",
+            Self::ExchangeCommitTransaction => "ExchangeCommitTransaction",
+            Self::ExchangeUpdateTransactionHeartbeat => "ExchangeUpdateTransactionHeartbeat",
         }
     }
     pub fn as_u16(&self) -> u16 {
@@ -614,6 +618,8 @@ impl MessageName {
             Self::ExchangeSampleRecordsResponse => 19,
             Self::ExchangeCreateTransaction => 20,
             Self::ExchangeInsertTransactionRecord => 21,
+            Self::ExchangeCommitTransaction => 22,
+            Self::ExchangeUpdateTransactionHeartbeat => 23,
         }
     }
 }

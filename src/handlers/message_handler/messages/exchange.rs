@@ -14,6 +14,42 @@ use super::parsing_utils;
 ////////////////////////////////////////////////////////////
 //
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateTransactionHeartbeat {
+    transaction_idx: u64,
+}
+
+impl GenericMessage for UpdateTransactionHeartbeat {
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: UpdateTransactionHeartbeat = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
+    }
+    fn msg_name() -> MessageName {
+        MessageName::ExchangeUpdateTransactionHeartbeat
+    }
+}
+
+////////////////////////////////////////////////////////////
+//
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommitTransaction {
+    transaction_idx: u64,
+}
+
+impl GenericMessage for CommitTransaction {
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: CommitTransaction = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
+    }
+    fn msg_name() -> MessageName {
+        MessageName::ExchangeCommitTransaction
+    }
+}
+
+////////////////////////////////////////////////////////////
+//
+
 #[derive(Debug, Clone, Serialize)]
 pub struct InsertTransactionRecord {
     transaction_idx: u64,

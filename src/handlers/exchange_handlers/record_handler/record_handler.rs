@@ -1,13 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use thiserror::Error;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
 use crate::handlers::{
-    exchange_handlers::heartbeat_handler::RecordHeartbeatHandler,
+    exchange_handlers::record_heartbeat_handler::RecordHeartbeatHandler,
     message_handler::{MessageRegistry, Pipe},
     message_router_handler::MessageRouterState,
     operator_handler::{operators::requests, OperatorInstanceConfig},
@@ -54,6 +54,95 @@ pub struct ExchangeRecord {
 }
 
 pub struct RecordHandler {
+    record_handler_inner: RecordHandlerInner,
+}
+
+impl RecordHandler {
+    pub async fn initiate(
+        ct: CancellationToken,
+        op_in_config: &OperatorInstanceConfig,
+        queue_name: String,
+        pipe: &mut Pipe,
+        msg_reg: Arc<MessageRegistry>,
+        msg_router_state: Arc<Mutex<MessageRouterState>>,
+    ) -> Result<RecordHandler> {
+        let rec_handler = RecordHandler {
+            record_handler_inner: RecordHandlerInner::initiate(
+                ct,
+                op_in_config,
+                queue_name,
+                pipe,
+                msg_reg,
+                msg_router_state,
+                None,
+                None,
+            )
+            .await?,
+        };
+
+        Ok(rec_handler)
+    }
+
+    pub fn disable_record_heartbeat(mut self) -> Self {
+        self.record_handler_inner.disable_record_heartbeat();
+        self
+    }
+
+    pub async fn next_record(
+        &mut self,
+        ct: CancellationToken,
+        pipe: &mut Pipe,
+        max_wait: Option<chrono::Duration>,
+    ) -> Result<Option<ExchangeRecord>> {
+        self.record_handler_inner
+            .next_record(ct, pipe, max_wait)
+            .await
+    }
+
+    pub async fn complete_record(&mut self, pipe: &mut Pipe, rec: ExchangeRecord) -> Result<()> {
+        self.record_handler_inner.complete_record(pipe, rec).await
+    }
+
+    pub async fn send_record_to_outbound_exchange(
+        &mut self,
+        pipe: &mut Pipe,
+        queue_name: String,
+        record_id: u64,
+        record: arrow::array::RecordBatch,
+        table_aliases: Vec<Vec<String>>,
+    ) -> Result<()> {
+        self.record_handler_inner
+            .send_record_to_outbound_exchange(pipe, queue_name, record_id, record, table_aliases)
+            .await
+    }
+
+    async fn find_inbound_exchanges(
+        &mut self,
+        ct: CancellationToken,
+        pipe: &mut Pipe,
+    ) -> Result<()> {
+        self.record_handler_inner
+            .find_inbound_exchanges(ct, pipe)
+            .await
+    }
+
+    async fn find_outbound_exchange(
+        &mut self,
+        ct: CancellationToken,
+        pipe: &mut Pipe,
+    ) -> Result<()> {
+        self.record_handler_inner
+            .find_outbound_exchange(ct, pipe)
+            .await
+    }
+
+    pub async fn close(&self) -> Result<()> {
+        self.record_handler_inner.close().await;
+        Ok(())
+    }
+}
+
+pub(crate) struct RecordHandlerInner {
     query_handler_worker_id: u128,
     query_id: u128,
     operator_id: String,
@@ -79,7 +168,7 @@ pub struct RecordHandler {
     msg_router_state: Arc<Mutex<MessageRouterState>>,
 }
 
-impl RecordHandler {
+impl RecordHandlerInner {
     pub async fn initiate(
         ct: CancellationToken,
         op_in_config: &OperatorInstanceConfig,
@@ -87,7 +176,9 @@ impl RecordHandler {
         pipe: &mut Pipe,
         msg_reg: Arc<MessageRegistry>,
         msg_router_state: Arc<Mutex<MessageRouterState>>,
-    ) -> Result<RecordHandler> {
+        inbound_exchanges: Option<Vec<ExchangeIdentity>>,
+        outbound_exchange: Option<ExchangeIdentity>,
+    ) -> Result<RecordHandlerInner> {
         let (inbound_exchange_ids, outbound_exchange_id) =
             match &op_in_config.operator.operator_type {
                 crate::planner::OperatorType::Producer {
@@ -104,7 +195,7 @@ impl RecordHandler {
                 }
             };
 
-        let mut rec_handler = RecordHandler {
+        let mut rec_handler = RecordHandlerInner {
             query_handler_worker_id: op_in_config.query_handler_worker_id.clone(),
             query_id: op_in_config.query_id.clone(),
             operator_id: op_in_config.operator.id.clone(),
@@ -121,19 +212,28 @@ impl RecordHandler {
             msg_reg,
             msg_router_state,
         };
-        rec_handler
-            .find_inbound_exchanges(ct.child_token(), pipe)
-            .await?;
-        rec_handler
-            .find_outbound_exchange(ct.child_token(), pipe)
-            .await?;
+
+        if let Some(inbound_exchanges) = inbound_exchanges {
+            rec_handler.inbound_exchanges = inbound_exchanges;
+        } else {
+            rec_handler
+                .find_inbound_exchanges(ct.child_token(), pipe)
+                .await?;
+        }
+
+        if let Some(outbound_exchange) = outbound_exchange {
+            rec_handler.outbound_exchange = Some(outbound_exchange);
+        } else {
+            rec_handler
+                .find_outbound_exchange(ct.child_token(), pipe)
+                .await?;
+        }
 
         Ok(rec_handler)
     }
 
-    pub fn disable_record_heartbeat(mut self) -> Self {
+    pub fn disable_record_heartbeat(&mut self) {
         self.create_heartbeat = false;
-        self
     }
 
     pub async fn next_record(

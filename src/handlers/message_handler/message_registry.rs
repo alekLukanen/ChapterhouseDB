@@ -136,6 +136,16 @@ impl MessageRegistry {
             Box::new(messages::exchange::InsertTransactionRecordParser::new()),
             true,
         );
+        self.add(
+            Box::new(GenericMessageParser::<messages::exchange::CommitTransaction>::new()),
+            true,
+        );
+        self.add(
+            Box::new(GenericMessageParser::<
+                messages::exchange::UpdateTransactionHeartbeat,
+            >::new()),
+            true,
+        );
     }
 
     pub async fn build_msg(&self, buf: &mut BytesMut) -> Result<Option<Message>> {
