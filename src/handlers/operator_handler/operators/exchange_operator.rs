@@ -631,10 +631,7 @@ impl RecordPool {
     }
 
     /// create a transaction by key
-    fn create_transaction(
-        &mut self,
-        key: String,
-    ) -> u64 {
+    fn create_transaction(&mut self, key: String) -> u64 {
         let transaction = Transaction {
             key,
             inserts: std::collections::LinkedList::new(),
@@ -669,11 +666,11 @@ impl RecordPool {
                 record,
                 table_aliases,
                 processed_by_operator_queues: Vec::new(),
-            }
+            },
         };
 
         transaction.inserts.push_back(insert);
-        
+
         Ok(())
     }
 
@@ -706,7 +703,7 @@ impl RecordPool {
         transaction.last_heartbeat_time = Some(chrono::Utc::now());
 
         Ok(())
-    } 
+    }
 
     /// Add a record if it hasn't already been added. Records
     /// can only be added once in order to prevent duplication

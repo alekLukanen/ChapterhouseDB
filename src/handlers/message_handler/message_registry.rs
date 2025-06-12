@@ -133,6 +133,12 @@ impl MessageRegistry {
             true,
         );
         self.add(
+            Box::new(GenericMessageParser::<
+                messages::exchange::CreateTransactionResponse,
+            >::new()),
+            true,
+        );
+        self.add(
             Box::new(messages::exchange::InsertTransactionRecordParser::new()),
             true,
         );

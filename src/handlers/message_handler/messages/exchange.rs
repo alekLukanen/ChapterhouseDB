@@ -157,7 +157,7 @@ impl MessageParser for InsertTransactionRecordParser {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateTransaction {
-    key: String,
+    pub key: String,
 }
 
 impl GenericMessage for CreateTransaction {
@@ -167,6 +167,22 @@ impl GenericMessage for CreateTransaction {
     }
     fn msg_name() -> MessageName {
         MessageName::ExchangeCreateTransaction
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CreateTransactionResponse {
+    Ok { transaction_idx: u64 },
+    Err(String),
+}
+
+impl GenericMessage for CreateTransactionResponse {
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: CreateTransactionResponse = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
+    }
+    fn msg_name() -> MessageName {
+        MessageName::ExchangeCreateTransactionResponse
     }
 }
 

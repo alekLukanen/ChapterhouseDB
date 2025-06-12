@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use thiserror::Error;
@@ -8,10 +8,12 @@ use tracing::{debug, error};
 
 use crate::handlers::{
     exchange_handlers::record_heartbeat_handler::RecordHeartbeatHandler,
-    message_handler::{MessageRegistry, Pipe},
+    message_handler::{messages, MessageRegistry, Pipe},
     message_router_handler::MessageRouterState,
     operator_handler::{operators::requests, OperatorInstanceConfig},
 };
+
+use super::transaction_record_handler::TransactionRecordHandler;
 
 #[derive(Debug, Error)]
 pub enum RecordHandlerError {
@@ -31,10 +33,12 @@ pub enum RecordHandlerError {
     TimedOutWaitingForTaskToClose,
     #[error("unable to complete record since heartbeat is not enabled")]
     UnableToCompleteRecordSinceHeartbeatIsNotEnabled,
+    #[error("create transaction request returned error: {0}")]
+    CreateTransactionRequestReturnedError(String),
 }
 
 #[derive(Debug, Clone)]
-struct ExchangeIdentity {
+pub struct ExchangeIdentity {
     operator_id: String,
     worker_id: u128,
     operator_instance_id: u128,
@@ -53,8 +57,35 @@ pub struct ExchangeRecord {
     pub(crate) table_aliases: Vec<Vec<String>>,
 }
 
+pub(crate) struct RecordHandlerState {
+    // exchanges can never be removed
+    inbound_exchange_ids: Vec<String>,
+    inbound_exchanges: Vec<ExchangeIdentity>,
+
+    outbound_exchange_id: String,
+    outbound_exchange: Option<ExchangeIdentity>,
+
+    // tracking state ///////
+    tracked_records: HashMap<u64, TrackedRecord>,
+}
+
 pub struct RecordHandler {
-    record_handler_inner: RecordHandlerInner,
+    query_handler_worker_id: u128,
+    query_id: u128,
+    operator_id: String,
+    queue_name: String,
+    create_heartbeat: bool,
+
+    // config
+    none_available_wait_time_in_ms: chrono::TimeDelta,
+
+    msg_reg: Arc<MessageRegistry>,
+    msg_router_state: Arc<Mutex<MessageRouterState>>,
+
+    tt: tokio_util::task::TaskTracker,
+    tracker_ct: CancellationToken,
+
+    state: Arc<sync::Mutex<RecordHandlerState>>,
 }
 
 impl RecordHandler {
@@ -66,119 +97,6 @@ impl RecordHandler {
         msg_reg: Arc<MessageRegistry>,
         msg_router_state: Arc<Mutex<MessageRouterState>>,
     ) -> Result<RecordHandler> {
-        let rec_handler = RecordHandler {
-            record_handler_inner: RecordHandlerInner::initiate(
-                ct,
-                op_in_config,
-                queue_name,
-                pipe,
-                msg_reg,
-                msg_router_state,
-                None,
-                None,
-            )
-            .await?,
-        };
-
-        Ok(rec_handler)
-    }
-
-    pub fn disable_record_heartbeat(mut self) -> Self {
-        self.record_handler_inner.disable_record_heartbeat();
-        self
-    }
-
-    pub async fn next_record(
-        &mut self,
-        ct: CancellationToken,
-        pipe: &mut Pipe,
-        max_wait: Option<chrono::Duration>,
-    ) -> Result<Option<ExchangeRecord>> {
-        self.record_handler_inner
-            .next_record(ct, pipe, max_wait)
-            .await
-    }
-
-    pub async fn complete_record(&mut self, pipe: &mut Pipe, rec: ExchangeRecord) -> Result<()> {
-        self.record_handler_inner.complete_record(pipe, rec).await
-    }
-
-    pub async fn send_record_to_outbound_exchange(
-        &mut self,
-        pipe: &mut Pipe,
-        queue_name: String,
-        record_id: u64,
-        record: arrow::array::RecordBatch,
-        table_aliases: Vec<Vec<String>>,
-    ) -> Result<()> {
-        self.record_handler_inner
-            .send_record_to_outbound_exchange(pipe, queue_name, record_id, record, table_aliases)
-            .await
-    }
-
-    async fn find_inbound_exchanges(
-        &mut self,
-        ct: CancellationToken,
-        pipe: &mut Pipe,
-    ) -> Result<()> {
-        self.record_handler_inner
-            .find_inbound_exchanges(ct, pipe)
-            .await
-    }
-
-    async fn find_outbound_exchange(
-        &mut self,
-        ct: CancellationToken,
-        pipe: &mut Pipe,
-    ) -> Result<()> {
-        self.record_handler_inner
-            .find_outbound_exchange(ct, pipe)
-            .await
-    }
-
-    pub async fn close(&self) -> Result<()> {
-        self.record_handler_inner.close().await;
-        Ok(())
-    }
-}
-
-pub(crate) struct RecordHandlerInner {
-    query_handler_worker_id: u128,
-    query_id: u128,
-    operator_id: String,
-    queue_name: String,
-    create_heartbeat: bool,
-
-    // config
-    none_available_wait_time_in_ms: chrono::TimeDelta,
-
-    // exchanges can never be removed
-    inbound_exchange_ids: Vec<String>,
-    inbound_exchanges: Vec<ExchangeIdentity>,
-
-    outbound_exchange_id: String,
-    outbound_exchange: Option<ExchangeIdentity>,
-
-    // tracking state ///////
-    tracked_records: HashMap<u64, TrackedRecord>,
-    tt: tokio_util::task::TaskTracker,
-    tracker_ct: CancellationToken,
-    /////////////////////////
-    msg_reg: Arc<MessageRegistry>,
-    msg_router_state: Arc<Mutex<MessageRouterState>>,
-}
-
-impl RecordHandlerInner {
-    pub async fn initiate(
-        ct: CancellationToken,
-        op_in_config: &OperatorInstanceConfig,
-        queue_name: String,
-        pipe: &mut Pipe,
-        msg_reg: Arc<MessageRegistry>,
-        msg_router_state: Arc<Mutex<MessageRouterState>>,
-        inbound_exchanges: Option<Vec<ExchangeIdentity>>,
-        outbound_exchange: Option<ExchangeIdentity>,
-    ) -> Result<RecordHandlerInner> {
         let (inbound_exchange_ids, outbound_exchange_id) =
             match &op_in_config.operator.operator_type {
                 crate::planner::OperatorType::Producer {
@@ -195,45 +113,74 @@ impl RecordHandlerInner {
                 }
             };
 
-        let mut rec_handler = RecordHandlerInner {
+        let mut rec_handler = RecordHandler {
             query_handler_worker_id: op_in_config.query_handler_worker_id.clone(),
             query_id: op_in_config.query_id.clone(),
             operator_id: op_in_config.operator.id.clone(),
             queue_name,
             create_heartbeat: true,
             none_available_wait_time_in_ms: chrono::Duration::milliseconds(50),
-            inbound_exchange_ids,
-            inbound_exchanges: Vec::new(),
-            outbound_exchange_id,
-            outbound_exchange: None,
-            tracked_records: HashMap::new(),
-            tt: tokio_util::task::TaskTracker::new(),
-            tracker_ct: ct.child_token(),
             msg_reg,
             msg_router_state,
+            tt: tokio_util::task::TaskTracker::new(),
+            tracker_ct: ct.child_token(),
+            state: Arc::new(sync::Mutex::new(RecordHandlerState {
+                inbound_exchange_ids,
+                inbound_exchanges: Vec::new(),
+                outbound_exchange_id,
+                outbound_exchange: None,
+                tracked_records: HashMap::new(),
+            })),
         };
-
-        if let Some(inbound_exchanges) = inbound_exchanges {
-            rec_handler.inbound_exchanges = inbound_exchanges;
-        } else {
-            rec_handler
-                .find_inbound_exchanges(ct.child_token(), pipe)
-                .await?;
-        }
-
-        if let Some(outbound_exchange) = outbound_exchange {
-            rec_handler.outbound_exchange = Some(outbound_exchange);
-        } else {
-            rec_handler
-                .find_outbound_exchange(ct.child_token(), pipe)
-                .await?;
-        }
+        rec_handler
+            .find_inbound_exchanges(ct.child_token(), pipe)
+            .await?;
+        rec_handler
+            .find_outbound_exchange(ct.child_token(), pipe)
+            .await?;
 
         Ok(rec_handler)
     }
 
-    pub fn disable_record_heartbeat(&mut self) {
+    pub fn disable_record_heartbeat(mut self) -> Self {
         self.create_heartbeat = false;
+        self
+    }
+
+    pub async fn create_transaction_for_partition(
+        &mut self,
+        pipe: &mut Pipe,
+        part: u64,
+    ) -> Result<TransactionRecordHandler> {
+        let outbound_exchange = if let Some(exchange) = &self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("lock error"))?
+            .outbound_exchange
+        {
+            exchange.clone()
+        } else {
+            return Err(RecordHandlerError::OutboundExchangeIsNone.into());
+        };
+
+        let transaction_resp_msg =
+            requests::exchange::CreateTransactionRequest::create_transaction_request(
+                format!("part-{}", part),
+                outbound_exchange.operator_instance_id,
+                outbound_exchange.worker_id,
+                pipe,
+                self.msg_reg.clone(),
+            )
+            .await?;
+
+        match transaction_resp_msg {
+            messages::exchange::CreateTransactionResponse::Ok { transaction_idx } => {
+                Ok(TransactionRecordHandler::new(transaction_idx, self))
+            }
+            messages::exchange::CreateTransactionResponse::Err(err) => {
+                Err(RecordHandlerError::CreateTransactionRequestReturnedError(err).into())
+            }
+        }
     }
 
     pub async fn next_record(
@@ -242,12 +189,17 @@ impl RecordHandlerInner {
         pipe: &mut Pipe,
         max_wait: Option<chrono::Duration>,
     ) -> Result<Option<ExchangeRecord>> {
-        let (inbound_exchange_idx, inbound_exchange) =
-            if let Some(id) = self.inbound_exchanges.first() {
-                (0, id.clone())
-            } else {
-                return Err(RecordHandlerError::InboundExhcnagesIsEmpty.into());
-            };
+        let (inbound_exchange_idx, inbound_exchange) = if let Some(id) = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("lock error"))?
+            .inbound_exchanges
+            .first()
+        {
+            (0, id.clone())
+        } else {
+            return Err(RecordHandlerError::InboundExhcnagesIsEmpty.into());
+        };
 
         let max_wait = if let Some(max_wait) = max_wait {
             max_wait
@@ -298,14 +250,18 @@ impl RecordHandlerInner {
                                 }
                             });
 
-                            self.tracked_records.insert(
-                                record_id.clone(),
-                                TrackedRecord {
-                                    record_id,
-                                    exchange_identity_idx: inbound_exchange_idx,
-                                    ct: tt_ct,
-                                },
-                            );
+                            self.state
+                                .lock()
+                                .map_err(|_| anyhow!("lock error"))?
+                                .tracked_records
+                                .insert(
+                                    record_id.clone(),
+                                    TrackedRecord {
+                                        record_id,
+                                        exchange_identity_idx: inbound_exchange_idx,
+                                        ct: tt_ct,
+                                    },
+                                );
                         }
 
                         return Ok(Some(ExchangeRecord {
@@ -336,7 +292,13 @@ impl RecordHandlerInner {
             );
         }
 
-        let tracked_rec = if let Some(tracked_rec) = self.tracked_records.remove(&rec.record_id) {
+        let tracked_rec = if let Some(tracked_rec) = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("lock error"))?
+            .tracked_records
+            .remove(&rec.record_id)
+        {
             tracked_rec
         } else {
             return Err(
@@ -344,11 +306,14 @@ impl RecordHandlerInner {
             );
         };
 
-        let inbound_exchange = if let Some(exchange) = self
+        let exchange = if let Some(exchange) = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("lock error"))?
             .inbound_exchanges
             .get(tracked_rec.exchange_identity_idx as usize)
         {
-            exchange
+            exchange.clone()
         } else {
             return Err(RecordHandlerError::UnableToFindExchangeIdentity(
                 tracked_rec.exchange_identity_idx.clone(),
@@ -360,8 +325,8 @@ impl RecordHandlerInner {
             self.operator_id.clone(),
             self.queue_name.clone(),
             rec.record_id.clone(),
-            inbound_exchange.operator_instance_id.clone(),
-            inbound_exchange.worker_id.clone(),
+            exchange.operator_instance_id.clone(),
+            exchange.worker_id.clone(),
             pipe,
             self.msg_reg.clone(),
         )
@@ -381,8 +346,13 @@ impl RecordHandlerInner {
         record: arrow::array::RecordBatch,
         table_aliases: Vec<Vec<String>>,
     ) -> Result<()> {
-        let outbound_exchange = if let Some(id) = &self.outbound_exchange {
-            id.clone()
+        let outbound_exchange = if let Some(exchange) = &self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("lock error"))?
+            .outbound_exchange
+        {
+            exchange.clone()
         } else {
             return Err(RecordHandlerError::OutboundExchangeIsNone.into());
         };
@@ -410,7 +380,11 @@ impl RecordHandlerInner {
         let req = requests::IdentifyExchangeRequest::request_inbound_exchanges(
             self.query_handler_worker_id.clone(),
             self.query_id.clone(),
-            self.inbound_exchange_ids.clone(),
+            self.state
+                .lock()
+                .map_err(|_| anyhow!("lock error"))?
+                .inbound_exchange_ids
+                .clone(),
             pipe,
             self.msg_reg.clone(),
         );
@@ -419,7 +393,7 @@ impl RecordHandlerInner {
                 match resp {
                     Ok(resp) => {
                         for exchange in resp {
-                            self.inbound_exchanges.push(
+                            self.state.lock().map_err(|_| anyhow!("lock error"))?.inbound_exchanges.push(
                                 ExchangeIdentity {
                                     operator_id: exchange.exchange_id,
                                     worker_id: exchange.exchange_worker_id,
@@ -448,7 +422,11 @@ impl RecordHandlerInner {
         let req = requests::IdentifyExchangeRequest::request_outbound_exchange(
             self.query_handler_worker_id.clone(),
             self.query_id.clone(),
-            self.outbound_exchange_id.clone(),
+            self.state
+                .lock()
+                .map_err(|_| anyhow!("lock error"))?
+                .outbound_exchange_id
+                .clone(),
             pipe,
             self.msg_reg.clone(),
         );
@@ -456,8 +434,8 @@ impl RecordHandlerInner {
             resp = req => {
                 match resp {
                     Ok(resp) => {
-                        self.outbound_exchange = Some(ExchangeIdentity {
-                            operator_id: self.outbound_exchange_id.clone(),
+                        self.state.lock().map_err(|_| anyhow!("lock error"))?.outbound_exchange = Some(ExchangeIdentity {
+                            operator_id: self.state.lock().map_err(|_| anyhow!("lock error"))?.outbound_exchange_id.clone(),
                             worker_id: resp.exchange_worker_id,
                             operator_instance_id: resp.exchange_operator_instance_id,
                         });
