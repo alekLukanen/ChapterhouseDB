@@ -143,12 +143,18 @@ impl MessageRegistry {
             true,
         );
         self.add(
+            Box::new(GenericMessageParser::<
+                messages::exchange::InsertTransactionRecordResponse,
+            >::new()),
+            true,
+        );
+        self.add(
             Box::new(GenericMessageParser::<messages::exchange::CommitTransaction>::new()),
             true,
         );
         self.add(
             Box::new(GenericMessageParser::<
-                messages::exchange::UpdateTransactionHeartbeat,
+                messages::exchange::TransactionHeartbeat,
             >::new()),
             true,
         );

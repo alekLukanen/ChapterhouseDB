@@ -647,16 +647,16 @@ impl RecordPool {
 
     fn insert_transaction_record(
         &mut self,
-        transaction_idx: &u64,
+        transaction_id: &u64,
         queue_name: String,
         record_id: u64,
         record: Arc<arrow::array::RecordBatch>,
         table_aliases: Vec<Vec<String>>,
     ) -> Result<()> {
-        let transaction = if let Some(t) = self.transactions.get_mut(transaction_idx) {
+        let transaction = if let Some(t) = self.transactions.get_mut(transaction_id) {
             t
         } else {
-            return Err(RecordPoolError::TransactionDoesNotExist(*transaction_idx).into());
+            return Err(RecordPoolError::TransactionDoesNotExist(*transaction_id).into());
         };
 
         let insert = InsertRecord {
@@ -674,11 +674,11 @@ impl RecordPool {
         Ok(())
     }
 
-    fn commit_transaction(&mut self, transaction_idx: &u64) -> Result<()> {
-        let transaction = if let Some(t) = self.transactions.remove(transaction_idx) {
+    fn commit_transaction(&mut self, transaction_id: &u64) -> Result<()> {
+        let transaction = if let Some(t) = self.transactions.remove(transaction_id) {
             t
         } else {
-            return Err(RecordPoolError::TransactionDoesNotExist(*transaction_idx).into());
+            return Err(RecordPoolError::TransactionDoesNotExist(*transaction_id).into());
         };
 
         for insert in transaction.inserts.iter() {
@@ -693,11 +693,11 @@ impl RecordPool {
         Ok(())
     }
 
-    fn update_transaction_heartbeat(&mut self, transaction_idx: &u64) -> Result<()> {
-        let transaction = if let Some(t) = self.transactions.get_mut(transaction_idx) {
+    fn update_transaction_heartbeat(&mut self, transaction_id: &u64) -> Result<()> {
+        let transaction = if let Some(t) = self.transactions.get_mut(transaction_id) {
             t
         } else {
-            return Err(RecordPoolError::TransactionDoesNotExist(*transaction_idx).into());
+            return Err(RecordPoolError::TransactionDoesNotExist(*transaction_id).into());
         };
 
         transaction.last_heartbeat_time = Some(chrono::Utc::now());

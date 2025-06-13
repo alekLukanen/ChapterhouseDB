@@ -15,17 +15,17 @@ use super::parsing_utils;
 //
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateTransactionHeartbeat {
-    transaction_idx: u64,
+pub enum TransactionHeartbeat {
+    Ping { transaction_id: u64 },
 }
 
-impl GenericMessage for UpdateTransactionHeartbeat {
+impl GenericMessage for TransactionHeartbeat {
     fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
-        let msg: UpdateTransactionHeartbeat = serde_json::from_slice(data)?;
+        let msg: TransactionHeartbeat = serde_json::from_slice(data)?;
         Ok(Box::new(msg))
     }
     fn msg_name() -> MessageName {
-        MessageName::ExchangeUpdateTransactionHeartbeat
+        MessageName::ExchangeTransactionHeartbeat
     }
 }
 
@@ -34,7 +34,7 @@ impl GenericMessage for UpdateTransactionHeartbeat {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommitTransaction {
-    transaction_idx: u64,
+    transaction_id: u64,
 }
 
 impl GenericMessage for CommitTransaction {
@@ -52,7 +52,7 @@ impl GenericMessage for CommitTransaction {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct InsertTransactionRecord {
-    transaction_idx: u64,
+    transaction_id: u64,
     queue_name: String,
     record_id: u64,
     #[serde(skip_serializing)]
@@ -62,7 +62,7 @@ pub struct InsertTransactionRecord {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct InsertTransactionRecordMetaData {
-    transaction_idx: u64,
+    transaction_id: u64,
     queue_name: String,
     record_id: u64,
     table_aliases: Vec<Vec<String>>, // [["tableName", "tableAlias"], ...]
@@ -135,7 +135,7 @@ impl MessageParser for InsertTransactionRecordParser {
 
         let record = parsing_utils::parse_record(&mut buf)?;
         let msg = InsertTransactionRecord {
-            transaction_idx: meta.transaction_idx,
+            transaction_id: meta.transaction_id,
             queue_name: meta.queue_name,
             record_id: meta.record_id,
             record: Arc::new(record),
@@ -149,6 +149,22 @@ impl MessageParser for InsertTransactionRecordParser {
     }
     fn msg_name(&self) -> MessageName {
         MessageName::ExchangeInsertTransactionRecord
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum InsertTransactionRecordResponse {
+    Ok { record_id: u64 },
+    Err(String),
+}
+
+impl GenericMessage for InsertTransactionRecordResponse {
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: InsertTransactionRecordResponse = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
+    }
+    fn msg_name() -> MessageName {
+        MessageName::ExchangeInsertTransactionRecordResponse
     }
 }
 
@@ -172,7 +188,7 @@ impl GenericMessage for CreateTransaction {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CreateTransactionResponse {
-    Ok { transaction_idx: u64 },
+    Ok { transaction_id: u64 },
     Err(String),
 }
 

@@ -39,9 +39,9 @@ pub enum RecordHandlerError {
 
 #[derive(Debug, Clone)]
 pub struct ExchangeIdentity {
-    operator_id: String,
-    worker_id: u128,
-    operator_instance_id: u128,
+    pub(crate) operator_id: String,
+    pub(crate) worker_id: u128,
+    pub(crate) operator_instance_id: u128,
 }
 
 #[derive(Debug, Clone)]
@@ -70,11 +70,11 @@ pub(crate) struct RecordHandlerState {
 }
 
 pub struct RecordHandler {
-    query_handler_worker_id: u128,
-    query_id: u128,
-    operator_id: String,
-    queue_name: String,
-    create_heartbeat: bool,
+    pub(crate) query_handler_worker_id: u128,
+    pub(crate) query_id: u128,
+    pub(crate) operator_id: String,
+    pub(crate) queue_name: String,
+    pub(crate) create_heartbeat: bool,
 
     // config
     none_available_wait_time_in_ms: chrono::TimeDelta,
@@ -85,7 +85,7 @@ pub struct RecordHandler {
     tt: tokio_util::task::TaskTracker,
     tracker_ct: CancellationToken,
 
-    state: Arc<sync::Mutex<RecordHandlerState>>,
+    pub(crate) state: Arc<sync::Mutex<RecordHandlerState>>,
 }
 
 impl RecordHandler {
@@ -147,21 +147,25 @@ impl RecordHandler {
         self
     }
 
-    pub async fn create_transaction_for_partition(
-        &mut self,
-        pipe: &mut Pipe,
-        part: u64,
-    ) -> Result<TransactionRecordHandler> {
-        let outbound_exchange = if let Some(exchange) = &self
+    pub(crate) fn get_outbound_exchange(&self) -> Result<ExchangeIdentity> {
+        if let Some(exchange) = &self
             .state
             .lock()
             .map_err(|_| anyhow!("lock error"))?
             .outbound_exchange
         {
-            exchange.clone()
+            Ok(exchange.clone())
         } else {
-            return Err(RecordHandlerError::OutboundExchangeIsNone.into());
-        };
+            Err(RecordHandlerError::OutboundExchangeIsNone.into())
+        }
+    }
+
+    pub async fn create_transaction_for_partition(
+        &mut self,
+        pipe: &mut Pipe,
+        part: u64,
+    ) -> Result<TransactionRecordHandler> {
+        let outbound_exchange = self.get_outbound_exchange()?;
 
         let transaction_resp_msg =
             requests::exchange::CreateTransactionRequest::create_transaction_request(
@@ -174,8 +178,18 @@ impl RecordHandler {
             .await?;
 
         match transaction_resp_msg {
-            messages::exchange::CreateTransactionResponse::Ok { transaction_idx } => {
-                Ok(TransactionRecordHandler::new(transaction_idx, self))
+            messages::exchange::CreateTransactionResponse::Ok { transaction_id } => {
+                let handler = TransactionRecordHandler::new(
+                    self.tracker_ct.child_token(),
+                    transaction_id,
+                    self,
+                    self.msg_reg.clone(),
+                    self.msg_router_state.clone(),
+                )
+                .run_heartbeat()
+                .await?;
+
+                Ok(handler)
             }
             messages::exchange::CreateTransactionResponse::Err(err) => {
                 Err(RecordHandlerError::CreateTransactionRequestReturnedError(err).into())
