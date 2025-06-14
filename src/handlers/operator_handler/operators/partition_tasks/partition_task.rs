@@ -84,17 +84,16 @@ impl PartitionTask {
             PartitionMethod::OrderByExprs { exprs } => exprs,
         };
 
-        let mut rec_handler = exchange_handlers::record_handler::RecordHandler::initiate(
-            ct.child_token(),
-            &self.operator_instance_config,
-            "default".to_string(),
-            &mut self.operator_pipe,
-            self.msg_reg.clone(),
-            self.msg_router_state.clone(),
-        )
-        .await?;
-
-        let transaction_rec_handler = rec_handler
+        let mut transaction_rec_handler =
+            exchange_handlers::record_handler::RecordHandler::initiate(
+                ct.child_token(),
+                &self.operator_instance_config,
+                "default".to_string(),
+                &mut self.operator_pipe,
+                self.msg_reg.clone(),
+                self.msg_router_state.clone(),
+            )
+            .await?
             .create_transaction(
                 &mut self.operator_pipe,
                 format!(
@@ -131,8 +130,7 @@ impl PartitionTask {
                     // send the records to the outbound exchange
                     for part_rec in partitioned_recs {
                         transaction_rec_handler
-                            .record_handler_inner
-                            .send_record_to_outbound_exchange(
+                            .insert_record(
                                 &mut self.operator_pipe,
                                 "default".to_string(),
                                 exchange_rec.record_id.clone(),
@@ -155,9 +153,14 @@ impl PartitionTask {
             }
         }
 
-        if let Err(err) = transaction_rec_handler.record_handler_inner.close().await {
+        let rec_handler = transaction_rec_handler
+            .commit_transaction(&mut self.operator_pipe)
+            .await?;
+
+        if let Err(err) = rec_handler.close().await {
             error!("{}", err);
         }
+
         debug!(
             operator_task = self
                 .operator_instance_config

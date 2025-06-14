@@ -13,7 +13,7 @@ use crate::handlers::{
     operator_handler::operators::requests,
 };
 
-use super::record_handler::RecordHandler;
+use super::{drop_cancellation_token::DropCancellationToken, record_handler::RecordHandler};
 
 #[derive(Debug, Error)]
 pub enum TransactionRecordHandlerError {
@@ -27,34 +27,34 @@ pub enum TransactionRecordHandlerError {
     InsertTransactionRecordResponseError(String),
 }
 
-pub struct TransactionRecordHandler<'a> {
+pub struct TransactionRecordHandler {
     transaction_id: u64,
-    pub(crate) record_handler_inner: &'a mut RecordHandler,
+    pub(crate) record_handler_inner: RecordHandler,
 
     msg_reg: Arc<MessageRegistry>,
     msg_router_state: Arc<Mutex<MessageRouterState>>,
 
     tt: tokio_util::task::TaskTracker,
-    tracker_ct: CancellationToken,
+    tracker_ct: DropCancellationToken,
 
     committed: bool,
 }
 
-impl<'a> TransactionRecordHandler<'a> {
+impl TransactionRecordHandler {
     pub fn new(
         ct: CancellationToken,
         transaction_id: u64,
-        record_handler_inner: &'a mut RecordHandler,
+        record_handler_inner: RecordHandler,
         msg_reg: Arc<MessageRegistry>,
         msg_router_state: Arc<Mutex<MessageRouterState>>,
-    ) -> TransactionRecordHandler<'a> {
+    ) -> TransactionRecordHandler {
         TransactionRecordHandler {
             transaction_id,
             record_handler_inner,
             msg_reg,
             msg_router_state,
             tt: tokio_util::task::TaskTracker::new(),
-            tracker_ct: ct,
+            tracker_ct: DropCancellationToken::new(ct),
             committed: false,
         }
     }
@@ -82,12 +82,12 @@ impl<'a> TransactionRecordHandler<'a> {
         Ok(self)
     }
 
-    pub async fn insert_transaction_record(
+    pub async fn insert_record(
         &self,
         pipe: &mut Pipe,
         queue_name: String,
         record_id: u64,
-        record: Arc<arrow::array::RecordBatch>,
+        record: arrow::array::RecordBatch,
         table_aliases: Vec<Vec<String>>,
     ) -> Result<()> {
         let outbound_exchange = self.record_handler_inner.get_outbound_exchange()?;
@@ -112,7 +112,7 @@ impl<'a> TransactionRecordHandler<'a> {
         }
     }
 
-    pub async fn commit_transaction(&self, pipe: &mut Pipe) -> Result<()> {
+    pub async fn commit_transaction(self, pipe: &mut Pipe) -> Result<RecordHandler> {
         if self.committed {
             return Err(TransactionRecordHandlerError::TransactionAlreadyCommitted.into());
         }
@@ -153,15 +153,6 @@ impl<'a> TransactionRecordHandler<'a> {
             "committed transaction",
         );
 
-        Ok(())
-    }
-}
-
-/////////////////////////////////////////////////////////
-// cancel the ct to ensure the tasks close
-
-impl<'a> Drop for TransactionRecordHandler<'a> {
-    fn drop(&mut self) {
-        self.tracker_ct.cancel();
+        Ok(self.record_handler_inner)
     }
 }

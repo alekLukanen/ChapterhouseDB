@@ -13,7 +13,10 @@ use crate::handlers::{
     operator_handler::{operators::requests, OperatorInstanceConfig},
 };
 
-use super::transaction_record_handler::TransactionRecordHandler;
+use super::{
+    drop_cancellation_token::DropCancellationToken,
+    transaction_record_handler::TransactionRecordHandler,
+};
 
 #[derive(Debug, Error)]
 pub enum RecordHandlerError {
@@ -83,7 +86,7 @@ pub struct RecordHandler {
     msg_router_state: Arc<Mutex<MessageRouterState>>,
 
     tt: tokio_util::task::TaskTracker,
-    tracker_ct: CancellationToken,
+    tracker_ct: DropCancellationToken,
 
     pub(crate) state: Arc<sync::Mutex<RecordHandlerState>>,
 }
@@ -123,7 +126,7 @@ impl RecordHandler {
             msg_reg,
             msg_router_state,
             tt: tokio_util::task::TaskTracker::new(),
-            tracker_ct: ct.child_token(),
+            tracker_ct: DropCancellationToken::new(ct.clone()),
             state: Arc::new(sync::Mutex::new(RecordHandlerState {
                 inbound_exchange_ids,
                 inbound_exchanges: Vec::new(),
@@ -132,12 +135,8 @@ impl RecordHandler {
                 tracked_records: HashMap::new(),
             })),
         };
-        rec_handler
-            .find_inbound_exchanges(ct.child_token(), pipe)
-            .await?;
-        rec_handler
-            .find_outbound_exchange(ct.child_token(), pipe)
-            .await?;
+        rec_handler.find_inbound_exchanges(ct.clone(), pipe).await?;
+        rec_handler.find_outbound_exchange(ct.clone(), pipe).await?;
 
         Ok(rec_handler)
     }
@@ -161,7 +160,7 @@ impl RecordHandler {
     }
 
     pub async fn create_transaction(
-        &mut self,
+        self,
         pipe: &mut Pipe,
         key: String,
     ) -> Result<TransactionRecordHandler> {
@@ -179,12 +178,14 @@ impl RecordHandler {
 
         match transaction_resp_msg {
             messages::exchange::CreateTransactionResponse::Ok { transaction_id } => {
+                let msg_reg = self.msg_reg.clone();
+                let msg_router_state = self.msg_router_state.clone();
                 let handler = TransactionRecordHandler::new(
                     self.tracker_ct.child_token(),
                     transaction_id,
                     self,
-                    self.msg_reg.clone(),
-                    self.msg_router_state.clone(),
+                    msg_reg,
+                    msg_router_state,
                 )
                 .run_heartbeat()
                 .await?;
