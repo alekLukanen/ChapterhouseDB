@@ -34,7 +34,7 @@ impl GenericMessage for TransactionHeartbeat {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommitTransaction {
-    transaction_id: u64,
+    pub transaction_id: u64,
 }
 
 impl GenericMessage for CommitTransaction {
@@ -47,17 +47,33 @@ impl GenericMessage for CommitTransaction {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CommitTransactionResponse {
+    Ok,
+    Error(String),
+}
+
+impl GenericMessage for CommitTransactionResponse {
+    fn build_msg(data: &Vec<u8>) -> Result<Box<dyn SendableMessage>> {
+        let msg: CommitTransactionResponse = serde_json::from_slice(data)?;
+        Ok(Box::new(msg))
+    }
+    fn msg_name() -> MessageName {
+        MessageName::ExchangeCommitTransactionResponse
+    }
+}
+
 ////////////////////////////////////////////////////////////
 //
 
 #[derive(Debug, Clone, Serialize)]
 pub struct InsertTransactionRecord {
-    transaction_id: u64,
-    queue_name: String,
-    record_id: u64,
+    pub transaction_id: u64,
+    pub queue_name: String,
+    pub record_id: u64,
     #[serde(skip_serializing)]
-    record: Arc<arrow::array::RecordBatch>,
-    table_aliases: Vec<Vec<String>>, // [["tableName", "tableAlias"], ...]
+    pub record: Arc<arrow::array::RecordBatch>,
+    pub table_aliases: Vec<Vec<String>>, // [["tableName", "tableAlias"], ...]
 }
 
 #[derive(Debug, Clone, Deserialize)]

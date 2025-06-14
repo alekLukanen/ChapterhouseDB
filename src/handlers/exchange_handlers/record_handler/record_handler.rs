@@ -160,18 +160,18 @@ impl RecordHandler {
         }
     }
 
-    pub async fn create_transaction_for_partition(
+    pub async fn create_transaction(
         &mut self,
         pipe: &mut Pipe,
-        part: u64,
+        key: String,
     ) -> Result<TransactionRecordHandler> {
         let outbound_exchange = self.get_outbound_exchange()?;
 
         let transaction_resp_msg =
             requests::exchange::CreateTransactionRequest::create_transaction_request(
-                format!("part-{}", part),
-                outbound_exchange.operator_instance_id,
-                outbound_exchange.worker_id,
+                key,
+                outbound_exchange.operator_instance_id.clone(),
+                outbound_exchange.worker_id.clone(),
                 pipe,
                 self.msg_reg.clone(),
             )
@@ -468,6 +468,7 @@ impl RecordHandler {
 
     pub async fn close(&self) -> Result<()> {
         self.tt.close();
+        self.tracker_ct.cancel();
         tokio::select! {
             _ = self.tt.wait() => {},
             _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {

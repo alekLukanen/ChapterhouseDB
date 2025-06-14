@@ -43,6 +43,10 @@ impl RecordPartitionHandler {
         })
     }
 
+    pub fn num_parts(&self) -> usize {
+        self.partitions.num_rows() + 1
+    }
+
     pub fn partition(
         &self,
         part_rec: Arc<RecordBatch>,

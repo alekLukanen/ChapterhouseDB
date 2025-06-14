@@ -564,6 +564,7 @@ pub enum MessageName {
     ExchangeInsertTransactionRecord,
     ExchangeInsertTransactionRecordResponse,
     ExchangeCommitTransaction,
+    ExchangeCommitTransactionResponse,
     ExchangeTransactionHeartbeat,
 }
 
@@ -597,6 +598,7 @@ impl MessageName {
                 "ExchangeInsertTransactionRecordResponse"
             }
             Self::ExchangeCommitTransaction => "ExchangeCommitTransaction",
+            Self::ExchangeCommitTransactionResponse => "ExchangeCommitTransactionResponse",
             Self::ExchangeTransactionHeartbeat => "ExchangeTransactionHeartbeat",
         }
     }
@@ -627,7 +629,8 @@ impl MessageName {
             Self::ExchangeInsertTransactionRecord => 22,
             Self::ExchangeInsertTransactionRecordResponse => 23,
             Self::ExchangeCommitTransaction => 24,
-            Self::ExchangeTransactionHeartbeat => 25,
+            Self::ExchangeCommitTransactionResponse => 25,
+            Self::ExchangeTransactionHeartbeat => 26,
         }
     }
 }

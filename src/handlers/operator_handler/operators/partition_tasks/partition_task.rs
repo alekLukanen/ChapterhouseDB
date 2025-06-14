@@ -94,8 +94,19 @@ impl PartitionTask {
         )
         .await?;
 
+        let transaction_rec_handler = rec_handler
+            .create_transaction(
+                &mut self.operator_pipe,
+                format!(
+                    "partition-op-task-{}",
+                    self.operator_instance_config.operator.id.clone()
+                ),
+            )
+            .await?;
+
         loop {
-            let exchange_rec = rec_handler
+            let exchange_rec = transaction_rec_handler
+                .record_handler_inner
                 .next_record(ct.child_token(), &mut self.operator_pipe, None)
                 .await?;
 
@@ -117,12 +128,10 @@ impl PartitionTask {
                     let partitioned_recs =
                         partition_handler.partition(sort_cols_rec, exchange_rec.record.clone())?;
 
-                    // TODO: create a transaction here so that each record
-                    // from the inbound exchange gets processed exactly once.
-
                     // send the records to the outbound exchange
                     for part_rec in partitioned_recs {
-                        rec_handler
+                        transaction_rec_handler
+                            .record_handler_inner
                             .send_record_to_outbound_exchange(
                                 &mut self.operator_pipe,
                                 "default".to_string(),
@@ -134,7 +143,8 @@ impl PartitionTask {
                     }
 
                     // confirm processing of the record with the inbound exchange
-                    rec_handler
+                    transaction_rec_handler
+                        .record_handler_inner
                         .complete_record(&mut self.operator_pipe, exchange_rec)
                         .await?;
                 }
@@ -145,7 +155,7 @@ impl PartitionTask {
             }
         }
 
-        if let Err(err) = rec_handler.close().await {
+        if let Err(err) = transaction_rec_handler.record_handler_inner.close().await {
             error!("{}", err);
         }
         debug!(
