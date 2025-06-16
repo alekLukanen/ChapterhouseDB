@@ -159,7 +159,7 @@ impl RecordHandler {
         }
     }
 
-    pub async fn create_transaction(
+    pub async fn create_outbound_transaction(
         self,
         pipe: &mut Pipe,
         key: String,

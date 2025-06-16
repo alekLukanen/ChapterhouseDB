@@ -298,8 +298,112 @@ impl ExchangeOperator {
                 self.handle_exchange_record_heartbeat(msg).await?;
                 Ok(true)
             }
+            MessageName::ExchangeCreateTransaction => {
+                self.handle_exchange_create_transaction(msg).await?;
+                Ok(true)
+            }
+            MessageName::ExchangeTransactionHeartbeat => {
+                self.handle_exchange_transaction_heartbeat(msg).await?;
+                Ok(true)
+            }
+            MessageName::ExchangeInsertTransactionRecord => {
+                self.handle_exchange_insert_transaction_record(msg).await?;
+                Ok(true)
+            }
+            MessageName::ExchangeCommitTransaction => {
+                self.handle_exchange_commit_transaction(msg).await?;
+                Ok(true)
+            }
             _ => Ok(false),
         }
+    }
+
+    async fn handle_exchange_create_transaction(&mut self, msg: &Message) -> Result<()> {
+        let req_msg: &messages::exchange::CreateTransaction = self.msg_reg.try_cast_msg(msg)?;
+
+        let transaction_id = self
+            .record_pool
+            .lock()
+            .await
+            .create_transaction(&req_msg.key);
+
+        let resp_msg = msg.reply(Box::new(
+            messages::exchange::CreateTransactionResponse::Ok { transaction_id },
+        ));
+        self.router_pipe.send(resp_msg).await?;
+
+        Ok(())
+    }
+
+    async fn handle_exchange_transaction_heartbeat(&mut self, msg: &Message) -> Result<()> {
+        let req_msg: &messages::exchange::TransactionHeartbeat = self.msg_reg.try_cast_msg(msg)?;
+
+        match req_msg {
+            messages::exchange::TransactionHeartbeat::Ping { transaction_id } => {
+                let res = self
+                    .record_pool
+                    .lock()
+                    .await
+                    .update_transaction_heartbeat(transaction_id);
+
+                let resp_msg = match res {
+                    Ok(_) => msg.reply(Box::new(messages::common::GenericResponse::Ok)),
+                    Err(err) => msg.reply(Box::new(messages::common::GenericResponse::Error(
+                        err.to_string(),
+                    ))),
+                };
+                self.router_pipe.send(resp_msg).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_exchange_insert_transaction_record(&mut self, msg: &Message) -> Result<()> {
+        let req_msg: &messages::exchange::InsertTransactionRecord =
+            self.msg_reg.try_cast_msg(msg)?;
+
+        let res = self.record_pool.lock().await.insert_transaction_record(
+            &req_msg.transaction_id,
+            req_msg.queue_name.clone(),
+            req_msg.record_id.clone(),
+            req_msg.record.clone(),
+            req_msg.table_aliases.clone(),
+        );
+
+        let resp_msg = match res {
+            Ok(_) => msg.reply(Box::new(
+                messages::exchange::InsertTransactionRecordResponse::Ok {
+                    record_id: req_msg.record_id.clone(),
+                },
+            )),
+            Err(err) => msg.reply(Box::new(
+                messages::exchange::InsertTransactionRecordResponse::Err(err.to_string()),
+            )),
+        };
+        self.router_pipe.send(resp_msg).await?;
+
+        Ok(())
+    }
+
+    async fn handle_exchange_commit_transaction(&mut self, msg: &Message) -> Result<()> {
+        let req_msg: &messages::exchange::CommitTransaction = self.msg_reg.try_cast_msg(msg)?;
+
+        let res = self
+            .record_pool
+            .lock()
+            .await
+            .commit_transaction(&req_msg.transaction_id);
+
+        let resp_msg = match res {
+            Ok(_) => msg.reply(Box::new(messages::exchange::CommitTransactionResponse::Ok)),
+            Err(err) => msg.reply(Box::new(
+                messages::exchange::CommitTransactionResponse::Error(err.to_string()),
+            )),
+        };
+        self.router_pipe.send(resp_msg).await?;
+
+        Ok(())
     }
 
     async fn handle_operator_shutdown(&mut self, msg: &Message) -> Result<()> {
@@ -310,6 +414,7 @@ impl ExchangeOperator {
         self.router_pipe.send(resp_msg).await?;
 
         // TODO: do some cleanup here...
+        // for example, cleaning up data if any has been stored
         Ok(())
     }
 
@@ -492,6 +597,10 @@ impl MessageConsumer for ExchangeOperatorSubscriber {
             MessageName::OperatorShutdown => true,
             MessageName::CommonGenericResponse => true,
             MessageName::ExchangeRecordHeartbeat => true,
+            MessageName::ExchangeCreateTransaction => true,
+            MessageName::ExchangeInsertTransactionRecord => true,
+            MessageName::ExchangeTransactionHeartbeat => true,
+            MessageName::ExchangeCommitTransaction => true,
             _ => false,
         }
     }
@@ -558,7 +667,7 @@ struct InsertRecord {
 #[derive(Debug)]
 struct Transaction {
     key: String,
-    inserts: std::collections::LinkedList<InsertRecord>,
+    inserts: std::collections::HashMap<u64, InsertRecord>,
     last_heartbeat_time: Option<chrono::DateTime<chrono::Utc>>,
 }
 
@@ -631,10 +740,10 @@ impl RecordPool {
     }
 
     /// create a transaction by key
-    fn create_transaction(&mut self, key: String) -> u64 {
+    fn create_transaction(&mut self, key: &String) -> u64 {
         let transaction = Transaction {
-            key,
-            inserts: std::collections::LinkedList::new(),
+            key: key.clone(),
+            inserts: std::collections::HashMap::new(),
             last_heartbeat_time: None,
         };
         let transaction_idx = self.transaction_idx;
@@ -662,14 +771,13 @@ impl RecordPool {
         let insert = InsertRecord {
             queue_name,
             record: RecordRef {
-                id: record_id,
+                id: record_id.clone(),
                 record,
                 table_aliases,
                 processed_by_operator_queues: Vec::new(),
             },
         };
-
-        transaction.inserts.push_back(insert);
+        transaction.inserts.insert(record_id.clone(), insert);
 
         Ok(())
     }
@@ -681,7 +789,7 @@ impl RecordPool {
             return Err(RecordPoolError::TransactionDoesNotExist(*transaction_id).into());
         };
 
-        for insert in transaction.inserts.iter() {
+        for (_, insert) in transaction.inserts.iter() {
             self.add_record(
                 insert.queue_name.clone(),
                 insert.record.id.clone(),

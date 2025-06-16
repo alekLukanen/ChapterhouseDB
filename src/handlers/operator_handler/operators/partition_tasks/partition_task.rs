@@ -84,6 +84,12 @@ impl PartitionTask {
             PartitionMethod::OrderByExprs { exprs } => exprs,
         };
 
+        // create the transaction with the exchange. If the operator task restarts this
+        // will get the existing transaction since transactions are keyed. All data
+        // sent to the exchange during the transaction will be committed at the end
+        // of this task. It's okay to ack the processing of records from the source
+        // exchange because the outbound tranaction isn't ever deleted. The data
+        // will remain there until it is committed.
         let mut transaction_rec_handler =
             exchange_handlers::record_handler::RecordHandler::initiate(
                 ct.child_token(),
@@ -94,7 +100,7 @@ impl PartitionTask {
                 self.msg_router_state.clone(),
             )
             .await?
-            .create_transaction(
+            .create_outbound_transaction(
                 &mut self.operator_pipe,
                 format!(
                     "partition-op-task-{}",
@@ -171,6 +177,7 @@ impl PartitionTask {
             operator_instance_id = self.operator_instance_config.id,
             "closed task",
         );
+
         Ok(())
     }
 
