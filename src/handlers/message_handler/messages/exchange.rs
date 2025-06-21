@@ -70,7 +70,7 @@ impl GenericMessage for CommitTransactionResponse {
 pub struct InsertTransactionRecord {
     pub transaction_id: u64,
     pub queue_name: String,
-    pub record_id: u64,
+    pub deduplication_key: String,
     #[serde(skip_serializing)]
     pub record: Arc<arrow::array::RecordBatch>,
     pub table_aliases: Vec<Vec<String>>, // [["tableName", "tableAlias"], ...]
@@ -80,7 +80,7 @@ pub struct InsertTransactionRecord {
 pub struct InsertTransactionRecordMetaData {
     transaction_id: u64,
     queue_name: String,
-    record_id: u64,
+    deduplication_key: String,
     table_aliases: Vec<Vec<String>>, // [["tableName", "tableAlias"], ...]
 }
 
@@ -153,7 +153,7 @@ impl MessageParser for InsertTransactionRecordParser {
         let msg = InsertTransactionRecord {
             transaction_id: meta.transaction_id,
             queue_name: meta.queue_name,
-            record_id: meta.record_id,
+            deduplication_key: meta.deduplication_key,
             record: Arc::new(record),
             table_aliases: meta.table_aliases,
         };
@@ -170,7 +170,7 @@ impl MessageParser for InsertTransactionRecordParser {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum InsertTransactionRecordResponse {
-    Ok { record_id: u64 },
+    Ok { deduplication_key: String },
     Err(String),
 }
 

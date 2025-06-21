@@ -58,6 +58,13 @@ pub struct ExchangeRecord {
     pub(crate) record_id: u64,
     pub(crate) record: Arc<arrow::array::RecordBatch>,
     pub(crate) table_aliases: Vec<Vec<String>>,
+    pub(crate) queue_name: String,
+}
+
+impl ExchangeRecord {
+    pub(crate) fn deduplication_key(&self) -> String {
+        format!("{}-{}", self.queue_name.clone(), self.record_id.clone())
+    }
 }
 
 pub(crate) struct RecordHandlerState {
@@ -283,6 +290,7 @@ impl RecordHandler {
                             record_id,
                             record,
                             table_aliases,
+                            queue_name: self.queue_name.clone(),
                         }));
                     }
                     requests::GetNextRecordResponse::NoneAvailable => {

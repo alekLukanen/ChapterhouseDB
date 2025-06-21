@@ -86,7 +86,7 @@ impl TransactionRecordHandler {
         &self,
         pipe: &mut Pipe,
         queue_name: String,
-        record_id: u64,
+        deduplication_key: String,
         record: arrow::array::RecordBatch,
         table_aliases: Vec<Vec<String>>,
     ) -> Result<()> {
@@ -97,7 +97,7 @@ impl TransactionRecordHandler {
             outbound_exchange.worker_id,
             self.transaction_id.clone(),
             queue_name,
-            record_id,
+            deduplication_key,
             record,
             table_aliases,
             pipe,

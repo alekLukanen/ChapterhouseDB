@@ -138,8 +138,8 @@ impl PartitionTask {
                         transaction_rec_handler
                             .insert_record(
                                 &mut self.operator_pipe,
-                                "default".to_string(),
-                                exchange_rec.record_id.clone(),
+                                format!("part-{}", part_rec.partition_idx),
+                                exchange_rec.deduplication_key(),
                                 part_rec.record,
                                 exchange_rec.table_aliases.clone(),
                             )

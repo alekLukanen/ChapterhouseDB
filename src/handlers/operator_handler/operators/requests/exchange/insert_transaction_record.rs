@@ -21,7 +21,7 @@ pub struct InsertTransactionRecordRequest<'a> {
 
     transaction_id: u64,
     queue_name: String,
-    record_id: u64,
+    deduplication_key: String,
     record: Arc<arrow::array::RecordBatch>,
     table_aliases: Vec<Vec<String>>,
 
@@ -36,7 +36,7 @@ impl<'a> InsertTransactionRecordRequest<'a> {
         exchange_worker_id: u128,
         transaction_id: u64,
         queue_name: String,
-        record_id: u64,
+        deduplication_key: String,
         record: arrow::array::RecordBatch,
         table_aliases: Vec<Vec<String>>,
         pipe: &'a mut Pipe,
@@ -55,7 +55,7 @@ impl<'a> InsertTransactionRecordRequest<'a> {
             exchange_worker_id,
             transaction_id,
             queue_name,
-            record_id,
+            deduplication_key,
             record: Arc::new(record),
             table_aliases,
             pipe,
@@ -70,7 +70,7 @@ impl<'a> InsertTransactionRecordRequest<'a> {
         let req_msg = Message::new(Box::new(messages::exchange::InsertTransactionRecord {
             transaction_id: self.transaction_id.clone(),
             queue_name: self.queue_name.clone(),
-            record_id: self.record_id.clone(),
+            deduplication_key: self.deduplication_key.clone(),
             record: self.record.clone(),
             table_aliases: self.table_aliases.clone(),
         }))

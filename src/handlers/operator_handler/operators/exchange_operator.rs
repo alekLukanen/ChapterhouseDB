@@ -366,7 +366,7 @@ impl ExchangeOperator {
         let res = self.record_pool.lock().await.insert_transaction_record(
             &req_msg.transaction_id,
             req_msg.queue_name.clone(),
-            req_msg.record_id.clone(),
+            req_msg.deduplication_key.clone(),
             req_msg.record.clone(),
             req_msg.table_aliases.clone(),
         );
@@ -374,7 +374,7 @@ impl ExchangeOperator {
         let resp_msg = match res {
             Ok(_) => msg.reply(Box::new(
                 messages::exchange::InsertTransactionRecordResponse::Ok {
-                    record_id: req_msg.record_id.clone(),
+                    deduplication_key: req_msg.deduplication_key.clone(),
                 },
             )),
             Err(err) => msg.reply(Box::new(
@@ -667,7 +667,11 @@ struct InsertRecord {
 #[derive(Debug)]
 struct Transaction {
     key: String,
+
     inserts: std::collections::HashMap<u64, InsertRecord>,
+    insert_deduplication_keys: std::collections::HashSet<String>,
+    insert_queue_record_idxs: std::collections::HashMap<String, u64>,
+
     last_heartbeat_time: Option<chrono::DateTime<chrono::Utc>>,
 }
 
@@ -744,6 +748,8 @@ impl RecordPool {
         let transaction = Transaction {
             key: key.clone(),
             inserts: std::collections::HashMap::new(),
+            insert_deduplication_keys: std::collections::HashSet::new(),
+            insert_queue_record_idxs: std::collections::HashMap::new(),
             last_heartbeat_time: None,
         };
         let transaction_idx = self.transaction_idx;
@@ -758,7 +764,7 @@ impl RecordPool {
         &mut self,
         transaction_id: &u64,
         queue_name: String,
-        record_id: u64,
+        deduplication_key: String,
         record: Arc<arrow::array::RecordBatch>,
         table_aliases: Vec<Vec<String>>,
     ) -> Result<()> {
@@ -768,16 +774,36 @@ impl RecordPool {
             return Err(RecordPoolError::TransactionDoesNotExist(*transaction_id).into());
         };
 
+        let record_id = if let Some(idx) = transaction.insert_queue_record_idxs.get_mut(&queue_name)
+        {
+            let current_idx = idx.clone();
+            *idx += 1;
+            current_idx
+        } else {
+            transaction
+                .insert_queue_record_idxs
+                .insert(queue_name.clone(), 0);
+            0
+        };
+
         let insert = InsertRecord {
             queue_name,
             record: RecordRef {
-                id: record_id.clone(),
+                id: record_id,
                 record,
                 table_aliases,
                 processed_by_operator_queues: Vec::new(),
             },
         };
-        transaction.inserts.insert(record_id.clone(), insert);
+        if !transaction
+            .insert_deduplication_keys
+            .contains(&deduplication_key)
+        {
+            transaction.inserts.insert(record_id.clone(), insert);
+            transaction
+                .insert_deduplication_keys
+                .insert(deduplication_key);
+        }
 
         Ok(())
     }
