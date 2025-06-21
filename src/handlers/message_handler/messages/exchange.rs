@@ -202,7 +202,7 @@ impl GenericMessage for CreateTransaction {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CreateTransactionResponse {
     Ok { transaction_id: u64 },
     Err(String),

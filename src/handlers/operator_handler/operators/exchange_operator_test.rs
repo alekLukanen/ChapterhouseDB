@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use tokio::sync::Mutex;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::error;
+use tracing_subscriber;
 
 use crate::{
     handlers::{
-        message_handler::{MessageRegistry, Pipe},
-        message_router_handler::{MessageRouterHandler, MessageRouterState, MockSubscriber},
-        operator_handler::OperatorInstanceConfig,
+        message_handler::{messages, MessageRegistry, Pipe},
+        message_router_handler::{MessageRouterHandler, MockSubscriber},
+        operator_handler::{operators::requests, OperatorInstanceConfig},
     },
     planner,
 };
@@ -18,13 +18,18 @@ use super::exchange_operator::ExchangeOperator;
 
 #[tokio::test]
 async fn test_exchange_operator_create_transaction() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_line_number(true)
+        .with_max_level(tracing::Level::DEBUG)
+        .init();
+
     let ct = CancellationToken::new();
     let tt = TaskTracker::new();
     let msg_reg = Arc::new(MessageRegistry::new());
 
     let op_in_config = OperatorInstanceConfig {
         id: 321,
-        query_handler_worker_id: 3322,
+        query_handler_worker_id: 0,
         query_id: 4321,
         pipeline_id: "pipeline_id".to_string(),
         operator: planner::Operator {
@@ -34,7 +39,7 @@ async fn test_exchange_operator_create_transaction() -> Result<()> {
                 outbound_producer_ids: vec!["op-id-2".to_string()],
                 inbound_producer_ids: vec!["op-id-1".to_string()],
                 record_queue_configs: vec![planner::ExchangeRecordQueueConfig {
-                    producer_id: "op-id-1".to_string(),
+                    producer_id: "op-id-2".to_string(),
                     queue_name: "default".to_string(),
                     sampling_method: planner::ExchangeRecordQueueSamplingMethod::All,
                 }],
@@ -76,6 +81,27 @@ async fn test_exchange_operator_create_transaction() -> Result<()> {
         .lock()
         .await
         .add_internal_subscriber(subscriber, 6767);
+
+    let resp_msg = requests::exchange::CreateTransactionRequest::create_transaction_request(
+        "talo".to_string(),
+        321,
+        0,
+        &mut pipe,
+        msg_reg.clone(),
+    )
+    .await?;
+
+    assert_eq!(
+        resp_msg,
+        messages::exchange::CreateTransactionResponse::Ok { transaction_id: 0 }
+    );
+
+    ct.cancel();
+    tt.close();
+    tokio::time::timeout(chrono::Duration::seconds(8).to_std()?, async move {
+        tt.wait().await;
+    })
+    .await?;
 
     Ok(())
 }
