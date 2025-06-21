@@ -64,3 +64,31 @@ impl MessageConsumer for ExternalSubscriber {
         }
     }
 }
+
+/////////////////////////////////////////////////////////////
+//
+
+#[derive(Debug, Clone)]
+pub struct MockSubscriber {
+    sender: mpsc::Sender<Message>,
+}
+
+impl MockSubscriber {
+    pub fn new(sender: mpsc::Sender<Message>) -> MockSubscriber {
+        MockSubscriber { sender }
+    }
+}
+
+impl Subscriber for MockSubscriber {}
+
+impl MessageConsumer for MockSubscriber {
+    fn consumes_message(&self, _: &Message) -> bool {
+        true
+    }
+}
+
+impl MessageReceiver for MockSubscriber {
+    fn sender(&self) -> mpsc::Sender<Message> {
+        self.sender.clone()
+    }
+}

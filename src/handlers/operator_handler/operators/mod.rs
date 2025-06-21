@@ -2,6 +2,8 @@ mod builder;
 mod common_message_handlers;
 mod connection_registry;
 mod exchange_operator;
+#[cfg(test)]
+mod exchange_operator_test;
 mod filter_tasks;
 mod materialize_tasks;
 mod operator_task_registry;

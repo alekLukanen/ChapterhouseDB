@@ -285,6 +285,7 @@ impl PartitionTask {
         // not the individual records. You need to store the partitions in the downstream
         // exchange in a new "partitions" queue before confirming the records. Then
         // when the operator task starts check if that exists.
+        // Maybe use a transaction?
 
         if let Err(err) = rec_handler.close().await {
             error!("{}", err);
