@@ -258,6 +258,7 @@ impl RecordHandler {
                                 inbound_exchange.operator_instance_id.clone(),
                                 inbound_exchange.worker_id.clone(),
                                 record_id.clone(),
+                                self.queue_name.clone(),
                                 self.msg_reg.clone(),
                                 self.msg_router_state.clone(),
                             )

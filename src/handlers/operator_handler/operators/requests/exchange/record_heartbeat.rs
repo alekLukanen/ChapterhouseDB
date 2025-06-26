@@ -21,6 +21,7 @@ pub enum RecordHeartbeatResponse {
 }
 
 pub struct RecordHeartbeatRequest<'a> {
+    queue_name: String,
     operator_id: String,
     exchange_operator_instance_id: u128,
     exchange_worker_id: u128,
@@ -32,6 +33,7 @@ pub struct RecordHeartbeatRequest<'a> {
 
 impl<'a> RecordHeartbeatRequest<'a> {
     pub async fn record_heartbeat_request(
+        queue_name: String,
         operator_id: String,
         exchange_operator_instance_id: u128,
         exchange_worker_id: u128,
@@ -48,6 +50,7 @@ impl<'a> RecordHeartbeatRequest<'a> {
         );
 
         let mut req = RecordHeartbeatRequest {
+            queue_name,
             operator_id,
             exchange_operator_instance_id,
             exchange_worker_id,
@@ -64,6 +67,7 @@ impl<'a> RecordHeartbeatRequest<'a> {
 
     async fn record_heartbeat(&mut self) -> Result<RecordHeartbeatResponse> {
         let req_msg = Message::new(Box::new(messages::exchange::RecordHeartbeat::Ping {
+            queue_name: self.queue_name.clone(),
             operator_id: self.operator_id.clone(),
             record_id: self.record_id.clone(),
         }))

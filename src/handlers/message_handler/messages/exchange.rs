@@ -223,7 +223,11 @@ impl GenericMessage for CreateTransactionResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RecordHeartbeat {
-    Ping { operator_id: String, record_id: u64 },
+    Ping {
+        queue_name: String,
+        operator_id: String,
+        record_id: u64,
+    },
 }
 
 impl GenericMessage for RecordHeartbeat {

@@ -422,13 +422,14 @@ impl ExchangeOperator {
         let cast_msg: &messages::exchange::RecordHeartbeat = self.msg_reg.try_cast_msg(msg)?;
         match cast_msg {
             messages::exchange::RecordHeartbeat::Ping {
+                queue_name,
                 operator_id,
                 record_id,
             } => {
                 self.record_pool
                     .lock()
                     .await
-                    .update_reserved_record_heartbeat(operator_id, record_id);
+                    .update_reserved_record_heartbeat(queue_name, operator_id, record_id);
 
                 self.router_pipe
                     .send(msg.reply(Box::new(messages::common::GenericResponse::Ok)))
@@ -948,10 +949,15 @@ impl RecordPool {
         }
     }
 
-    fn update_reserved_record_heartbeat(&mut self, operator_id: &String, record_id: &u64) {
+    fn update_reserved_record_heartbeat(
+        &mut self,
+        queue_name: &String,
+        operator_id: &String,
+        record_id: &u64,
+    ) {
         self.operator_record_queues
             .iter_mut()
-            .filter(|item| item.operator_id == *operator_id)
+            .filter(|item| item.queue_name == *queue_name || item.operator_id == *operator_id)
             .for_each(|item| {
                 item.records_reserved_by_operator
                     .iter_mut()

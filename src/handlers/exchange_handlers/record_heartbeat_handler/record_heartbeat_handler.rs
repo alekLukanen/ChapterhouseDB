@@ -30,6 +30,7 @@ pub struct RecordHeartbeatHandler {
     exchange_operator_instance_id: u128,
     exchange_worker_id: u128,
     record_id: u64,
+    queue_name: String,
 
     last_heartbeat_confirmation: Option<chrono::DateTime<chrono::Utc>>,
     max_heartbeat_interval: chrono::Duration,
@@ -52,6 +53,7 @@ impl RecordHeartbeatHandler {
         exchange_operator_instance_id: u128,
         exchange_worker_id: u128,
         record_id: u64,
+        queue_name: String,
         msg_reg: Arc<MessageRegistry>,
         msg_router_state: Arc<Mutex<MessageRouterState>>,
     ) -> RecordHeartbeatHandler {
@@ -73,6 +75,7 @@ impl RecordHeartbeatHandler {
             exchange_operator_instance_id,
             exchange_worker_id,
             record_id,
+            queue_name,
             subscriber_operator_id,
             last_heartbeat_confirmation: None,
             max_heartbeat_interval: chrono::Duration::seconds(1),
@@ -131,6 +134,7 @@ impl RecordHeartbeatHandler {
 
             let ref mut pipe = self.router_pipe;
             let resp = requests::exchange::RecordHeartbeatRequest::record_heartbeat_request(
+                self.queue_name.clone(),
                 self.operator_id.clone(),
                 self.exchange_operator_instance_id.clone(),
                 self.exchange_worker_id.clone(),
