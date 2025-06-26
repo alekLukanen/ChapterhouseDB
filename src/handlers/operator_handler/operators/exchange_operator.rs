@@ -696,7 +696,7 @@ struct RecordPoolConfig {
 
 #[derive(Debug)]
 struct RecordPool {
-    records: std::collections::HashMap<u64, RecordRef>,
+    records: std::collections::HashMap<(String, u64), RecordRef>,
     operator_record_queues: Vec<OperatorRecordQueue>,
     operator_queues: Vec<OperatorQueue>,
 
@@ -851,9 +851,12 @@ impl RecordPool {
     ) -> bool {
         let num_rows = record.num_rows();
 
-        if !self.records.contains_key(&record_id) {
+        if !self
+            .records
+            .contains_key(&(queue_name.clone(), record_id.clone()))
+        {
             self.records.insert(
-                record_id,
+                (queue_name.clone(), record_id.clone()),
                 RecordRef {
                     id: record_id,
                     record,
@@ -912,9 +915,10 @@ impl RecordPool {
         };
 
         let record_id = op_queue.records_to_process.pop_front();
-        match record_id {
+        match &record_id {
             Some(record_id) => {
-                let record = if let Some(rec) = self.records.get(&record_id) {
+                let record = if let Some(rec) = self.records.get(&(queue_name.clone(), *record_id))
+                {
                     rec
                 } else {
                     panic!("unable to find record in pool but it should exist");
@@ -922,9 +926,9 @@ impl RecordPool {
 
                 // store a reserved record
                 op_queue.records_reserved_by_operator.insert(
-                    record_id,
+                    *record_id,
                     ReservedRecord {
-                        record_id,
+                        record_id: *record_id,
                         operator_instance_id,
                         reserved_time: chrono::Utc::now(),
                         last_heartbeat_time: None,
@@ -932,10 +936,10 @@ impl RecordPool {
                 );
                 op_queue
                     .record_processing_metrics
-                    .insert(record_id, RecordProcessingMetrics { failure_count: 0 });
+                    .insert(*record_id, RecordProcessingMetrics { failure_count: 0 });
 
                 Ok(Some((
-                    record_id,
+                    *record_id,
                     record.record.clone(),
                     record.table_aliases.clone(),
                 )))
@@ -984,7 +988,7 @@ impl RecordPool {
         }
         op_queue.record_processing_metrics.remove(record_id);
 
-        let rec_ref = self.records.get_mut(record_id);
+        let rec_ref = self.records.get_mut(&(queue_name.clone(), *record_id));
         match rec_ref {
             Some(rec_ref) => {
                 let already_finished = rec_ref
@@ -1012,7 +1016,7 @@ impl RecordPool {
                     let mut pbo = rec_ref.processed_by_operator_queues.clone();
                     pbo.sort();
                     if pbo == self.operator_queues {
-                        self.records.remove(record_id);
+                        self.records.remove(&(queue_name.clone(), *record_id));
                     }
                 }
 
