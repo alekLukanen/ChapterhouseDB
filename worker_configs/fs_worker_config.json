@@ -1,5 +1,5 @@
 {
-  "log_level": "info",
+  "log_level": "debug",
   "port": 7000,
   "connect_to_addresses": [],
   "connections": [
@@ -17,9 +17,9 @@
   "enable_operator_handler": true,
   "operator_handler_config": {
     "compute": {
-      "instances": 10,
-      "memory_in_mib": 4069,
-      "cpu_in_thousandths": 4000
+      "instances": 20,
+      "memory_in_mib": 8000,
+      "cpu_in_thousandths": 8000
     }
   }
 }

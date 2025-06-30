@@ -145,6 +145,8 @@ impl RecordHandler {
         rec_handler.find_inbound_exchanges(ct.clone(), pipe).await?;
         rec_handler.find_outbound_exchange(ct.clone(), pipe).await?;
 
+        debug!("created the record handler");
+
         Ok(rec_handler)
     }
 
@@ -401,6 +403,19 @@ impl RecordHandler {
         ct: CancellationToken,
         pipe: &mut Pipe,
     ) -> Result<()> {
+        if self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("lock error"))?
+            .inbound_exchange_ids
+            .len()
+            == 0
+        {
+            return Ok(());
+        }
+
+        debug!("finding inbound exchanges");
+
         let req = requests::IdentifyExchangeRequest::request_inbound_exchanges(
             self.query_handler_worker_id.clone(),
             self.query_id.clone(),
@@ -443,6 +458,8 @@ impl RecordHandler {
         ct: CancellationToken,
         pipe: &mut Pipe,
     ) -> Result<()> {
+        debug!("finding outbound exchange");
+
         let req = requests::IdentifyExchangeRequest::request_outbound_exchange(
             self.query_handler_worker_id.clone(),
             self.query_id.clone(),
@@ -454,12 +471,20 @@ impl RecordHandler {
             pipe,
             self.msg_reg.clone(),
         );
+
+        let outbound_exchange_id = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("lock error"))?
+            .outbound_exchange_id
+            .clone();
+
         tokio::select! {
             resp = req => {
                 match resp {
                     Ok(resp) => {
                         self.state.lock().map_err(|_| anyhow!("lock error"))?.outbound_exchange = Some(ExchangeIdentity {
-                            operator_id: self.state.lock().map_err(|_| anyhow!("lock error"))?.outbound_exchange_id.clone(),
+                            operator_id: outbound_exchange_id,
                             worker_id: resp.exchange_worker_id,
                             operator_instance_id: resp.exchange_operator_instance_id,
                         });

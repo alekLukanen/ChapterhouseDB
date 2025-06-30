@@ -156,7 +156,9 @@ impl ProducerOperator {
                     }
                     if let Some(task_msg_consumer) = &self.task_msg_consumer {
                         if task_msg_consumer.consumes_message(&msg) {
+                            debug!("message being sent to the task pipe");
                             self.task_pipe.send(msg).await?;
+                            debug!("message sent to the task pipe");
                         } else {
                             debug!("message not consumed by producer operator: {}", msg);
                         }
