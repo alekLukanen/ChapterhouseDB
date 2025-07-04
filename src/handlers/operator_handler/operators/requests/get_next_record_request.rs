@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use thiserror::Error;
 use tracing::{debug, error};
 
@@ -61,7 +61,9 @@ impl<'a> GetNextRecordRequest<'a> {
             pipe,
             msg_reg,
         };
-        req.process_request().await
+        req.process_request()
+            .await
+            .context("failed making the exchange get next record request")
     }
 
     async fn process_request(&mut self) -> Result<GetNextRecordResponse> {

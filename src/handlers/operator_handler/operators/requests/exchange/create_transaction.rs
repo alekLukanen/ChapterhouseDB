@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tracing::debug;
 
 use crate::handlers::{
@@ -45,7 +45,9 @@ impl<'a> CreateTransactionRequest<'a> {
             pipe,
             msg_reg,
         };
-        req.process_create_transaction_request().await
+        req.process_create_transaction_request()
+            .await
+            .context("failed making the exchange transaction request")
     }
 
     async fn process_create_transaction_request(

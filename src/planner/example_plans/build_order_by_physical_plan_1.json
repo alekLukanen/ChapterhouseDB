@@ -51,6 +51,7 @@
                 {
                   "producer_id": "operator_p1_producer",
                   "queue_name": "default",
+                  "input_queue_names": [],
                   "sampling_method": "All"
                 }
               ]
@@ -103,11 +104,15 @@
                 {
                   "producer_id": "operator_p2_producer",
                   "queue_name": "default",
+                  "input_queue_names": [],
                   "sampling_method": "All"
                 },
                 {
                   "producer_id": "operator_p2_producer",
                   "queue_name": "partition_sample",
+                  "input_queue_names": [
+                    "default"
+                  ],
                   "sampling_method": {
                     "PercentageWithReserve": {
                       "sample_rate": 0.1,
@@ -186,6 +191,7 @@
                 {
                   "producer_id": "operator_p2_in1_producer",
                   "queue_name": "default",
+                  "input_queue_names": [],
                   "sampling_method": "All"
                 }
               ]
@@ -246,6 +252,7 @@
                 {
                   "producer_id": "operator_p3_producer",
                   "queue_name": "default",
+                  "input_queue_names": [],
                   "sampling_method": "All"
                 }
               ]

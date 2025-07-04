@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use arrow::array::RecordBatch;
 use arrow::compute::{SortColumn, SortOptions};
 use arrow::row::SortField;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use super::config::PartitionConfig;
 use crate::handlers::exchange_handlers;
@@ -84,6 +84,8 @@ impl PartitionTask {
             PartitionMethod::OrderByExprs { exprs } => exprs,
         };
 
+        info!("created partition handler");
+
         // create the transaction with the exchange. If the operator task restarts this
         // will get the existing transaction since transactions are keyed. All data
         // sent to the exchange during the transaction will be committed at the end
@@ -99,7 +101,8 @@ impl PartitionTask {
                 self.msg_reg.clone(),
                 self.msg_router_state.clone(),
             )
-            .await?
+            .await
+            .context("unable to create the record handler")?
             .create_outbound_transaction(
                 &mut self.operator_pipe,
                 format!(
@@ -107,7 +110,8 @@ impl PartitionTask {
                     self.operator_instance_config.operator.id.clone()
                 ),
             )
-            .await?;
+            .await
+            .context("unable to create transaction")?;
 
         loop {
             let exchange_rec = transaction_rec_handler
@@ -219,7 +223,7 @@ impl PartitionTask {
 
             match exchange_rec {
                 Some(exchange_rec) => {
-                    debug!(
+                    info!(
                         record_id = exchange_rec.record_id,
                         record_num_rows = exchange_rec.record.num_rows(),
                         "received record"
@@ -234,7 +238,7 @@ impl PartitionTask {
                     recs.push(computed_rec);
                 }
                 None => {
-                    debug!("read all records from the exchange");
+                    info!("read all records from the exchange");
                     break;
                 }
             }
@@ -375,12 +379,7 @@ impl TaskBuilder for PartitionTaskBuilder {
 pub struct PartitionConsumer {}
 
 impl MessageConsumer for PartitionConsumer {
-    fn consumes_message(&self, msg: &Message) -> bool {
-        match msg.msg.msg_name() {
-            MessageName::Ping => true,
-            MessageName::QueryHandlerRequests => true,
-            MessageName::ExchangeRequests => true,
-            _ => false,
-        }
+    fn consumes_message(&self, _: &Message) -> bool {
+        true
     }
 }

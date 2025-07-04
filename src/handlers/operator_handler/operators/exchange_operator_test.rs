@@ -41,6 +41,7 @@ async fn test_exchange_operator_create_transaction() -> Result<()> {
                 record_queue_configs: vec![planner::ExchangeRecordQueueConfig {
                     producer_id: "op-id-2".to_string(),
                     queue_name: "default".to_string(),
+                    input_queue_names: Vec::new(),
                     sampling_method: planner::ExchangeRecordQueueSamplingMethod::All,
                 }],
             },

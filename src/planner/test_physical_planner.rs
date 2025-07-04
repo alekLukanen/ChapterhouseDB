@@ -1,5 +1,5 @@
 use anyhow::{Error, Result};
-use sqlparser::ast::{Expr, SelectItem, Value, WildcardAdditionalOptions};
+use sqlparser::ast::{SelectItem, WildcardAdditionalOptions};
 
 use crate::planner::logical_planner::{LogicalPlan, LogicalPlanner};
 use crate::planner::physical_planner::{
@@ -124,6 +124,7 @@ fn test_build_materialize_operators() -> Result<()> {
             record_queue_configs: vec![ExchangeRecordQueueConfig {
                 producer_id: format!("operator_p{}_exchange", materialize_node.id.clone()),
                 queue_name: "default".to_string(),
+                input_queue_names: Vec::new(),
                 sampling_method: ExchangeRecordQueueSamplingMethod::All,
             }],
         },

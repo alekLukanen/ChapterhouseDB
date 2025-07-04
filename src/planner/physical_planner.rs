@@ -126,6 +126,7 @@ impl OperatorType {
 pub struct ExchangeRecordQueueConfig {
     pub producer_id: String,
     pub queue_name: String,
+    pub input_queue_names: Vec<String>,
     pub sampling_method: ExchangeRecordQueueSamplingMethod,
 }
 
@@ -384,6 +385,7 @@ impl PhysicalPlanner {
                                         ExchangeRecordQueueConfig {
                                             producer_id: outbound_op.id.clone(),
                                             queue_name: exchange_queue_name.clone(),
+                                            input_queue_names: vec!["default".to_string()],
                                             sampling_method: ExchangeRecordQueueSamplingMethod::PercentageWithReserve { 
                                                 sample_rate: sample_rate.clone(), 
                                                 min_rows: min_sampled_rows.clone(),
@@ -504,6 +506,7 @@ impl PhysicalPlanner {
                 record_queue_configs: vec![ExchangeRecordQueueConfig {
                     producer_id: sort_producer_id.clone(),
                     queue_name: "default".to_string(),
+                    input_queue_names: Vec::new(),
                     sampling_method: ExchangeRecordQueueSamplingMethod::All,
                 }],
             },
@@ -541,6 +544,7 @@ impl PhysicalPlanner {
                     .map(|op_id| ExchangeRecordQueueConfig {
                         producer_id: op_id.clone(),
                         queue_name: "default".to_string(),
+                        input_queue_names: Vec::new(),
                         sampling_method: ExchangeRecordQueueSamplingMethod::All,
                     })
                     .collect(),
@@ -609,6 +613,7 @@ impl PhysicalPlanner {
                     .map(|op_id| ExchangeRecordQueueConfig {
                         producer_id: op_id.clone(),
                         queue_name: "default".to_string(),
+                        input_queue_names: Vec::new(),
                         sampling_method: ExchangeRecordQueueSamplingMethod::All,
                     })
                     .collect(),
@@ -671,6 +676,7 @@ impl PhysicalPlanner {
                     .map(|op_id| ExchangeRecordQueueConfig {
                         producer_id: op_id.clone(),
                         queue_name: "default".to_string(),
+                        input_queue_names: Vec::new(),
                         sampling_method: ExchangeRecordQueueSamplingMethod::All,
                     })
                     .collect(),
@@ -737,6 +743,7 @@ impl PhysicalPlanner {
                     .map(|op_id| ExchangeRecordQueueConfig {
                         producer_id: op_id.clone(),
                         queue_name: "default".to_string(),
+                        input_queue_names: Vec::new(),
                         sampling_method: ExchangeRecordQueueSamplingMethod::All,
                     })
                     .collect(),

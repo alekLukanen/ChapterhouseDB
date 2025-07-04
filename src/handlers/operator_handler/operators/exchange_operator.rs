@@ -7,7 +7,7 @@ use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use crate::handlers::message_handler::messages;
 use crate::handlers::message_handler::messages::exchange::ExchangeRequests;
@@ -538,6 +538,7 @@ impl ExchangeOperator {
                 .lock()
                 .await
                 .get_next_record(operator_id, queue_name, op_in_id)?;
+
         match rec_res {
             Some((record_id, record, table_aliases)) => {
                 let resp_msg = msg.reply(Box::new(
@@ -680,6 +681,7 @@ struct Transaction {
 struct OperatorRecordQueue {
     operator_id: String,
     queue_name: String,
+    input_queue_names: Vec<String>,
     sampling_method: planner::ExchangeRecordQueueSamplingMethod,
 
     rows_inserted: usize,
@@ -722,6 +724,7 @@ impl RecordPool {
                 .map(|qc| OperatorRecordQueue {
                     operator_id: qc.producer_id.clone(),
                     queue_name: qc.queue_name.clone(),
+                    input_queue_names: qc.input_queue_names.clone(),
                     sampling_method: qc.sampling_method.clone(),
                     rows_inserted: 0,
                     rows_ignored: 0,
@@ -856,17 +859,14 @@ impl RecordPool {
             .records
             .contains_key(&(queue_name.clone(), record_id.clone()))
         {
-            self.records.insert(
-                (queue_name.clone(), record_id.clone()),
-                RecordRef {
-                    id: record_id,
-                    record,
-                    table_aliases,
-                    processed_by_operator_queues: Vec::new(),
-                },
-            );
             for queue in &mut self.operator_record_queues {
-                if queue.queue_name != queue_name {
+                if !((queue.queue_name == queue_name)
+                    || queue
+                        .input_queue_names
+                        .iter()
+                        .find(|item| **item == queue_name)
+                        .is_some())
+                {
                     continue;
                 }
 
@@ -878,15 +878,33 @@ impl RecordPool {
                     } => {
                         if queue.rows_inserted > *min_rows {
                             if self.rng.gen::<f32>() < *sample_rate {
-                                return false;
+                                true
+                            } else {
+                                false
                             }
                         } else {
-                            return true;
+                            true
                         }
-                        false
                     }
                 };
+
+                info!(
+                    queue_name = queue.queue_name,
+                    record_id = record_id,
+                    insert = insert,
+                    "adding record to sample.....",
+                );
+
                 if insert {
+                    self.records.insert(
+                        (queue.queue_name.clone(), record_id.clone()),
+                        RecordRef {
+                            id: record_id,
+                            record: record.clone(),
+                            table_aliases: table_aliases.clone(),
+                            processed_by_operator_queues: Vec::new(),
+                        },
+                    );
                     queue.records_to_process.push_back(record_id.clone());
                     queue.rows_inserted += num_rows;
                 } else {
@@ -905,6 +923,13 @@ impl RecordPool {
         queue_name: &String,
         operator_instance_id: u128,
     ) -> Result<Option<(u64, Arc<arrow::array::RecordBatch>, Vec<Vec<String>>)>> {
+        info!(
+            operator_id = operator_id,
+            queue_name = queue_name,
+            operator_instance_id = operator_instance_id,
+            "get_next_record"
+        );
+
         let op_queue = if let Some(queue) = self
             .operator_record_queues
             .iter_mut()
@@ -916,6 +941,8 @@ impl RecordPool {
         };
 
         let record_id = op_queue.records_to_process.pop_front();
+
+        info!(record_id = record_id, "popped front");
         match &record_id {
             Some(record_id) => {
                 let record = if let Some(rec) = self.records.get(&(queue_name.clone(), *record_id))
