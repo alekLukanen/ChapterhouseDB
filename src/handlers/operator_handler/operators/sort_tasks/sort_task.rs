@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use crate::handlers::exchange_handlers;
 use crate::handlers::message_router_handler::MessageRouterState;
@@ -79,7 +79,7 @@ impl SortTask {
         .await?;
 
         for _ in 0..60 {
-            debug!("waiting...");
+            info!("waiting...");
             tokio::time::sleep(chrono::Duration::seconds(1).to_std()?).await;
         }
 

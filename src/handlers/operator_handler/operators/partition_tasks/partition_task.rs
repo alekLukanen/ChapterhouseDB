@@ -121,7 +121,7 @@ impl PartitionTask {
 
             match exchange_rec {
                 Some(exchange_rec) => {
-                    debug!(
+                    info!(
                         record_id = exchange_rec.record_id,
                         record_num_rows = exchange_rec.record.num_rows(),
                         "received record"
@@ -139,6 +139,11 @@ impl PartitionTask {
 
                     // send the records to the outbound exchange
                     for part_rec in partitioned_recs {
+                        info!(
+                            record_id = exchange_rec.record_id,
+                            part = format!("part-{}", part_rec.partition_idx),
+                            "sending partitioned record"
+                        );
                         transaction_rec_handler
                             .insert_record(
                                 &mut self.operator_pipe,
@@ -157,12 +162,13 @@ impl PartitionTask {
                         .await?;
                 }
                 None => {
-                    debug!("read all records from the exchange");
+                    info!("read all records from the exchange");
                     break;
                 }
             }
         }
 
+        info!("commit transaction...");
         let rec_handler = transaction_rec_handler
             .commit_transaction(&mut self.operator_pipe)
             .await?;
@@ -170,6 +176,8 @@ impl PartitionTask {
         if let Err(err) = rec_handler.close().await {
             error!("{}", err);
         }
+
+        info!("committed the transaction");
 
         debug!(
             operator_task = self
