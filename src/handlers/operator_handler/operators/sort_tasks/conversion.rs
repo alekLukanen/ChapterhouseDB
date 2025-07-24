@@ -23,8 +23,12 @@ impl TryFrom<&OperatorInstanceConfig> for SortConfig {
                 outbound_exchange_id,
                 inbound_exchange_ids,
             } => match task {
-                OperatorTask::Sort { exprs } => Ok(SortConfig {
+                OperatorTask::Sort {
+                    exprs,
+                    num_partitions,
+                } => Ok(SortConfig {
                     exprs: exprs.clone(),
+                    num_partitions: num_partitions.clone(),
                     outbound_exchange_id: outbound_exchange_id.clone(),
                     inbound_exchange_ids: inbound_exchange_ids.clone(),
                 }),

@@ -9,6 +9,7 @@ use tracing_subscriber;
 use chapterhousedb::client::QueryClient;
 
 use std::any::Any;
+use std::sync::Arc;
 use tempdir::TempDir;
 
 trait MyTrait: Any {
@@ -25,11 +26,22 @@ impl MyTrait for MyStruct {
     }
 }
 
+#[derive(Debug)]
+struct Dropable {
+    idx: usize,
+}
+
+impl Drop for Dropable {
+    fn drop(&mut self) {
+        println!("dropping: {}", self.idx);
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    sql_parser_examples();
+    //sql_parser_examples();
 
     // client_examples()?;
 
@@ -43,6 +55,22 @@ async fn main() -> Result<()> {
     // opendal_testing().await?;
 
     // temp_dir()?;
+
+    try_drop_in_loop().await?;
+
+    Ok(())
+}
+
+async fn try_drop_in_loop() -> Result<()> {
+    for i in 0..10 {
+        println!("----------");
+        println!("start of loop");
+
+        let drop_this = Arc::new(Dropable { idx: i });
+        println!("drop_this: {:?}", drop_this);
+
+        println!("end of loop");
+    }
 
     Ok(())
 }

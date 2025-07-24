@@ -64,6 +64,7 @@ pub enum OperatorTask {
     },
     Sort {
         exprs: Vec<OrderByExpr>,
+        num_partitions: usize,
     },
     // materialize stage
     MaterializeFiles {
@@ -445,6 +446,8 @@ impl PhysicalPlanner {
         &mut self,
         lpn: &LogicalPlanNode,
     ) -> Result<Vec<Operator>> {
+        let num_partitions: usize = 3;
+
         let (part_op_task, sort_op_task) = match &lpn.node.clone() {
             LogicalPlanNodeType::OrderBy { exprs } => (
                 OperatorTask::Partition {
@@ -456,11 +459,12 @@ impl PhysicalPlanner {
                         exchange_queue_name: "partition_sample".to_string(), 
                         min_sampled_rows: 10_000,
                         max_sampled_rows: 1_000_000,
-                        num_partitions: 3,
+                        num_partitions,
                     },
                 },
                 OperatorTask::Sort {
                     exprs: exprs.clone(),
+                    num_partitions,
                 },
             ),
             _ => {

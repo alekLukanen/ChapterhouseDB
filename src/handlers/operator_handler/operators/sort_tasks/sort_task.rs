@@ -6,6 +6,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
 use crate::handlers::exchange_handlers;
+use crate::handlers::exchange_handlers::record_handler::ExchangeRecord;
 use crate::handlers::message_router_handler::MessageRouterState;
 use crate::handlers::{
     message_handler::{
@@ -68,24 +69,42 @@ impl SortTask {
             "started task",
         );
 
-        let rec_handler = exchange_handlers::record_handler::RecordHandler::initiate(
-            ct.child_token(),
-            &self.operator_instance_config,
-            "default".to_string(),
-            &mut self.operator_pipe,
-            self.msg_reg.clone(),
-            self.msg_router_state.clone(),
-        )
-        .await?;
+        let mut recs: Vec<ExchangeRecord> = Vec::new();
 
-        for _ in 0..60 {
-            info!("waiting...");
-            tokio::time::sleep(chrono::Duration::seconds(1).to_std()?).await;
+        // gather all of the records
+        for part_idx in 0..self.sort_config.num_partitions {
+            let mut rec_handler = exchange_handlers::record_handler::RecordHandler::initiate(
+                ct.child_token(),
+                &self.operator_instance_config,
+                format!("part-{}", part_idx),
+                &mut self.operator_pipe,
+                self.msg_reg.clone(),
+                self.msg_router_state.clone(),
+            )
+            .await?;
+
+            loop {
+                let exchange_rec = rec_handler
+                    .next_record(ct.child_token(), &mut self.operator_pipe, None)
+                    .await?;
+
+                match exchange_rec {
+                    Some(exchange_rec) => {
+                        recs.push(exchange_rec);
+                    }
+                    None => {
+                        info!("read all records from the exchange");
+                        break;
+                    }
+                }
+            }
+
+            if let Err(err) = rec_handler.close().await {
+                error!("{}", err);
+            }
         }
 
-        if let Err(err) = rec_handler.close().await {
-            error!("{}", err);
-        }
+        // sort the records
 
         debug!(
             operator_task = self

@@ -222,7 +222,8 @@
                       "nulls_first": null,
                       "with_fill": null
                     }
-                  ]
+                  ],
+                  "num_partitions": 3
                 }
               },
               "outbound_exchange_id": "operator_p2_exchange",
